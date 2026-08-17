@@ -208,3 +208,24 @@ export function getDefaultShortcuts(): Map<
 
 	return shortcuts;
 }
+
+/** Runtime membership check for `TAction` (untrusted string, e.g. from persisted/imported JSON). */
+export function isAction(value: string): value is TAction {
+	return Object.hasOwn(ACTIONS, value);
+}
+
+// Mirrors `TActionArgsMap` in ./types.ts: the only actions whose args are
+// NOT optional (i.e. excluded from `TKeysWithValueUndefined<TActionArgsMap>`).
+// Keep in sync with that map — there is no way to derive this list from the
+// type at runtime since types are erased.
+const ACTIONS_WITH_MANDATORY_ARGS = new Set<string>([
+	"remove-media-asset",
+	"remove-media-assets",
+]);
+
+/** Runtime type guard for `TActionWithOptionalArgs` (untrusted string). */
+export function isActionWithOptionalArgs(
+	value: string,
+): value is TActionWithOptionalArgs {
+	return isAction(value) && !ACTIONS_WITH_MANDATORY_ARGS.has(value);
+}

@@ -41,3 +41,28 @@ export type ShortcutKey = ModifierBasedShortcutKey | SingleCharacterShortcutKey;
 export type KeybindingConfig = {
 	[key in ShortcutKey]?: TActionWithOptionalArgs;
 };
+
+const MODIFIER_KEYS_LIST: readonly ModifierKeys[] = [
+	"ctrl",
+	"alt",
+	"shift",
+	"ctrl+shift",
+	"alt+shift",
+	"ctrl+alt",
+	"ctrl+alt+shift",
+];
+const MODIFIER_KEY_SET: ReadonlySet<string> = new Set(MODIFIER_KEYS_LIST);
+
+/**
+ * Runtime type guard for `ShortcutKey`, used when decoding persisted or
+ * user-imported keybindings (untrusted input crossing a JSON boundary).
+ * Splits on the *last* "+" since the modifier itself can contain "+"
+ * (e.g. "ctrl+alt+shift+a" → modifier "ctrl+alt+shift", key "a").
+ */
+export function isShortcutKey(value: string): value is ShortcutKey {
+	const lastPlus = value.lastIndexOf("+");
+	if (lastPlus === -1) return isKey(value);
+	const modifier = value.slice(0, lastPlus);
+	const key = value.slice(lastPlus + 1);
+	return MODIFIER_KEY_SET.has(modifier) && isKey(key);
+}
