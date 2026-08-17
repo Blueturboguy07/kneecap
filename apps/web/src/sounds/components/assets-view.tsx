@@ -109,58 +109,23 @@ function SoundEffectsView() {
 		loadSavedSounds();
 	}, [loadSavedSounds]);
 
+	// Kneecap: this used to fetch the Freesound-backed "top sounds" list
+	// via `/api/sounds/search`, a removed external network dependency.
+	// There is no remote catalog to load, so this settles immediately to
+	// an empty, "loaded" state. No fetch is ever made. See M8 for the
+	// planned locally-bundled sound set.
 	useEffect(() => {
 		if (hasLoaded) {
 			return;
 		}
 
-		let shouldIgnore = false;
-
-		const fetchTopSounds = async () => {
-			try {
-				if (!shouldIgnore) {
-					setLoading({ loading: true });
-					setError({ error: null });
-				}
-
-				const response = await fetch(
-					"/api/sounds/search?page_size=50&sort=downloads",
-				);
-
-				if (!shouldIgnore) {
-					if (!response.ok) {
-						throw new Error(`Failed to fetch: ${response.status}`);
-					}
-
-					const data = await response.json();
-					setTopSoundEffects({ sounds: data.results });
-					setHasLoaded({ loaded: true });
-
-					setCurrentPage({ page: 1 });
-					setHasNextPage({ hasNext: !!data.next });
-					setTotalCount({ count: data.count });
-				}
-			} catch (error) {
-				if (!shouldIgnore) {
-					console.error("Failed to fetch top sounds:", error);
-					setError({
-						error:
-							error instanceof Error ? error.message : "Failed to load sounds",
-					});
-				}
-			} finally {
-				if (!shouldIgnore) {
-					setLoading({ loading: false });
-				}
-			}
-		};
-
-		const timeoutId = setTimeout(fetchTopSounds, 100, {});
-
-		return () => {
-			shouldIgnore = true;
-			clearTimeout(timeoutId);
-		};
+		setLoading({ loading: false });
+		setError({ error: null });
+		setTopSoundEffects({ sounds: [] });
+		setHasLoaded({ loaded: true });
+		setCurrentPage({ page: 1 });
+		setHasNextPage({ hasNext: false });
+		setTotalCount({ count: 0 });
 	}, [
 		hasLoaded,
 		setTopSoundEffects,

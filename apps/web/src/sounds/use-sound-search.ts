@@ -1,9 +1,18 @@
 import { useEffect } from "react";
 import { useSoundsStore } from "@/sounds/sounds-store";
 
+// Kneecap: the Freesound-backed search proxy (`/api/sounds/search`) was
+// removed — it called out to freesound.org, an external network
+// dependency this offline-first app cannot have. Sound search is
+// hard-disabled here rather than deleted so the UI shell and store wiring
+// survive for a future locally-bundled sound library (plan M8: "Ship a
+// small bundled local sound set instead"). No fetch is ever made.
+const SOUND_SEARCH_DISABLED_MESSAGE =
+	"Sound search is unavailable in this offline build.";
+
 export function useSoundSearch({
 	query,
-	commercialOnly,
+	commercialOnly: _commercialOnly,
 }: {
 	query: string;
 	commercialOnly: boolean;
@@ -12,8 +21,6 @@ export function useSoundSearch({
 		searchResults,
 		isSearching,
 		searchError,
-		lastSearchQuery,
-		currentPage,
 		hasNextPage,
 		isLoadingMore,
 		totalCount,
@@ -21,126 +28,20 @@ export function useSoundSearch({
 		setSearching,
 		setSearchError,
 		setLastSearchQuery,
-		setCurrentPage,
-		setHasNextPage,
-		setTotalCount,
-		setLoadingMore,
-		appendSearchResults,
-		appendTopSounds,
-		resetPagination,
 	} = useSoundsStore();
 
-	const loadMore = async () => {
-		if (isLoadingMore || !hasNextPage) return;
-
-		try {
-			setLoadingMore({ loading: true });
-			const nextPage = currentPage + 1;
-
-			const searchParams = new URLSearchParams({
-				page: nextPage.toString(),
-				type: "effects",
-			});
-
-			if (query.trim()) {
-				searchParams.set("q", query);
-			}
-
-			searchParams.set("commercial_only", commercialOnly.toString());
-			const response = await fetch(
-				`/api/sounds/search?${searchParams.toString()}`,
-			);
-
-			if (response.ok) {
-				const data = await response.json();
-
-				if (query.trim()) {
-					appendSearchResults(data.results);
-				} else {
-					appendTopSounds(data.results);
-				}
-
-				setCurrentPage({ page: nextPage });
-				setHasNextPage({ hasNext: !!data.next });
-				setTotalCount(data.count);
-			} else {
-				setSearchError({ error: `Load more failed: ${response.status}` });
-			}
-		} catch (err) {
-			setSearchError({
-				error: err instanceof Error ? err.message : "Load more failed",
-			});
-		} finally {
-			setLoadingMore({ loading: false });
-		}
-	};
+	// Pagination against a removed remote API is meaningless; there is
+	// never a next page, so loadMore is a no-op.
+	const loadMore = async () => {};
 
 	useEffect(() => {
-		if (!query.trim()) {
-			setSearchResults({ results: [] });
-			setSearchError({ error: null });
-			setLastSearchQuery({ query: "" });
-			return;
-		}
-
-		if (query === lastSearchQuery && searchResults.length > 0) {
-			return;
-		}
-
-		let ignore = false;
-
-		const timeoutId = setTimeout(async () => {
-			try {
-				setSearching({ searching: true });
-				setSearchError({ error: null });
-				resetPagination();
-
-				const response = await fetch(
-					`/api/sounds/search?q=${encodeURIComponent(query)}&type=effects&page=1`,
-				);
-
-				if (!ignore) {
-					if (response.ok) {
-						const data = await response.json();
-						setSearchResults({ results: data.results });
-						setLastSearchQuery({ query: query });
-						setHasNextPage({ hasNext: !!data.next });
-						setTotalCount({ count: data.count });
-						setCurrentPage({ page: 1 });
-					} else {
-						setSearchError({ error: `Search failed: ${response.status}` });
-					}
-				}
-			} catch (err) {
-				if (!ignore) {
-					setSearchError({
-						error: err instanceof Error ? err.message : "Search failed",
-					});
-				}
-			} finally {
-				if (!ignore) {
-					setSearching({ searching: false });
-				}
-			}
-		}, 300);
-
-		return () => {
-			clearTimeout(timeoutId);
-			ignore = true;
-		};
-	}, [
-		query,
-		lastSearchQuery,
-		searchResults.length,
-		setSearchResults,
-		setSearching,
-		setSearchError,
-		setLastSearchQuery,
-		setCurrentPage,
-		setHasNextPage,
-		setTotalCount,
-		resetPagination,
-	]);
+		setSearchResults({ results: [] });
+		setSearching({ searching: false });
+		setSearchError({
+			error: query.trim() ? SOUND_SEARCH_DISABLED_MESSAGE : null,
+		});
+		setLastSearchQuery({ query });
+	}, [query, setSearchResults, setSearching, setSearchError, setLastSearchQuery]);
 
 	return {
 		results: searchResults,
