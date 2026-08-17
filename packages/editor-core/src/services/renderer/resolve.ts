@@ -38,6 +38,17 @@ import {
 import { ImageNode, loadImageSource } from "./nodes/image-node";
 import { StickerNode, loadStickerSource } from "./nodes/sticker-node";
 import { TextNode, type ResolvedTextNodeState } from "./nodes/text-node";
+import {
+	CaptionNode,
+	captionPositionBaselineY,
+	measureVisibleCaptionLine,
+	type ResolvedCaptionNodeState,
+} from "./nodes/caption-node";
+import { resolveCaptionStyle } from "@/captions/resolve-style";
+import {
+	getActiveCaptionWordIndex,
+	getVisibleCaptionWords,
+} from "@/captions/layout";
 import { VideoNode } from "./nodes/video-node";
 import type {
 	ResolvedVisualNodeState,
@@ -85,6 +96,8 @@ async function resolveNode({
 		node.resolved = resolveGraphicNode({ node, context });
 	} else if (node instanceof TextNode) {
 		node.resolved = resolveTextNode({ node, context });
+	} else if (node instanceof CaptionNode) {
+		node.resolved = resolveCaptionNode({ node, context });
 	} else if (node instanceof BlurBackgroundNode) {
 		node.resolved = await resolveBlurBackgroundNode({ node, context });
 	} else if (node instanceof EffectLayerNode) {
@@ -370,6 +383,81 @@ function resolveTextNode({
 			element: node.params,
 			canvasHeight: node.params.canvasHeight,
 			localTime,
+			ctx: getTextMeasurementContext(),
+		}),
+	};
+}
+
+/**
+ * Plan M10 item 5: "per-word karaoke-style animated caption rendering in the
+ * preview." Unlike `resolveTextNode`, there is no keyframe-animation
+ * resolution here (see `params/registry.ts`'s caption params, all marked
+ * `keyframable: false` for exactly this reason) — the ONE thing that
+ * animates automatically, every frame, driven purely by the playhead, is
+ * which word is highlighted. `sourceLocalTime` is `trimStart + localTime`:
+ * the same "source-relative" space every other source-bearing node computes
+ * (see `resolveVideoNode` above and `CaptionWord`'s doc comment in
+ * `timeline/types.ts`).
+ */
+function resolveCaptionNode({
+	node,
+	context,
+}: {
+	node: CaptionNode;
+	context: ResolveContext;
+}): ResolvedCaptionNodeState | null {
+	if (
+		context.time < node.params.startTime ||
+		context.time >= node.params.startTime + node.params.duration
+	) {
+		return null;
+	}
+
+	const localTime = getElementLocalTime({
+		timelineTime: context.time,
+		elementStartTime: node.params.startTime,
+		elementDuration: node.params.duration,
+	});
+	const sourceLocalTime = node.params.trimStart + localTime;
+
+	const style = resolveCaptionStyle({ element: node.params });
+	const visible = getVisibleCaptionWords({ element: node.params });
+	const activeElementWordIndex = getActiveCaptionWordIndex({
+		element: node.params,
+		sourceLocalTime,
+	});
+	const activeVisibleIndex =
+		activeElementWordIndex === null
+			? null
+			: visible.findIndex((v) => v.index === activeElementWordIndex);
+
+	const positionOffsetY = captionPositionBaselineY({
+		position: style.position,
+		canvasHeight: context.renderer.height,
+	});
+
+	return {
+		transform: {
+			...node.params.transform,
+			position: {
+				x: node.params.transform.position.x,
+				y: node.params.transform.position.y + positionOffsetY,
+			},
+		},
+		opacity: node.params.opacity,
+		style,
+		effectPasses: resolveEffectPassGroups({
+			effects: node.params.effects,
+			animations: undefined,
+			localTime,
+			width: context.renderer.width,
+			height: context.renderer.height,
+		}),
+		line: measureVisibleCaptionLine({
+			visibleWords: visible.map((v) => v.word),
+			activeVisibleIndex: activeVisibleIndex === -1 ? null : activeVisibleIndex,
+			style,
+			canvasHeight: context.renderer.height,
 			ctx: getTextMeasurementContext(),
 		}),
 	};

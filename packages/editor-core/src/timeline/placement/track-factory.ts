@@ -1,6 +1,7 @@
 import { DEFAULT_TRACK_NAMES } from "@/timeline/tracks";
 import type {
 	AudioTrack,
+	CaptionTrack,
 	EffectTrack,
 	GraphicTrack,
 	TextTrack,
@@ -54,6 +55,15 @@ export function buildEmptyTrack({
 	type: "effect";
 	name?: string;
 }): EffectTrack;
+export function buildEmptyTrack({
+	id,
+	type,
+	name,
+}: {
+	id: string;
+	type: "caption";
+	name?: string;
+}): CaptionTrack;
 
 export function buildEmptyTrack({
 	id,
@@ -114,6 +124,14 @@ export function buildEmptyTrack({
 				id,
 				name: trackName,
 				type: "effect",
+				elements: [],
+				hidden: false,
+			};
+		case "caption":
+			return {
+				id,
+				name: trackName,
+				type: "caption",
 				elements: [],
 				hidden: false,
 			};

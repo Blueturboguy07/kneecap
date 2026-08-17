@@ -31,6 +31,7 @@ import {
 	type Edl,
 	type EdlAnimationChannel,
 	type EdlAsset,
+	type EdlCaptionWord,
 	type EdlClip,
 	type EdlClipKind,
 	type EdlKeyframe,
@@ -225,7 +226,21 @@ const OVERLAY_KIND: Partial<Record<EdlClipKind, EdlOverlayKind>> = {
 	text: "text",
 	sticker: "sticker",
 	graphic: "graphic",
+	caption: "caption",
 };
+
+/** `[]` for every element type except `"caption"`. Word ticks pass through
+ * unchanged — they are already in the clip's own source-tick space (see
+ * `timeline/types.ts`'s `CaptionWord` doc comment), exactly the space
+ * `sourceStartTicks`/`sourceEndTicks` below are expressed in. */
+function buildCaptionWords({ element }: { element: TimelineElement }): EdlCaptionWord[] {
+	if (element.type !== "caption") return [];
+	return element.words.map((word) => ({
+		text: word.text,
+		startTicks: word.startTime,
+		endTicks: word.endTime,
+	}));
+}
 
 function buildClip({ element }: { element: TimelineElement }): EdlClip {
 	const kind = element.type as EdlClipKind;
@@ -296,6 +311,7 @@ function buildClip({ element }: { element: TimelineElement }): EdlClip {
 					}))
 				: [],
 		animations: buildAnimations({ animations: element.animations }),
+		captionWords: buildCaptionWords({ element }),
 		params: { ...element.params },
 	};
 }

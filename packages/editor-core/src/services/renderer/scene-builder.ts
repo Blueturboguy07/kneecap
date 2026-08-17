@@ -4,6 +4,7 @@ import { RootNode } from "./nodes/root-node";
 import { VideoNode } from "./nodes/video-node";
 import { ImageNode } from "./nodes/image-node";
 import { TextNode } from "./nodes/text-node";
+import { CaptionNode } from "./nodes/caption-node";
 import { StickerNode } from "./nodes/sticker-node";
 import { GraphicNode } from "./nodes/graphic-node";
 import { ColorNode } from "./nodes/color-node";
@@ -117,6 +118,21 @@ function buildTrackNodes({
 						canvasCenter: { x: canvasSize.width / 2, y: canvasSize.height / 2 },
 						canvasHeight: canvasSize.height,
 						textBaseline: "middle",
+						effects: element.effects ?? [],
+					}),
+				);
+			}
+
+			if (element.type === "caption") {
+				nodes.push(
+					new CaptionNode({
+						...element,
+						transform: buildTransformFromParams({ params: element.params }),
+						opacity: readOpacityFromParams({ params: element.params }),
+						blendMode: readBlendModeFromParams({ params: element.params }),
+						canvasCenter: { x: canvasSize.width / 2, y: canvasSize.height / 2 },
+						canvasWidth: canvasSize.width,
+						canvasHeight: canvasSize.height,
 						effects: element.effects ?? [],
 					}),
 				);

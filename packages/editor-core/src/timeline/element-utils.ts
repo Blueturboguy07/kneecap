@@ -393,7 +393,10 @@ export function getElementFontFamilies({
 	const families = new Set<string>();
 	for (const track of [...tracks.overlay, tracks.main, ...tracks.audio]) {
 		for (const element of track.elements) {
-			if (element.type === "text" && typeof element.params.fontFamily === "string") {
+			if (
+				(element.type === "text" || element.type === "caption") &&
+				typeof element.params.fontFamily === "string"
+			) {
 				families.add(element.params.fontFamily);
 			}
 			if ("masks" in element) {

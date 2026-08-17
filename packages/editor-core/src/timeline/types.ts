@@ -26,7 +26,13 @@ export interface TScene {
 	updatedAt: Date;
 }
 
-export type TrackType = "video" | "text" | "audio" | "graphic" | "effect";
+export type TrackType =
+	| "video"
+	| "text"
+	| "audio"
+	| "graphic"
+	| "effect"
+	| "caption";
 
 interface BaseTrack {
 	id: string;
@@ -43,6 +49,12 @@ export interface VideoTrack extends BaseTrack {
 export interface TextTrack extends BaseTrack {
 	type: "text";
 	elements: TextElement[];
+	hidden: boolean;
+}
+
+export interface CaptionTrack extends BaseTrack {
+	type: "caption";
+	elements: CaptionElement[];
 	hidden: boolean;
 }
 
@@ -69,9 +81,15 @@ export type TimelineTrack =
 	| TextTrack
 	| AudioTrack
 	| GraphicTrack
-	| EffectTrack;
+	| EffectTrack
+	| CaptionTrack;
 
-export type OverlayTrack = VideoTrack | TextTrack | GraphicTrack | EffectTrack;
+export type OverlayTrack =
+	| VideoTrack
+	| TextTrack
+	| GraphicTrack
+	| EffectTrack
+	| CaptionTrack;
 
 export interface SceneTracks {
 	overlay: OverlayTrack[];
@@ -138,6 +156,42 @@ export interface TextElement extends BaseTimelineElement {
 	effects?: Effect[];
 }
 
+/**
+ * One word-level caption span. `startTime`/`endTime` are ticks in the SAME
+ * "source" coordinate space as the element's own `trimStart`/`trimEnd` — the
+ * origin (tick 0) is the caption clip's original, unsplit generation point,
+ * exactly mirroring how a video clip's source ticks are independent of where
+ * the clip currently sits on the timeline. This is deliberate, not
+ * incidental: `SplitElementsCommand` (commands/timeline/element/split-elements.ts)
+ * already bumps `trimStart`/`trimEnd` uniformly for every element type,
+ * including generated content with no real source media (retime is undefined
+ * for captions, so `getSourceSpanAtClipTime` degrades to the identity
+ * mapping) — so a split caption clip needs ZERO special-cased word-time
+ * remapping. At render/EDL-build time the active word is found by comparing
+ * `trimStart + localTime` (the same "source local time" every other node
+ * computes, see `services/renderer/resolve.ts`) against each word's
+ * `[startTime, endTime)`. Both fields come from `TranscriptWord.startMicros`/
+ * `endMicros` (native-bridge) converted once via `mediaTimeFromSeconds` — see
+ * `captions/generate.ts`.
+ */
+export interface CaptionWord {
+	text: string;
+	startTime: MediaTime;
+	endTime: MediaTime;
+}
+
+export interface CaptionElement extends BaseTimelineElement {
+	type: "caption";
+	hidden?: boolean;
+	effects?: Effect[];
+	/** Word-level timing for the FULL, unsplit source segment — see
+	 * `CaptionWord`'s doc comment. Never sliced on split/trim; consumers
+	 * filter to the visible `[trimStart, trimStart+duration)` window. Always
+	 * sorted by `startTime` and non-overlapping (guaranteed by the mandatory
+	 * `caption-smoothing.ts` pass upstream, in native-bridge). */
+	words: CaptionWord[];
+}
+
 export interface StickerElement extends BaseTimelineElement {
 	type: "sticker";
 	stickerId: string;
@@ -170,7 +224,8 @@ export type TimelineElement =
 	| TextElement
 	| StickerElement
 	| GraphicElement
-	| EffectElement;
+	| EffectElement
+	| CaptionElement;
 
 export type ElementType = TimelineElement["type"];
 
@@ -198,6 +253,7 @@ export const VISUAL_ELEMENT_TYPES = elementTypes(
 	"text",
 	"sticker",
 	"graphic",
+	"caption",
 );
 
 export type VisualElement = Extract<
@@ -216,6 +272,7 @@ export type CreateTextElement = Omit<TextElement, "id">;
 export type CreateStickerElement = Omit<StickerElement, "id">;
 export type CreateGraphicElement = Omit<GraphicElement, "id">;
 export type CreateEffectElement = Omit<EffectElement, "id">;
+export type CreateCaptionElement = Omit<CaptionElement, "id">;
 export type CreateTimelineElement =
 	| CreateAudioElement
 	| CreateVideoElement
@@ -223,7 +280,8 @@ export type CreateTimelineElement =
 	| CreateTextElement
 	| CreateStickerElement
 	| CreateGraphicElement
-	| CreateEffectElement;
+	| CreateEffectElement
+	| CreateCaptionElement;
 
 export interface ElementDragState {
 	isDragging: boolean;

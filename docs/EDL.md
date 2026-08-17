@@ -334,6 +334,7 @@ To make any change:
 | Version | Date | Change |
 |---|---|---|
 | 1 | 2026-08-17 | Frozen. Initial contract (plan M2). |
+| 1 | 2026-08-17 | Additive (plan M10 part 2): `"caption"` added to `EdlClipKind`/`EdlTrackType` (`EdlOverlayKind` already carried it, see §7). New `EdlClip.captionWords: EdlCaptionWord[]` field — `[]` on every clip except `kind: "caption"`, where it carries per-word `{text, startTicks, endTicks}` in the SAME source-relative tick space as the clip's own `sourceStartTicks`/`sourceEndTicks`, for native burn-in export of animated word-by-word captions. Caption *styling* (colour, highlight colour, font, position, animation) stays out of the schema, same policy as text — see §6/§8, read from `params` by key.|
 
 ---
 

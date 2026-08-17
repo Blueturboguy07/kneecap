@@ -90,6 +90,7 @@
 					"effects": [],
 					"masks": [],
 					"animations": [],
+					"captionWords": [],
 					"params": {
 						"transform.positionX": 0,
 						"transform.positionY": 0,
@@ -141,6 +142,7 @@
 					],
 					"masks": [],
 					"animations": [],
+					"captionWords": [],
 					"params": {
 						"transform.positionX": 0,
 						"transform.positionY": 0,
@@ -219,6 +221,7 @@
 							]
 						}
 					],
+					"captionWords": [],
 					"params": {
 						"content": "kneecap",
 						"fontFamily": "Inter",
@@ -275,6 +278,7 @@
 					"effects": [],
 					"masks": [],
 					"animations": [],
+					"captionWords": [],
 					"params": {
 						"volume": -6,
 						"muted": false

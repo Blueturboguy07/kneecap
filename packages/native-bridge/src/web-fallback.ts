@@ -11,6 +11,10 @@
 
 import { detectGpuBackend } from "./gpu-detect";
 import { probeCodecs } from "./codec-detect";
+import {
+	DEV_FIXTURE_MEDIA_URI,
+	DEV_SAMPLE_TRANSCRIPT_SEGMENTS,
+} from "./dev-fixtures/sample-transcript";
 import type {
 	DeviceCapabilities,
 	ExportProgress,
@@ -195,10 +199,26 @@ export function createWebFallbackBridge(): NativeBridge {
 			});
 		},
 
-		async *transcribe(_params: {
+		async *transcribe({
+			handle,
+		}: {
 			handle: MediaHandle;
 			opts: TranscribeOptions;
 		}): AsyncGenerator<TranscriptSegment> {
+			// The ONE recognized exception to "no STT in a browser": the dev
+			// harness's own pre-transcribed sample, used to exercise
+			// generate -> edit -> preview end to end without native STT. Any
+			// other `MediaHandle` (a real user-picked file) still gets the
+			// honest UNSUPPORTED error below — this is not a general in-webview
+			// transcription path, see this file's header comment and
+			// `dev-fixtures/sample-transcript.ts`'s.
+			if (handle.uri === DEV_FIXTURE_MEDIA_URI) {
+				for (const segment of DEV_SAMPLE_TRANSCRIPT_SEGMENTS) {
+					yield segment;
+				}
+				return;
+			}
+
 			throw new NativeBridgeError({
 				code: "UNSUPPORTED",
 				message:

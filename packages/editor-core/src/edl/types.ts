@@ -95,7 +95,13 @@ export interface EdlAsset {
 }
 
 export type EdlTrackKind = "main" | "overlay" | "audio";
-export type EdlTrackType = "video" | "text" | "audio" | "graphic" | "effect";
+export type EdlTrackType =
+	| "video"
+	| "text"
+	| "audio"
+	| "graphic"
+	| "effect"
+	| "caption";
 
 /**
  * `tracks` is NORMATIVE and z-ordered. `zIndex` 0 is the bottom-most
@@ -126,7 +132,8 @@ export type EdlClipKind =
 	| "text"
 	| "sticker"
 	| "graphic"
-	| "effect";
+	| "effect"
+	| "caption";
 
 export interface EdlTransform {
 	positionX: number;
@@ -188,6 +195,27 @@ export interface EdlAnimationChannel {
 	keyframes: EdlKeyframe[];
 }
 
+/**
+ * One word-level burn-in span, ADDITIVE to v1 (plan §2.3's "additive,
+ * backwards-compatible fields may be appended to v1" rule — see this file's
+ * header comment). `startTicks`/`endTicks` are in the SAME coordinate space
+ * as the owning clip's `sourceStartTicks`/`sourceEndTicks`: a native mapper
+ * burning in captions clips this array to the clip's own source window and
+ * needs no extra unit conversion. Present and non-empty ONLY on `"caption"`
+ * clips; `[]` on every other clip kind (mirrors `masks`/`effects`, which are
+ * present-but-usually-empty on every clip too, rather than optional).
+ * Styling (colour, highlight colour, font, position, animation style) is
+ * NOT re-modelled here — same policy as text, it lives in `params` (see this
+ * file's header comment on why v1 does not re-model typography), read by
+ * key from `packages/editor-core/src/params/registry.ts`'s
+ * `captionElementParams`.
+ */
+export interface EdlCaptionWord {
+	text: string;
+	startTicks: number;
+	endTicks: number;
+}
+
 export interface EdlClip {
 	clipId: string;
 	kind: EdlClipKind;
@@ -229,6 +257,8 @@ export interface EdlClip {
 	effects: EdlEffect[];
 	masks: EdlMask[];
 	animations: EdlAnimationChannel[];
+	/** `[]` unless `kind === "caption"`. See `EdlCaptionWord`'s doc comment. */
+	captionWords: EdlCaptionWord[];
 	/**
 	 * The element's full resolved param bag. Text content, font, colours,
 	 * sticker ids and graphic definition ids all live here — v1 does not

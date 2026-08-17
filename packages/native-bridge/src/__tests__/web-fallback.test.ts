@@ -6,6 +6,10 @@ import { describe, expect, test } from "bun:test";
 import { createWebFallbackBridge, inferMediaKind } from "../web-fallback";
 import { NativeBridgeError } from "../types";
 import type { MediaHandle } from "../types";
+import {
+	DEV_FIXTURE_MEDIA_HANDLE,
+	DEV_SAMPLE_TRANSCRIPT_SEGMENTS,
+} from "../dev-fixtures/sample-transcript";
 
 describe("inferMediaKind", () => {
 	test("classifies by MIME prefix", () => {
@@ -90,6 +94,36 @@ describe("createWebFallbackBridge", () => {
 				handle,
 				spec: { count: 5, maxEdgePx: 200 },
 			});
+		} catch (e) {
+			caught = e;
+		}
+		expect(caught).toBeInstanceOf(NativeBridgeError);
+		expect((caught as InstanceType<typeof NativeBridgeError>).code).toBe(
+			"UNSUPPORTED",
+		);
+	});
+
+	test("transcribe() yields the dev-harness fixture for its recognized sentinel handle, never touching whisper.cpp/native", async () => {
+		const yielded = [];
+		for await (const segment of bridge.transcribe({
+			handle: DEV_FIXTURE_MEDIA_HANDLE,
+			opts: { modelSize: "tiny" },
+		})) {
+			yielded.push(segment);
+		}
+		expect(yielded).toEqual(DEV_SAMPLE_TRANSCRIPT_SEGMENTS);
+	});
+
+	test("transcribe() still throws UNSUPPORTED for a real (non-fixture) handle picked via the file input — the fixture path is not a general in-webview STT backdoor", async () => {
+		const realHandle: MediaHandle = {
+			...DEV_FIXTURE_MEDIA_HANDLE,
+			id: "web-123",
+			uri: "blob:a-real-user-picked-file",
+		};
+		const iterator = bridge.transcribe({ handle: realHandle, opts: { modelSize: "tiny" } });
+		let caught: unknown;
+		try {
+			await iterator.next();
 		} catch (e) {
 			caught = e;
 		}

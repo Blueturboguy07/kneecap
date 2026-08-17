@@ -26,6 +26,7 @@ import dev.kneecap.app.media.MediaPickerIntents
 import dev.kneecap.app.media.MediaProbe
 import dev.kneecap.app.media.ProxyTranscoder
 import dev.kneecap.app.media.ThumbnailStripGenerator
+import dev.kneecap.app.stt.WhisperTranscriber
 import java.io.File
 import java.util.UUID
 
@@ -466,6 +467,45 @@ class NativeBridgePlugin : Plugin() {
 			}
 		}
 		return payload
+	}
+
+	// -- transcribe (M10) ---------------------------------------------------
+
+	/**
+	 * kneecap M10. Ported from the captions track's `NativeBridgePlugin.java`
+	 * when that file was superseded by this Kotlin one (the M4 Java->Kotlin
+	 * port and the M10 STT work happened on separate tracks and met at the
+	 * merge) — same behavior, same `WhisperTranscriber` call, same error
+	 * codes.
+	 *
+	 * Real plumbing, honestly incomplete native depth — see
+	 * `dev.kneecap.app.stt.WhisperTranscriber`'s class doc comment for
+	 * exactly what is and isn't wired yet. Runs off the main thread: even
+	 * once the two gaps documented there are closed, `whisper_full()` is a
+	 * synchronous, CPU-bound native call that must never block Capacitor's
+	 * (UI-thread-adjacent) plugin call dispatch — plan M10 item 7, "Async
+	 * job with progress. Never block the UI."
+	 */
+	@PluginMethod
+	fun transcribe(call: PluginCall) {
+		val audioUri = call.getString("audioUri")
+		if (audioUri == null) {
+			call.reject("audioUri is required", "IO_ERROR")
+			return
+		}
+		val modelSize = call.getString("modelSize", "tiny") ?: "tiny"
+		val languageHint = call.getString("languageHint")
+
+		Thread {
+			try {
+				val result = WhisperTranscriber.transcribe(context, audioUri, modelSize, languageHint)
+				call.resolve(result)
+			} catch (e: WhisperTranscriber.NotYetWiredException) {
+				call.reject(e.message, "NOT_IMPLEMENTED")
+			} catch (e: Exception) {
+				call.reject("transcribe failed: ${e.message}", "IO_ERROR", e)
+			}
+		}.start()
 	}
 
 	// -- shared -----------------------------------------------------------

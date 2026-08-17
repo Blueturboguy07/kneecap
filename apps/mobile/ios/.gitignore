@@ -11,3 +11,8 @@ capacitor-cordova-ios-plugins
 # Generated Config files
 App/App/capacitor.config.json
 App/App/config.xml
+
+# kneecap M10: bundled whisper.cpp GGML model weights, fetched at build time
+# by scripts/download-whisper-model.sh — see App/App/Resources/models/README.md.
+# Never committed — see the matching Android .gitignore entry for why.
+App/App/Resources/models/*.bin

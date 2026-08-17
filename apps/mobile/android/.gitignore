@@ -99,3 +99,10 @@ app/src/main/assets/public
 app/src/main/assets/capacitor.config.json
 app/src/main/assets/capacitor.plugins.json
 app/src/main/res/xml/config.xml
+
+# kneecap M10: bundled whisper.cpp GGML model weights. Fetched at build time
+# by scripts/download-whisper-model.sh — see app/src/main/assets/models/README.md.
+# Never committed (zero-cost/offline directive is about the RUNNING app, not
+# the build pipeline; the model itself is 142MB+ and license-distinct from
+# this repo's own MIT code).
+app/src/main/assets/models/*.bin
