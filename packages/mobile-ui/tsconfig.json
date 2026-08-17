@@ -1,0 +1,25 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"lib": ["dom", "dom.iterable", "esnext"],
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"jsx": "react-jsx",
+		"forceConsistentCasingInFileNames": true,
+		// Same pattern as packages/editor-core and packages/native-bridge:
+		// `@/*` resolves ONLY inside this package's own src, so a standalone
+		// `bun run check-types` here is proof the component kit doesn't
+		// secretly depend on anything from apps/web.
+		"paths": {
+			"@/*": ["./src/*"]
+		}
+	},
+	"include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"],
+	"exclude": ["node_modules"]
+}

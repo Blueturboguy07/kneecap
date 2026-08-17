@@ -8,6 +8,15 @@ const nextConfig: NextConfig = {
 	reactStrictMode: true,
 	productionBrowserSourceMaps: true,
 	output: "standalone",
+	// kneecap M6: @kneecap/mobile-ui ships raw .ts/.tsx source (same
+	// "exports": "./src/index.ts" pattern as packages/editor-core), resolved
+	// here as a real bun workspace dependency (unlike editor-core, which
+	// apps/web reaches via a tsconfig path alias instead — see
+	// apps/web/tsconfig.json's comment on why the two packages differ).
+	// Next excludes node_modules — symlinked workspace packages included —
+	// from its default transform pipeline, so without this the raw TSX
+	// would fail to build the moment anything actually imports it.
+	transpilePackages: ["@kneecap/mobile-ui"],
 	images: {
 		remotePatterns: [
 			{

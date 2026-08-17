@@ -218,17 +218,31 @@ if [ -d "$MOBILE_DIR/src" ]; then
 	fi
 fi
 
+MOBILE_UI_DIR="$REPO_ROOT/packages/mobile-ui"
+if [ -d "$MOBILE_UI_DIR" ]; then
+	step "typecheck (packages/mobile-ui, standalone — M6 CapCut token/component kit)"
+	MOBILE_UI_TSC_OUT="$(cd "$MOBILE_UI_DIR" && bunx tsc --project tsconfig.json --noEmit 2>&1)"
+	MOBILE_UI_TSC_ERRORS="$(printf '%s\n' "$MOBILE_UI_TSC_OUT" | grep -c ': error TS' || true)"
+	if [ "$MOBILE_UI_TSC_ERRORS" -eq 0 ]; then
+		pass "0 errors"
+	else
+		fail "$MOBILE_UI_TSC_ERRORS error(s) in packages/mobile-ui (must be 0)"
+		printf '%s\n' "$MOBILE_UI_TSC_OUT" | head -n 40
+	fi
+fi
+
 # ---------------------------------------------------------------------------
 # 3. Lint. Regression-gated against BASELINE_LINT_ERRORS (warnings are
 #    reported but never block — matches plain `eslint`'s own default
 #    exit-code semantics of failing on errors, not warnings).
 # ---------------------------------------------------------------------------
-step "lint (eslint apps/web/src + packages/editor-core + packages/native-bridge + apps/mobile/src)"
+step "lint (eslint apps/web/src + packages/editor-core + packages/native-bridge + apps/mobile/src + packages/mobile-ui/src)"
 LINT_SCOPES=("$REPO_ROOT/apps/web/src")
 [ -d "$REPO_ROOT/packages/editor-core/src" ] && LINT_SCOPES+=("$REPO_ROOT/packages/editor-core/src")
 [ -d "$REPO_ROOT/packages/editor-core/react" ] && LINT_SCOPES+=("$REPO_ROOT/packages/editor-core/react")
 [ -d "$REPO_ROOT/packages/native-bridge/src" ] && LINT_SCOPES+=("$REPO_ROOT/packages/native-bridge/src")
 [ -d "$REPO_ROOT/apps/mobile/src" ] && LINT_SCOPES+=("$REPO_ROOT/apps/mobile/src")
+[ -d "$REPO_ROOT/packages/mobile-ui/src" ] && LINT_SCOPES+=("$REPO_ROOT/packages/mobile-ui/src")
 LINT_JSON="$(bunx eslint "${LINT_SCOPES[@]}" --ext .ts,.tsx -f json 2>/dev/null)"
 LINT_COUNTS="$("$RUNNER" -e '
 	let data = "";

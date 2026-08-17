@@ -1,0 +1,405 @@
+/*
+ * components.css — plain CSS, deliberately NOT Tailwind utility classes.
+ *
+ * Why: this package is consumed from two different app shells with two
+ * different build stacks — apps/web (Next.js + Tailwind v4) and apps/mobile
+ * (plain Vite, no Tailwind at all — see apps/mobile/src/style.css). Writing
+ * Tailwind arbitrary-value classes here would depend on Tailwind's content
+ * scanner reaching across a workspace-package boundary (via a node_modules
+ * symlink, which Tailwind v4's default source detection does not walk into
+ * without an explicit `@source` directive per consumer) — a real, easy-to-
+ * miss "works in dev, silently unstyled in a prod build" failure class.
+ * Plain CSS keyed to the tokens in tokens.css has no such dependency and
+ * works identically in both shells. This mirrors the existing
+ * headless/framework-agnostic discipline packages/editor-core already
+ * follows, just for styling instead of logic.
+ *
+ * Every rule here assumes it is rendered inside (or under) an element
+ * carrying [data-kneecap-theme="capcut-mobile"] — see tokens.css.
+ */
+
+[data-kneecap-theme="capcut-mobile"] {
+	font-family: var(--cc-font-ui);
+	color: var(--cc-text-primary);
+}
+
+/* ============================== Toolbar row ============================== */
+/* Shared by BottomToolbar (primary) and SubToolbar (contextual, clip-
+   selected) — corpus 04 §4 flags the primary-vs-contextual relationship
+   itself as [NEEDS-CAPTURE] ("replace vs overlay vs horizontal-scroll-
+   reveal... not pinned down by sources"), so both render with the same
+   visual grammar and differ only in height/usage until that's resolved. */
+.cc-toolbar {
+	display: flex;
+	align-items: stretch;
+	gap: var(--cc-space-1);
+	background: var(--cc-bg-panel);
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+	-webkit-overflow-scrolling: touch;
+	touch-action: pan-x;
+}
+.cc-toolbar::-webkit-scrollbar {
+	display: none;
+}
+.cc-toolbar--primary {
+	height: var(--cc-toolbar-height);
+}
+.cc-toolbar--contextual {
+	height: var(--cc-subtoolbar-height);
+}
+.cc-toolbar__item {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--cc-space-1);
+	min-width: var(--cc-touch-target-ios);
+	padding: 0 var(--cc-space-3);
+	background: none;
+	border: none;
+	color: var(--cc-text-primary);
+	font-family: inherit;
+	cursor: pointer;
+	flex-shrink: 0;
+}
+.cc-toolbar__item:disabled {
+	color: var(--cc-text-disabled);
+	cursor: default;
+}
+.cc-toolbar__item-label {
+	font-size: var(--cc-text-label);
+	font-weight: var(--cc-font-weight-inactive);
+	line-height: 1;
+	white-space: nowrap;
+}
+.cc-toolbar__item--active .cc-toolbar__item-label {
+	color: var(--cc-accent);
+}
+.cc-toolbar__item--active svg {
+	color: var(--cc-accent);
+}
+
+/* ================================ Tab bar ================================ */
+/* Matches the measured pattern exactly (corpus 06 §2.2 + this session's
+   direct read of iphone_shots/zoom_tabs_ip1.png and zoom_tabs_ip5.png):
+   active = primary-white + weight 600 + cyan underline; inactive =
+   secondary-gray + weight 400, no underline. */
+.cc-tabbar {
+	display: flex;
+	align-items: center;
+	gap: var(--cc-space-5);
+	overflow-x: auto;
+	scrollbar-width: none;
+	touch-action: pan-x;
+}
+.cc-tabbar::-webkit-scrollbar {
+	display: none;
+}
+.cc-tabbar__tab {
+	position: relative;
+	flex-shrink: 0;
+	background: none;
+	border: none;
+	padding: var(--cc-space-3) 0 var(--cc-space-2);
+	font-family: inherit;
+	font-size: var(--cc-text-tab);
+	color: var(--cc-text-secondary);
+	font-weight: var(--cc-font-weight-inactive);
+	cursor: pointer;
+	white-space: nowrap;
+}
+.cc-tabbar__tab--active {
+	color: var(--cc-text-primary);
+	font-weight: var(--cc-font-weight-active);
+}
+.cc-tabbar__underline {
+	position: absolute;
+	left: 0;
+	bottom: 0;
+	height: 3px;
+	width: 100%;
+	background: var(--cc-accent);
+	border-radius: var(--cc-radius-pill);
+}
+
+/* ============================== Panel sheet =============================== */
+.cc-sheet-scrim {
+	position: fixed;
+	inset: 0;
+	background: var(--cc-bg-scrim);
+}
+.cc-sheet {
+	background: var(--cc-bg-panel);
+	border-top-left-radius: var(--cc-radius-sheet);
+	border-top-right-radius: var(--cc-radius-sheet);
+	display: flex;
+	flex-direction: column;
+	max-height: 70vh;
+	overflow: hidden;
+}
+.cc-sheet__body {
+	overflow-y: auto;
+	padding: var(--cc-space-4);
+}
+
+/* ============================== Sheet header =============================== */
+.cc-sheet-header-group {
+	display: flex;
+	flex-direction: column;
+}
+.cc-sheet-header__tabbar {
+	flex: 1;
+}
+.cc-sheet-header {
+	display: flex;
+	align-items: center;
+	gap: var(--cc-space-3);
+	padding: var(--cc-space-4) var(--cc-space-4) var(--cc-space-2);
+}
+.cc-sheet-header__search {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	gap: var(--cc-space-2);
+	background: var(--cc-bg-raised);
+	border-radius: var(--cc-radius-chip);
+	padding: var(--cc-space-2) var(--cc-space-3);
+	min-height: var(--cc-touch-target-ios);
+}
+.cc-sheet-header__search input {
+	flex: 1;
+	background: none;
+	border: none;
+	outline: none;
+	color: var(--cc-text-primary);
+	font-family: inherit;
+	font-size: var(--cc-text-body);
+}
+.cc-sheet-header__search input::placeholder {
+	color: var(--cc-text-secondary);
+}
+.cc-sheet-header__icon-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--cc-touch-target-ios);
+	height: var(--cc-touch-target-ios);
+	background: none;
+	border: none;
+	color: var(--cc-text-primary);
+	cursor: pointer;
+	flex-shrink: 0;
+}
+
+/* ================================ Chip row ================================ */
+.cc-chiprow {
+	display: flex;
+	gap: var(--cc-space-2);
+	overflow-x: auto;
+	scrollbar-width: none;
+	touch-action: pan-x;
+}
+.cc-chiprow::-webkit-scrollbar {
+	display: none;
+}
+.cc-chip {
+	flex-shrink: 0;
+	background: transparent;
+	border: 1px solid var(--cc-bg-raised);
+	border-radius: var(--cc-radius-pill);
+	padding: var(--cc-space-2) var(--cc-space-4);
+	font-family: inherit;
+	font-size: var(--cc-text-body);
+	color: var(--cc-text-primary);
+	font-weight: var(--cc-font-weight-inactive);
+	cursor: pointer;
+	white-space: nowrap;
+}
+/* Deliberately --cc-text-primary even when inactive, never
+   --cc-text-secondary here — see tokens.ts's contrast-audit comment: the
+   measured secondary gray does not reach WCAG AA against a raised/chip
+   surface, so this kit's rule is raised surfaces always carry primary
+   text. */
+.cc-chip--active {
+	background: var(--cc-bg-raised);
+	font-weight: var(--cc-font-weight-active);
+}
+
+/* ============================== Thumbnail grid ============================= */
+.cc-thumbgrid {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: var(--cc-space-2);
+}
+.cc-thumb {
+	position: relative;
+	aspect-ratio: 1;
+	border-radius: var(--cc-radius-card);
+	overflow: hidden;
+	background: var(--cc-bg-raised);
+	border: none;
+	padding: 0;
+	cursor: pointer;
+}
+.cc-thumb img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+.cc-thumb--selected {
+	outline: 2px solid var(--cc-text-primary);
+	outline-offset: -2px;
+}
+.cc-thumb__badge {
+	position: absolute;
+	top: var(--cc-space-1);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 999px;
+	background: rgb(0 0 0 / 45%);
+	color: var(--cc-text-primary);
+}
+.cc-thumb__badge--download {
+	left: var(--cc-space-1);
+}
+.cc-thumb__badge--pro {
+	right: var(--cc-space-1);
+	color: var(--cc-badge-pro);
+	background: transparent;
+}
+.cc-thumb__label {
+	position: absolute;
+	inset: auto 0 0 0;
+	padding: var(--cc-space-1) var(--cc-space-2);
+	font-size: var(--cc-text-label);
+	color: var(--cc-text-primary);
+	background: linear-gradient(to top, rgb(0 0 0 / 60%), transparent);
+	text-align: left;
+}
+
+/* ================================= Slider ================================= */
+.cc-slider {
+	position: relative;
+	display: flex;
+	align-items: center;
+	width: 100%;
+	height: var(--cc-touch-target-ios);
+	touch-action: none;
+	user-select: none;
+}
+.cc-slider__track {
+	position: relative;
+	flex: 1;
+	height: 4px;
+	border-radius: var(--cc-radius-pill);
+	background: var(--cc-bg-raised);
+}
+.cc-slider__range {
+	position: absolute;
+	height: 100%;
+	border-radius: var(--cc-radius-pill);
+	background: var(--cc-accent);
+}
+.cc-slider__thumb {
+	display: block;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: var(--cc-text-primary);
+	box-shadow: 0 1px 3px rgb(0 0 0 / 40%);
+}
+.cc-slider__thumb:focus-visible {
+	outline: 2px solid var(--cc-accent);
+	outline-offset: 2px;
+}
+
+/* ============================= Segmented control ============================ */
+.cc-segmented {
+	display: inline-flex;
+	background: var(--cc-bg-raised);
+	border-radius: var(--cc-radius-pill);
+	padding: 3px;
+	gap: 2px;
+}
+.cc-segmented__option {
+	border: none;
+	background: none;
+	border-radius: var(--cc-radius-pill);
+	padding: var(--cc-space-2) var(--cc-space-4);
+	font-family: inherit;
+	font-size: var(--cc-text-body);
+	color: var(--cc-text-primary);
+	font-weight: var(--cc-font-weight-inactive);
+	cursor: pointer;
+}
+.cc-segmented__option--active {
+	background: var(--cc-accent);
+	color: var(--cc-accent-contrast);
+	font-weight: var(--cc-font-weight-active);
+}
+
+/* =============================== Export button ============================== */
+.cc-export-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--cc-space-1);
+	height: 34px;
+	padding: 0 var(--cc-space-4);
+	border: none;
+	border-radius: var(--cc-radius-pill);
+	background: var(--cc-accent);
+	color: var(--cc-accent-contrast);
+	font-family: inherit;
+	font-size: var(--cc-text-body);
+	font-weight: var(--cc-font-weight-active);
+	cursor: pointer;
+	min-width: var(--cc-touch-target-ios);
+	min-height: var(--cc-touch-target-ios);
+}
+.cc-export-btn:active {
+	background: var(--cc-accent-active);
+}
+.cc-export-btn:disabled {
+	background: var(--cc-bg-raised);
+	color: var(--cc-text-disabled);
+	cursor: default;
+}
+
+/* ============================== Progress overlay ============================= */
+.cc-progress-overlay {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--cc-space-4);
+	background: rgb(0 0 0 / 80%);
+	color: var(--cc-text-primary);
+	z-index: 50;
+}
+.cc-progress-overlay__label {
+	font-size: var(--cc-text-body);
+}
+.cc-progress-overlay__percent {
+	font-size: var(--cc-text-title);
+	font-variant-numeric: tabular-nums;
+	font-feature-settings: "tnum";
+}
+.cc-progress-overlay__cancel {
+	background: none;
+	border: 1px solid var(--cc-bg-raised);
+	border-radius: var(--cc-radius-pill);
+	color: var(--cc-text-secondary);
+	padding: var(--cc-space-2) var(--cc-space-5);
+	font-family: inherit;
+	font-size: var(--cc-text-body);
+	cursor: pointer;
+}
