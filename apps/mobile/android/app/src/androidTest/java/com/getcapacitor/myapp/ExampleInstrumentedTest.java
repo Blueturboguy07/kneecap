@@ -21,6 +21,11 @@ public class ExampleInstrumentedTest {
         // Context of the app under test.
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
 
-        assertEquals("com.getcapacitor.app", appContext.getPackageName());
+        // Was "com.getcapacitor.app" — stock Capacitor template boilerplate
+        // that predates this app's real applicationId (dev.kneecap.app,
+        // apps/mobile/android/app/build.gradle) and would fail if this
+        // pre-existing test were ever actually run. Fixed in passing while
+        // adding M4's androidTest coverage in this same source set.
+        assertEquals("dev.kneecap.app", appContext.getPackageName());
     }
 }

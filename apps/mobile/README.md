@@ -72,7 +72,7 @@ nor the Android `NativeBridgePlugin.getDeviceInfo()` JS↔native round trip on
 a live app has been exercised interactively yet — see the M3 handoff for the
 full list of what is and isn't verified.
 
-## NativeBridge: what's real vs. stubbed in M3
+## NativeBridge: what's real vs. stubbed (M3 + M4)
 
 `@kneecap/native-bridge`'s `capabilities()` is genuinely wired end-to-end:
 GPU/codec feature detection runs in the WebView's JS (shared with the web
@@ -80,12 +80,26 @@ fallback), blended with a real native call
 (`NativeBridgePlugin.getDeviceInfo()`, implemented on both platforms) for
 OS version / device model / RAM tier.
 
-`pickMedia`, `generateProxy`, and `exportProject` are no longer stubbed on
-iOS as of M4/M9 (see below). `transcribe` is still stubbed on the Capacitor
-implementation — it throws a typed `NativeBridgeError` naming the milestone
-that implements it (M10). This matches plan M3's task list: "Define +
-**stub** `packages/native-bridge`," with each stub retired as its milestone
-actually lands.
+`pickMedia`, `generateProxy`, `generateThumbnails`, and `exportProject` are
+no longer stubbed on EITHER platform as of M4/M9 (see the two
+platform-specific sections below — they were built by separate tracks and
+merged). `transcribe` is still stubbed on the Capacitor implementation — it
+throws a typed `NativeBridgeError` naming the milestone that implements it
+(M10). This matches plan M3's task list: "Define + **stub**
+`packages/native-bridge`," with each stub retired as its milestone actually
+lands.
+
+> **Merge note (2026-08-17).** The iOS and Android tracks independently
+> evolved the JS<->native wire contract and were unified when they merged;
+> `packages/native-bridge/src/capacitor-bridge.ts`'s header comment is the
+> authoritative record of what changed and why. In short: export is keyed by
+> an `exportId` on both platforms now (Android's `cancelExport()` became
+> `exportCancel({exportId})`), and `generateThumbnails()` exists on both
+> (iOS gained the dedicated plugin method it had been missing, while
+> keeping the `thumbnailUris` it already emitted from `generateProxy`).
+> Anywhere the two platform sections below still read as "this session did
+> not touch the other platform," that is the ORIGINAL track's honest
+> statement at the time, not a claim about the merged tree.
 
 ## M4 (iOS track): native media custody + import + proxy pipeline
 
@@ -302,9 +316,10 @@ pre-existing fail, same baseline as before this session).
   four; this session verified the mechanism (multi-track, transitions,
   speed, text, cancellation) on a small, fast fixture, not at the scale or
   duration the exit criteria specify.
-- **Android has no equivalent.** This session's scope was the iOS track
-  only; `exportProject` on Android still has no native implementation to
-  call through to.
+- **Android had no equivalent at the time this was written.** The iOS
+  track's scope was iOS only. Android's own M9 exporter (Media3
+  Transformer — see the Android section below) landed on a separate track
+  and both are present after the merge.
 - **The Photos-library save (plan M9 item 8) is implemented
   (`NativeBridgePlugin+Export.swift`'s `saveToPhotosLibraryBestEffort`) but
   unverified** — no interactive on-device run granted the Photos permission
@@ -312,3 +327,133 @@ pre-existing fail, same baseline as before this session).
   "PHPickerViewController-adjacent system UI has no automation harness
   here" limitation as M4). The system share sheet itself was not built at
   all (a UI-layer concern, M6-M8).
+
+## M4/M9 (Android track): native media custody, proxy pipeline, and export
+
+**M4 (written by the Android track, before the merge — see the iOS
+sections above for that platform)** implemented
+`pickMedia`, `generateProxy`, and `generateThumbnails` for real on the
+Android side:
+
+- `android/.../NativeBridgePlugin.kt` + `android/.../media/*.kt`
+  (`MediaPickerIntents`, `MediaImporter`, `MediaProbe`,
+  `ThumbnailStripGenerator`, `ProxyTranscoder`) — Photo Picker (with SAF
+  fallback) + camera capture import, copy into
+  `noBackupFilesDir` (Android's analog to "exclude from iCloud backup"),
+  `MediaMetadataRetriever`/`MediaExtractor` probing, a Media3
+  Transformer-driven short-GOP downscale proxy transcode with progress
+  streamed via `notifyListeners("proxyProgress", ...)`, and a
+  `MediaMetadataRetriever.getFrameAtTime` thumbnail strip.
+- `packages/native-bridge/src/capacitor-bridge.ts` — real `pickMedia`/
+  `generateProxy`/`generateThumbnails`, including the event-to-
+  `AsyncGenerator` adapter that turns native `proxyProgress` events back
+  into pulled `ProxyProgress` values, wire-format coercion (defensive
+  `rotationDegrees` clamping + `durationMicros` rounding), and
+  native-error-code-preserving mapping to `NativeBridgeError`. Unit-tested
+  against an injected fake plugin (`__tests__/capacitor-bridge.test.ts`) —
+  32/32 `bun test` green, including the full progress-stream/termination/
+  listener-cleanup path.
+- `src/main.ts` — an "Import media" card drives the real
+  `pickMedia -> generateProxy -> generateThumbnails` sequence from a
+  button tap (still harness UI, not the M6-M8 CapCut timeline's own
+  import flow, but the same `NativeBridge` calls that flow will make).
+
+**What is verified vs. not, honestly:** the Kotlin plugin genuinely
+compiles (`./gradlew :app:assembleDebug` — `BUILD SUCCESSFUL`, and the
+resulting `app-debug.apk`'s dex was decompiled to confirm every new class,
+including `androidx.media3.transformer.Transformer` and
+`androidx.media3.effect.Presentation`, is actually present in the built
+APK, not just resolved-but-unused). `./gradlew :app:testDebugUnitTest`
+passes 12/12 plain-JVM tests for the Android-framework-free helpers in
+`media/MediaMath.kt`. `./gradlew :app:assembleDebugAndroidTest` packages a
+full instrumentation-test APK covering `MediaProbe`/
+`ThumbnailStripGenerator`/`MediaImporter`/`MediaPickerIntents` against a
+bundled 32KB synthetic fixture clip (`androidTest/res/raw/test_clip.mp4`)
+— but **none of those instrumentation tests have actually run**: no
+emulator with a working system image was available in this session (both
+local AVDs' system images are missing on disk). The real device-level
+behaviors — does the Photo Picker actually launch and return a usable
+URI, does the Media3 Transformer actually produce a playable proxy file on
+real hardware, does a camera-permission prompt actually appear — are
+UNVERIFIED. Run `cd android && ./gradlew connectedDebugAndroidTest` on a
+real device or a working emulator to close that gap.
+
+**M9 (Android only — see the M9 handoff for iOS status)** implemented
+`exportProject` for real on the Android side — EDL v1 in, a hardware- (or,
+on `ExportException`, software-) encoded MP4 out, driven through Media3:
+
+- `android/.../edl/{Edl,EdlParser}.kt` — a Kotlin mirror of the frozen EDL v1
+  contract (`packages/editor-core/src/edl/types.ts`) and a strict JSON
+  parser (`getLong` on every `*Ticks` field — no floats cross the tick
+  boundary, matching plan §2.2/§2.3 rule 1).
+- `android/.../export/{TransitionAlphaMath,CrossfadeCompositorSettings}.kt`
+  — THE cross-fade compositor (plan M9 risk #4, built first): a base
+  hard-cut `EditedMediaItemSequence` plus one short alpha-ramped overlay
+  sequence per crossfade transition, driven by a custom
+  `VideoCompositorSettings` — Media3's own documented extension point for
+  exactly this ("no built-in cross-clip transitions... must currently be
+  hand-built using the overlay/compositor primitives," corpus `08` §8),
+  not a hand-rolled GLSL blend pass. The alpha-ramp math itself
+  (`TransitionAlphaMath`) is framework-free and runs as a plain JVM unit
+  test.
+- `android/.../export/EdlToComposition.kt` — the full EDL -> Media3
+  `Composition` mapper: multi-track (main + overlay video/graphic + audio),
+  trim/speed (`MediaItem.ClippingConfiguration` + `SpeedParameters`), text
+  overlays (`TextOverlay`, time-gated), transform/opacity
+  (`MatrixTransformation`/`AlphaScale`). Refuses (rather than silently
+  drops) masks, keyframe animations, and generic filter effects — plan §2.3
+  rule 3's "cut, don't ship inconsistent."
+- `android/.../export/Media3Exporter.kt` — `Transformer.start(Composition,
+  String)`, progress polling, a hardware->software encoder retry on
+  `ExportException`, an output-integrity re-probe (reusing M4's
+  `MediaProbe`) before declaring success, and `cancel()`.
+- `NativeBridgePlugin.kt`'s `exportProject`/`cancelExport` +
+  `capacitor-bridge.ts`'s real `exportProject` implementation (an
+  `exportProgress` event-to-`AsyncGenerator` adapter, same shape as M4's
+  `proxyProgress` one, plus native `cancelExport()` wired into the
+  generator's cleanup so breaking a `for await` loop actually stops the
+  encoder). `capabilities().supportsNativeExport` now reports `true` on
+  Android.
+- `src/main.ts` — an "Export project" card builds a hand-authored 2-clip
+  crossfade + text-overlay EDL (M1's spike shape) from whatever the M4
+  import card actually imported, and drives it through `exportProject`.
+
+**What is verified vs. not, honestly:** `EdlToComposition`/`Media3Exporter`
+compile against the real Media3 1.11.0 API (confirmed by inspecting the
+actual cached `.jar`s with `javap`, not by guessing signatures) —
+`./gradlew :app:compileDebugKotlin`, `:app:assembleDebug`, and
+`:app:assembleDebugAndroidTest` are all `BUILD SUCCESSFUL`, and a dex
+decompile confirms `EdlToComposition`/`Media3Exporter`/
+`CrossfadeCompositorSettings`/`TransitionAlphaMath` are genuinely present
+in the packaged APK. `TransitionAlphaMath` (12 tests) and `EdlParser` (8
+tests) are plain-JVM-unit-tested — 34/34 `testDebugUnitTest` green. The
+TS-side adapter (`exportProgressGenerator`, cancellation-on-early-return,
+error mapping) is unit-tested against an injected fake plugin — 6 new
+tests in `__tests__/capacitor-bridge.test.ts`.
+
+`ExportGoldenFrameInstrumentedTest.kt` (`android/app/src/androidTest`)
+builds a real 2-clip-crossfade-plus-text-overlay EDL, runs it through the
+actual `Media3Exporter`/`Transformer`, and asserts on the resulting file —
+but like M4's instrumentation tests, it has **not been run**: no
+emulator with a working system image was available in this session. It
+compiles and packages (`assembleDebugAndroidTest`) but needs
+`./gradlew connectedDebugAndroidTest` on a real device or working emulator
+to actually execute. Two things it explicitly does NOT verify even once it
+runs: (1) whether the cross-fade actually looks right — the alpha-ramp
+*math* is unit-tested, but Media3's real-time GL compositing of it has
+never rendered a single frame in this session; (2) true golden-frame
+*parity* against a webview-rendered reference PNG — that reference doesn't
+exist yet (needs M6-M8's preview UI or `apps/web-dev`'s reference
+renderer, a different track's deliverable), so this harness checks output
+*integrity* (valid, right-ish duration, decodable frames), not pixel
+*parity*, despite the file's name. The `EdlTransformEffect`/
+`EdlTextOverlay` pixel-position mapping (EDL pixel space -> Media3
+NDC/anchor space) is a best-effort, explicitly-documented-as-unverified
+convention — see that class's own doc comment — pending exactly this kind
+of real-device comparison.
+
+`transcribe` remains stubbed on the Capacitor implementation — throws a
+typed `NativeBridgeError` naming M10, the milestone that implements it.
+(Written pre-merge: "iOS's `exportProject` status is whatever the `ios`
+track's own M9 pass left it as" — that pass landed, and both platforms'
+exporters are in the tree now. See the iOS sections above.)

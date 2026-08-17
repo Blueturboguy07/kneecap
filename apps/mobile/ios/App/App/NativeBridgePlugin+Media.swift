@@ -129,6 +129,67 @@ extension NativeBridgePlugin {
         }
     }
 
+    // MARK: - generateThumbnails
+
+    /// M4 item 5, as a directly callable method (the ios track originally
+    /// only emitted `thumbnailUris` from `generateProxy`'s terminal event;
+    /// the android track had this dedicated method. The bridge unification
+    /// keeps BOTH, because they serve different callers — import-time free
+    /// output vs. M7's timeline asking for a filmstrip at a given density.)
+    ///
+    /// A plain resolve-when-done promise, not the event-streaming shape:
+    /// see `pluginMethods` in NativeBridgePlugin.swift.
+    @objc func generateThumbnails(_ call: CAPPluginCall) {
+        guard let handle = call.getObject("handle"),
+              let uriString = handle["uri"] as? String,
+              let assetId = handle["id"] as? String else {
+            call.reject("generateThumbnails requires handle.{id,uri}", "IO_ERROR")
+            return
+        }
+        let sourceURL = URL(fileURLWithPath: uriString)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            call.reject("no such file at handle.uri: \(uriString)", "IO_ERROR")
+            return
+        }
+
+        let specDict = call.getObject("spec") ?? [:]
+        let count = max(1, (specDict["count"] as? Int) ?? 10)
+        let maxEdgePx = (specDict["maxEdgePx"] as? Int) ?? 240
+        // `durationMicros` rides on the handle the JS side already probed
+        // (`MediaHandle.durationMicros`) — integer micros, never float
+        // seconds, per plan §2.2's unit discipline.
+        let durationMicros = (handle["durationMicros"] as? Int) ?? 0
+
+        Task {
+            do {
+                let thumbDir = try MediaSandbox.thumbnailDirectory(assetId: assetId)
+                let urls = try await ThumbnailStripGenerator.generate(
+                    sourceURL: sourceURL,
+                    outputDirectory: thumbDir,
+                    count: count,
+                    maxDimension: CGFloat(maxEdgePx)
+                )
+                // Mirrors `ThumbnailStripGenerator.generate`'s own sampling
+                // math exactly (cell MIDPOINTS: (i + 0.5)/n of the
+                // duration, not left edges) so the timestamps this returns
+                // describe the frames it actually wrote. Integer arithmetic
+                // throughout — `(2i + 1) * duration / 2n` is the midpoint
+                // formula with no floating-point hop.
+                let n = urls.count
+                let timestampsMicros: [Int] = (0..<n).map { i in
+                    n == 0 ? 0 : (durationMicros * (2 * i + 1)) / (2 * n)
+                }
+                call.resolve([
+                    "assetId": assetId,
+                    "uris": urls.map { $0.path },
+                    "timestampsMicros": timestampsMicros,
+                ])
+            } catch {
+                call.reject("thumbnail generation failed: \(String(describing: error))", "IO_ERROR")
+            }
+        }
+    }
+
     private func emitProxyProgress(
         assetId: String,
         stage: String,

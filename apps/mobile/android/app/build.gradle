@@ -1,4 +1,6 @@
 apply plugin: 'com.android.application'
+// kneecap M4: Kotlin toolchain for NativeBridgePlugin's M4 additions.
+apply plugin: 'org.jetbrains.kotlin.android'
 
 // kneecap M12/M13 — direct-distribution release signing (plan M13
 // operative section: "signed APK (own keystore, held in CI secrets...)
@@ -55,6 +57,16 @@ android {
             }
         }
     }
+    compileOptions {
+        // Matches capacitor-android's own compileOptions (javac target 21) —
+        // Kotlin's jvmTarget must match or compileDebugKotlin fails with
+        // "Inconsistent JVM-target compatibility".
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    kotlinOptions {
+        jvmTarget = "21"
+    }
 }
 
 repositories {
@@ -68,21 +80,32 @@ dependencies {
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation "androidx.activity:activity:$androidxActivityVersion"
     implementation project(':capacitor-android')
-    // kneecap M1 spike ONLY (SpikeDiagnosticsPlugin.java, test 3 / plan M1
-    // item 3) — Media3 Transformer for the native hardware export test.
-    // Verified directly against androidx/media's RELEASENOTES.md on
-    // 2026-08-17 (latest release 1.11.0): no cross-clip video
-    // transition/crossfade support has landed — plan risk-register item #4
-    // ("Media3 has no cross-clip transitions... as of Media3 1.10") still
-    // holds at 1.11.0. SpikeDiagnosticsPlugin therefore does a real 2-clip
-    // sequential export + text overlay, NOT a crossfade — see that file's
-    // comment. Not a production dependency; remove alongside the rest of
-    // the spike harness once M1 is read.
-    implementation "androidx.media3:media3-transformer:1.11.0"
-    implementation "androidx.media3:media3-common:1.11.0"
-    implementation "androidx.media3:media3-effect:1.11.0"
+    // kneecap M4/M9 (corpus 08 §8): Media3 Transformer drives the native
+    // short-GOP preview-proxy transcode on import AND the M9 EDL export.
+    // media3-effect brings `Presentation` (downscale-to-height) and the
+    // custom cross-fade compositor. No media3-exoplayer dependency —
+    // metadata probing uses the standard SDK's MediaMetadataRetriever/
+    // MediaExtractor, not ExoPlayer.
+    //
+    // Version lives in variables.gradle ($media3Version, currently 1.11.0).
+    // Merge note (M1 spike + M4/M9 tracks pinned this independently and
+    // agreed on 1.11.0): verified directly against androidx/media's
+    // RELEASENOTES.md on 2026-08-17 that no cross-clip video
+    // transition/crossfade support has landed upstream — plan risk-register
+    // item #4 ("Media3 has no cross-clip transitions... as of Media3 1.10")
+    // still holds at 1.11.0, which is exactly why M9's cross-fade is the
+    // hand-written `CrossfadeCompositorSettings`/`TransitionAlphaMath` pair
+    // rather than a stock Transformer feature. The M1 spike's
+    // SpikeDiagnosticsPlugin (throwaway) shares these same three artifacts
+    // for its sequential-export test.
+    implementation "androidx.media3:media3-transformer:$media3Version"
+    implementation "androidx.media3:media3-common:$media3Version"
+    implementation "androidx.media3:media3-effect:$media3Version"
     testImplementation "junit:junit:$junitVersion"
+    // kneecap M9 — see variables.gradle's orgJsonVersion doc comment.
+    testImplementation "org.json:json:$orgJsonVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')

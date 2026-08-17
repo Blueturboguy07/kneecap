@@ -33,6 +33,15 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         // promise.
         CAPPluginMethod(name: "pickMedia", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "generateProxy", returnType: CAPPluginReturnPromise),
+        // Unlike `generateProxy`, this one is a plain resolve-when-done
+        // call — a handful of JPEGs is fast enough that streaming progress
+        // isn't worth the complexity (see `ThumbnailStripSpec` in
+        // packages/native-bridge/src/types.ts). Added when the ios and
+        // android tracks' bridges were unified: Android exposed this
+        // dedicated method while iOS only emitted thumbnail paths as a
+        // side effect of `generateProxy`; both now exist on both platforms
+        // rather than one being an Android-only trap for M7's timeline.
+        CAPPluginMethod(name: "generateThumbnails", returnType: CAPPluginReturnPromise),
         // kneecap M9 — see NativeBridgePlugin+Export.swift. Same
         // resolve-immediately-then-stream-events shape as `generateProxy`
         // above (`exportProgress` events keyed by a client-generated

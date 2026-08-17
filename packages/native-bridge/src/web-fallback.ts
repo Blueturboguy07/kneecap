@@ -20,6 +20,8 @@ import type {
 	PickMediaOptions,
 	ProxyProgress,
 	ProxySpec,
+	ThumbnailStrip,
+	ThumbnailStripSpec,
 	TranscribeOptions,
 	TranscriptSegment,
 } from "./types";
@@ -201,6 +203,22 @@ export function createWebFallbackBridge(): NativeBridge {
 				code: "UNSUPPORTED",
 				message:
 					"On-device speech-to-text requires a native shell (plan M10: whisper.cpp). Not available in the web-fallback bridge.",
+			});
+		},
+
+		async generateThumbnails(_params: {
+			handle: MediaHandle;
+			spec: ThumbnailStripSpec;
+		}): Promise<ThumbnailStrip> {
+			// Deliberately UNSUPPORTED, not a `<canvas>`-based approximation:
+			// plan M4 item 5's rule is "do NOT decode filmstrip frames in JS,"
+			// full stop — that rule doesn't get relaxed just because this is the
+			// fallback path. A native shell is required for thumbnails, same as
+			// export and STT.
+			throw new NativeBridgeError({
+				code: "UNSUPPORTED",
+				message:
+					"Thumbnail strip generation requires a native shell (plan M4: MediaMetadataRetriever / AVAssetImageGenerator) — decoding filmstrip frames in JS is explicitly out of scope even as a fallback. Not available in the web-fallback bridge.",
 			});
 		},
 

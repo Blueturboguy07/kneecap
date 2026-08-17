@@ -16,4 +16,18 @@ ext {
     androidxJunitVersion = '1.3.0'
     androidxEspressoCoreVersion = '3.7.0'
     cordovaAndroidVersion = '14.0.1'
+    // kneecap M4 (corpus 08 §8): Media3 Transformer drives the short-GOP
+    // preview-proxy transcode on import. Latest stable per
+    // dl.google.com/dl/android/maven2 as of this session (2026-08-17).
+    media3Version = '1.11.0'
+    // kneecap M9: `EdlParser` (app/src/main/.../edl/EdlParser.kt) parses
+    // with plain `org.json`, but `android.jar`'s org.json on the unit-test
+    // classpath is a method-stub ("not mocked") build, not a real
+    // implementation — Android's own documented gap
+    // (developer.android.com/r/studio-ui/build/not-mocked). A real
+    // `org.json:json` on `testImplementation` shadows that stub for JVM unit
+    // tests only (never ships in the app APK, which always uses the
+    // platform's real org.json at runtime) — the standard, widely-used fix,
+    // not a new toolchain.
+    orgJsonVersion = '20231013'
 }
