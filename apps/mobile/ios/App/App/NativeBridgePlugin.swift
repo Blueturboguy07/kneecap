@@ -19,8 +19,27 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "NativeBridgePlugin"
     public let jsName = "NativeBridge"
     public let pluginMethods: [CAPPluginMethod] = [
-        CAPPluginMethod(name: "getDeviceInfo", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "getDeviceInfo", returnType: CAPPluginReturnPromise),
+        // kneecap M4 — see NativeBridgePlugin+Media.swift for the
+        // implementations. `pickMedia` is a normal promise call (resolves
+        // once, with the picked+probed handles). `generateProxy` resolves
+        // immediately with an acknowledgement and streams its real result
+        // via `notifyListeners("proxyProgress", ...)` events instead —
+        // Capacitor promise calls can only resolve once, but
+        // `NativeBridge.generateProxy()`'s TS contract is an
+        // AsyncGenerator<ProxyProgress>, so progress has to ride the
+        // separate (well-established, e.g. @capacitor/app's
+        // "appStateChange") event-listener mechanism, not the call's own
+        // promise.
+        CAPPluginMethod(name: "pickMedia", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "generateProxy", returnType: CAPPluginReturnPromise),
     ]
+
+    /// Retains the `PHPickerViewControllerDelegate` for the duration of an
+    /// in-flight `pickMedia` call — `PHPickerViewController.delegate` is
+    /// `weak`, so nothing else holds this. See
+    /// `NativeBridgePlugin+Media.swift`.
+    var activePickerCoordinator: AnyObject?
 
     /// The classic `uname()` trick for a real device identifier
     /// ("iPhone15,2") instead of `UIDevice.current.model`'s generic "iPhone".

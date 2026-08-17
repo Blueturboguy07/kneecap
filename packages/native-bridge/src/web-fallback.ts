@@ -150,6 +150,11 @@ export function createWebFallbackBridge(): NativeBridge {
 	return {
 		platform: "web",
 
+		// The web fallback's `uri`s are already `blob:` object URLs (see
+		// `probeFile` below) — directly webview/browser-loadable already,
+		// nothing to convert.
+		toPlaybackUri: (nativeUri: string) => nativeUri,
+
 		async pickMedia(opts) {
 			const files = await openFilePicker(opts);
 			const handles: MediaHandle[] = [];

@@ -112,6 +112,80 @@ export const wasmStub = {
 			"wasm-stub: parseTimecode is not reimplemented. Test timecode parsing against the real wasm build, not this stub.",
 		);
 	},
+
+	// --- Link-time-only stand-ins ------------------------------------------
+	// Everything below exists ONLY so `mock.module("opencut-wasm", ...)`
+	// satisfies ESM named-export linking for modules that `import` these
+	// (GPU compositor, effects/masks) without necessarily ever CALLING them —
+	// e.g. `packages/editor-core/src/services/renderer/compositor/wasm-compositor.ts`'s
+	// top-level `import { uploadTexture } from "opencut-wasm"` fails to LINK
+	// (not just fails when called) if the mock object is missing the name,
+	// which blocked every test that transitively imports `EditorCore` (which
+	// is most of the engine, since nothing gated the renderer stack behind a
+	// lazy import). None of these reproduce real GPU/compositor behavior —
+	// same "throw rather than return a plausible-looking wrong number" rule
+	// as `parseTimecode` above. If a test actually needs one of these to DO
+	// something, that is real GPU work; test it against the real wasm build
+	// (plan M1), not this stub.
+	initializeGpu: () => {
+		throw new Error("wasm-stub: initializeGpu is not reimplemented.");
+	},
+	initCompositor: () => {
+		throw new Error("wasm-stub: initCompositor is not reimplemented.");
+	},
+	resizeCompositor: () => {
+		throw new Error("wasm-stub: resizeCompositor is not reimplemented.");
+	},
+	getCompositorCanvas: () => {
+		throw new Error("wasm-stub: getCompositorCanvas is not reimplemented.");
+	},
+	uploadTexture: () => {
+		throw new Error("wasm-stub: uploadTexture is not reimplemented.");
+	},
+	releaseTexture: () => {
+		throw new Error("wasm-stub: releaseTexture is not reimplemented.");
+	},
+	renderFrame: () => {
+		throw new Error("wasm-stub: renderFrame is not reimplemented.");
+	},
+	getLastFrameProfile: () => [],
+	applyEffectPasses: () => {
+		throw new Error("wasm-stub: applyEffectPasses is not reimplemented.");
+	},
+	applyMaskFeather: () => {
+		throw new Error("wasm-stub: applyMaskFeather is not reimplemented.");
+	},
+	floorToFrame: () => {
+		throw new Error("wasm-stub: floorToFrame is not reimplemented.");
+	},
+	isFrameAligned: () => {
+		throw new Error("wasm-stub: isFrameAligned is not reimplemented.");
+	},
+	formatTimecode: () => {
+		throw new Error("wasm-stub: formatTimecode is not reimplemented.");
+	},
+	guessTimecodeFormat: () => {
+		throw new Error("wasm-stub: guessTimecodeFormat is not reimplemented.");
+	},
+	mediaTimeAdd: ({ a, b }: { a: number; b: number }) => a + b,
+	mediaTimeSub: ({ a, b }: { a: number; b: number }) => a - b,
+	mediaTimeMax: ({ a, b }: { a: number; b: number }) => Math.max(a, b),
+	mediaTimeMin: ({ a, b }: { a: number; b: number }) => Math.min(a, b),
+	mediaTimeClamp: ({
+		time,
+		min,
+		max,
+	}: {
+		time: number;
+		min: number;
+		max: number;
+	}) => Math.min(Math.max(time, min), max),
+	mediaTimeFromFrame: () => {
+		throw new Error("wasm-stub: mediaTimeFromFrame is not reimplemented.");
+	},
+	mediaTimeToFrame: () => {
+		throw new Error("wasm-stub: mediaTimeToFrame is not reimplemented.");
+	},
 };
 
 mock.module("opencut-wasm", () => wasmStub);

@@ -73,6 +73,19 @@ export interface ProxyProgress {
 	fraction: number;
 	/** Present only when stage is "done". Never a blob: URL — see MediaHandle. */
 	proxyUri?: string;
+	/** Present only when stage is "done" — the proxy's OWN dimensions after
+	 * the native downscale (plan Amendment 4), which the webview's
+	 * `VideoCache` needs to know to composite against the right size. */
+	proxyWidth?: number;
+	proxyHeight?: number;
+	/** M4 item 5, "Thumbnail strip generation natively... served from the
+	 * local server — do NOT decode filmstrip frames in JS." Native file
+	 * paths (host converts via `Capacitor.convertFileSrc` before handing
+	 * them to the webview, same as `proxyUri` — see
+	 * `capacitor-bridge.ts`'s `toWebviewUri`), present only when stage is
+	 * "done". Additive to the plan §2.4 sketch of this type; M3 landed
+	 * `ProxyProgress` before M4 had a thumbnail-strip design to fold in. */
+	thumbnailUris?: string[];
 	error?: string;
 }
 
@@ -156,6 +169,24 @@ export class NativeBridgeError extends Error {
  */
 export interface NativeBridge {
 	readonly platform: Platform;
+	/**
+	 * Converts a `MediaHandle.uri` / `ProxyProgress.proxyUri` /
+	 * `ProxyProgress.thumbnailUris[n]` (a native handle — an app-sandbox
+	 * path on Capacitor, already webview-loadable on the web fallback) into
+	 * a URL this platform's webview can actually load as `<video
+	 * src>`/`fetch()`.
+	 *
+	 * kneecap M4 addition — not in the plan §2.4 sketch, which predates
+	 * `pickMedia`/`generateProxy` having real implementations to reconcile
+	 * against `EdlAssetResolution.sourceUri`'s "must be a real native
+	 * handle, not a `blob:` URL" requirement (docs/EDL.md §6). Kept as an
+	 * explicit bridge method — not folded into the handle itself — so
+	 * `MediaHandle.uri` stays the SAME value on both sides of a
+	 * `generateProxy({handle, ...})` call (native handed it out, native
+	 * takes it back in); only the host layer building a `MediaAsset.url`
+	 * for the webview needs the converted form.
+	 */
+	toPlaybackUri(nativeUri: string): string;
 	pickMedia(opts: PickMediaOptions): Promise<MediaHandle[]>;
 	// `AsyncGenerator`, not the plan sketch's `AsyncIterable`: every
 	// implementation IS an async generator function, and callers (including

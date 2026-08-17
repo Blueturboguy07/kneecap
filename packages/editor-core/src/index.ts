@@ -60,3 +60,17 @@ export type {
 
 // --- The EDL bridge contract (plan §2.3) — FROZEN at v1 --------------------
 export * from "./edl";
+
+// --- Media import (plan M4) -------------------------------------------------
+export type { MediaAsset, MediaType } from "./media/types";
+export {
+	importMediaFromNative,
+	buildMediaAssetFromNativeImport,
+	type NativeMediaSource,
+	type NativeMediaHandle,
+	type NativeProxyProgress,
+	type NativeFrameRate,
+	type ImportMediaFromNativeParams,
+	type ImportMediaFromNativeResult,
+	type NativeImportFailure,
+} from "./media/native-import";

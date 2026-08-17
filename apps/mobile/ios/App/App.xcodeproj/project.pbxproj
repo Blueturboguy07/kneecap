@@ -8,6 +8,12 @@
 
 /* Begin PBXBuildFile section */
 		22235B3E510EF14B724DC2B0 /* NativeBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C29089217A122709B9713B2 /* NativeBridgePlugin.swift */; };
+		E7853237CE3EE88834CC5DDA /* MediaProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E4AF30061CAD06771641C2 /* MediaProbe.swift */; };
+		EAA9A16D6D45CE0F8AC1F317 /* ProxyTranscoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62F5C60B9D68F1E648F2029D /* ProxyTranscoder.swift */; };
+		7EDD4B23018CD79F34FD25FF /* ThumbnailStripGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73AFEFD04E3E867B0DA1B10A /* ThumbnailStripGenerator.swift */; };
+		8E23AC98F1F78DE1DD275274 /* MediaSandbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E62365C080407BB6E97B7C3 /* MediaSandbox.swift */; };
+		F4E28BDF2E5CF34A1EC39DC1 /* NativeBridgePlugin+Media.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82FAE7E1DF147549BC77C247 /* NativeBridgePlugin+Media.swift */; };
+		7043508A28F8EEA3BE0D1BBB /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 638A6FC5ACDE6FBAB50CDDD7 /* Fixtures */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		306E70E3B3B4F1E17C8E53EA /* FirstRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B85B4A3074F3DECCE8DF32C /* FirstRunView.swift */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
@@ -32,6 +38,12 @@
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		5C29089217A122709B9713B2 /* NativeBridgePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeBridgePlugin.swift; sourceTree = "<group>"; };
+		82FAE7E1DF147549BC77C247 /* NativeBridgePlugin+Media.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "NativeBridgePlugin+Media.swift"; sourceTree = "<group>"; };
+		A9E4AF30061CAD06771641C2 /* MediaProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaProbe.swift; sourceTree = "<group>"; };
+		62F5C60B9D68F1E648F2029D /* ProxyTranscoder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProxyTranscoder.swift; sourceTree = "<group>"; };
+		73AFEFD04E3E867B0DA1B10A /* ThumbnailStripGenerator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ThumbnailStripGenerator.swift; sourceTree = "<group>"; };
+		9E62365C080407BB6E97B7C3 /* MediaSandbox.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaSandbox.swift; sourceTree = "<group>"; };
+		638A6FC5ACDE6FBAB50CDDD7 /* Fixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Fixtures; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -48,6 +60,17 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		71BAA6E215E8C084D5194895 /* NativeMedia */ = {
+			isa = PBXGroup;
+			children = (
+				A9E4AF30061CAD06771641C2 /* MediaProbe.swift */,
+				62F5C60B9D68F1E648F2029D /* ProxyTranscoder.swift */,
+				73AFEFD04E3E867B0DA1B10A /* ThumbnailStripGenerator.swift */,
+				9E62365C080407BB6E97B7C3 /* MediaSandbox.swift */,
+			);
+			path = NativeMedia;
+			sourceTree = "<group>";
+		};
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
@@ -78,6 +101,9 @@
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 				5C29089217A122709B9713B2 /* NativeBridgePlugin.swift */,
+				82FAE7E1DF147549BC77C247 /* NativeBridgePlugin+Media.swift */,
+				71BAA6E215E8C084D5194895 /* NativeMedia */,
+				638A6FC5ACDE6FBAB50CDDD7 /* Fixtures */,
 				2B85B4A3074F3DECCE8DF32C /* FirstRunView.swift */,
 			);
 			path = App;
@@ -154,6 +180,7 @@
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
+				7043508A28F8EEA3BE0D1BBB /* Fixtures in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -167,6 +194,11 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				22235B3E510EF14B724DC2B0 /* NativeBridgePlugin.swift in Sources */,
+				F4E28BDF2E5CF34A1EC39DC1 /* NativeBridgePlugin+Media.swift in Sources */,
+				E7853237CE3EE88834CC5DDA /* MediaProbe.swift in Sources */,
+				EAA9A16D6D45CE0F8AC1F317 /* ProxyTranscoder.swift in Sources */,
+				7EDD4B23018CD79F34FD25FF /* ThumbnailStripGenerator.swift in Sources */,
+				8E23AC98F1F78DE1DD275274 /* MediaSandbox.swift in Sources */,
 				306E70E3B3B4F1E17C8E53EA /* FirstRunView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

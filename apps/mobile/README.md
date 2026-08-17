@@ -84,3 +84,79 @@ OS version / device model / RAM tier.
 on the Capacitor implementation — each throws a typed `NativeBridgeError`
 naming the milestone that implements it (M4, M4, M9, M10 respectively). This
 matches plan M3's task list: "Define + **stub** `packages/native-bridge`."
+
+## M4 (iOS track): native media custody + import + proxy pipeline
+
+**What's REAL, and how it was verified.** `pickMedia`/`generateProxy` are no
+longer stubs on iOS — `ios/App/App/NativeBridgePlugin+Media.swift` wires them
+to a `PHPickerViewController` import flow and a real
+`AVAssetReader`→CoreImage→`AVAssetWriter`/VideoToolbox proxy transcode
+(short-GOP, downscaled) plus `AVAssetImageGenerator` thumbnail-strip
+generation, all in `ios/App/App/NativeMedia/*.swift` (deliberately
+Capacitor/UIKit-free — Foundation/AVFoundation/CoreImage only).
+
+- **`apps/mobile/ios/verify-media-pipeline/`** compiles those SAME
+  `NativeMedia/*.swift` files into a standalone macOS command-line
+  executable and runs them against a real bundled fixture
+  (`App/App/Fixtures/kneecap-test-clip.mp4` — a 960x540/4s/H.264+AAC clip
+  generated with `ffmpeg`'s `testsrc2` filter, not a shipped copyrighted
+  asset). This is real, not a mock: probe (dims/duration/codec/fps),
+  downscale-transcode (960x540 → 480x270), and thumbnail generation (6
+  frames) all genuinely ran and asserted on real output. The short-GOP claim
+  was independently checked with `ffprobe`, not just self-reported by the
+  Swift code: the source has **1** I-frame in its whole 120-frame length
+  (long-GOP, as configured); the proxy has **8**, at a 13-15 frame interval
+  matching the requested `shortGopInterval: 15`.
+- **The full Capacitor iOS app** (with the new plugin + `NativeMedia` files
+  wired into `App.xcodeproj/project.pbxproj`, plus the bundled fixture as an
+  app resource) built clean for the simulator
+  (`CODE_SIGNING_ALLOWED=NO`, `BUILD SUCCEEDED`), installed onto a freshly
+  created "kneecap M4 QA" iPhone 17 / iOS 26.3 simulator, and launched
+  without crashing (screenshotted — the M3 first-run screen renders). `nm`
+  on the built `App.debug.dylib` confirms 187 real symbol hits for
+  `generateProxy`/`pickMedia`/etc. — the new code is genuinely compiled and
+  linked in, not just present on disk.
+- **`toPlaybackUri()`** (new `NativeBridge` method) converts a native
+  sandbox path to a webview-loadable URL via `Capacitor.convertFileSrc` —
+  Capacitor's own built-in local file server, confirmed (by reading
+  Capacitor's iOS source directly) to support HTTP Range requests, which is
+  what plan M3's "Range-capable local media server" item actually resolves
+  to on iOS. No custom `WKURLSchemeHandler` was written; none was needed.
+- **`@kneecap/editor-core`'s `importMediaFromNative()`** (new,
+  `packages/editor-core/src/media/native-import.ts`) is the pick → per-asset
+  proxy-generate → `AddMediaAssetCommand` orchestration plan M4 item 6 asks
+  for. 9 tests exercise it against a REAL `EditorCore` singleton (not a
+  mock) with a fake `NativeMediaSource` — success, per-item proxy failure,
+  per-item thrown-exception failure (doesn't abort the rest of a
+  multi-select batch), and the empty-pick case.
+
+**What is NOT verified — real gaps, not hidden ones.**
+- **No interactive on-device round trip.** PHPickerViewController is a
+  system UI with no automation harness in this environment (no XCUITest
+  target, no idb) — tapping "Import," picking the bundled fixture from Photos,
+  and watching a proxy actually appear was never driven end-to-end on the
+  simulator. What WAS verified (above) is the compiled code path in
+  isolation and the app's ability to launch with it linked in.
+- **Rotation handling is implemented but unverified against a real rotated
+  clip.** `ProxyTranscoder`/`MediaProbe` apply `AVAssetTrack.preferredTransform`
+  directly (the standard fix, per multiple independent references), but no
+  rotated fixture could be produced in this session (`ffmpeg`'s `rotate`
+  metadata write didn't take on the installed ffmpeg 8.1.2) — the fixture is
+  landscape/unrotated only, so this code path never actually ran against
+  rotated input.
+- **`MediaAsset.file` is a zero-byte placeholder** for natively-imported
+  assets (see the doc comment on `stubFile()` in `native-import.ts`) —
+  deliberate, to satisfy M4's "peak JS heap delta under 20MB" requirement,
+  but it means any PRE-EXISTING preview/waveform code that reads real bytes
+  off `mediaAsset.file` via mediabunny's `BlobSource` (scene-builder.ts,
+  audio-manager.ts, media/audio.ts) will not work correctly for a
+  native-imported asset yet. `mediaAsset.url` (the proxy's playback URI) is
+  what actually works. Fully closing this is the `NativeMediaStore` /
+  `BlobSource`→`UrlSource` swap plan §2.6 describes — a render-pipeline
+  change M4 didn't touch.
+- **Android has no equivalent yet.** This session's scope was the iOS
+  track; `pickMedia`/`generateProxy` on Android still hit the M3 stub path.
+- **`ios/App/App/NativeMedia/*.swift`'s bitrate/quality heuristics and audio
+  passthrough** are reasonable-but-unbenchmarked — no comparison against
+  the plan M1 scrub-latency targets was run (M1's own harness is a separate,
+  throwaway spike this session didn't touch).
