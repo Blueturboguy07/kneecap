@@ -127,8 +127,8 @@ export function TimelinePlayhead({
 			<button
 				type="button"
 				aria-label="Drag playhead"
-				className={`pointer-events-auto absolute top-1 left-1/2 size-3 -translate-x-1/2 transform cursor-col-resize rounded-full border-2 shadow-xs ${isSnappingToPlayhead ? "bg-primary border-primary" : "bg-primary border-primary/50"}`}
-				onMouseDown={handlePlayheadMouseDown}
+				className={`pointer-events-auto absolute top-1 left-1/2 size-3 -translate-x-1/2 transform cursor-col-resize touch-none rounded-full border-2 shadow-xs ${isSnappingToPlayhead ? "bg-primary border-primary" : "bg-primary border-primary/50"}`}
+				onPointerDown={handlePlayheadMouseDown}
 			/>
 		</div>
 	);

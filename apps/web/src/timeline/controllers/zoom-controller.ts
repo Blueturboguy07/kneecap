@@ -1,4 +1,7 @@
-import type { WheelEvent as ReactWheelEvent } from "react";
+import type {
+	PointerEvent as ReactPointerEvent,
+	WheelEvent as ReactWheelEvent,
+} from "react";
 import { TIMELINE_ZOOM_ANCHOR_PLAYHEAD_THRESHOLD } from "@/timeline/components/interaction";
 import { timelineTimeToPixels } from "@/timeline/pixel-utils";
 import { TIMELINE_ZOOM_MAX } from "@/timeline/scale";
@@ -49,6 +52,20 @@ export class ZoomController {
 	private isInPlayheadAnchorMode = false;
 	private scrollSaveTimeout: ReturnType<typeof setTimeout> | null = null;
 
+	// Pinch-to-zoom (plan M5 / corpus 05 §1b): tracked by pointerId so a
+	// third finger touching down mid-pinch doesn't perturb the two already
+	// driving the gesture. Anchoring to the fixed centered playhead (rather
+	// than the pinch centroid) falls out for free — setZoomLevel() below
+	// feeds the same zoomLevel state the wheel-zoom path does, and
+	// applyZoomLayout()'s existing playhead-anchor scroll math (see below)
+	// runs identically regardless of which gesture produced the new zoom.
+	private readonly activePinchPointers = new Map<
+		number,
+		{ x: number; y: number }
+	>();
+	private pinchStartDistance: number | null = null;
+	private pinchStartZoom = 0;
+
 	constructor(deps: { configRef: ZoomConfigRef; initialZoom?: number }) {
 		this.configRef = deps.configRef;
 
@@ -63,6 +80,9 @@ export class ZoomController {
 		this.setZoomLevel = this.setZoomLevel.bind(this);
 		this.handleWheel = this.handleWheel.bind(this);
 		this.saveScrollPosition = this.saveScrollPosition.bind(this);
+		this.onPinchPointerDown = this.onPinchPointerDown.bind(this);
+		this.onPinchPointerMove = this.onPinchPointerMove.bind(this);
+		this.onPinchPointerEnd = this.onPinchPointerEnd.bind(this);
 	}
 
 	private get config(): ZoomConfig {
@@ -122,6 +142,61 @@ export class ZoomController {
 			const zoomFactor = Math.exp(-cappedDelta / 300);
 			this.setZoomLevel((prev) => prev * zoomFactor);
 		}
+	}
+
+	// --- Pinch-to-zoom (touch only; mouse/trackpad keep the wheel path
+	// above, unaffected by any of this). ---
+
+	onPinchPointerDown(event: ReactPointerEvent): void {
+		if (event.pointerType !== "touch") return;
+		this.activePinchPointers.set(event.pointerId, {
+			x: event.clientX,
+			y: event.clientY,
+		});
+		if (this.activePinchPointers.size === 2) {
+			this.pinchStartDistance = this.currentPinchDistance();
+			this.pinchStartZoom = this.zoomLevelValue;
+		}
+	}
+
+	onPinchPointerMove(event: ReactPointerEvent): void {
+		if (!this.activePinchPointers.has(event.pointerId)) return;
+		this.activePinchPointers.set(event.pointerId, {
+			x: event.clientX,
+			y: event.clientY,
+		});
+
+		if (
+			this.activePinchPointers.size !== 2 ||
+			this.pinchStartDistance === null ||
+			this.pinchStartDistance <= 0
+		) {
+			return;
+		}
+
+		// Two fingers actively pinching: this is unambiguously a zoom, not a
+		// scroll — stop the browser's native viewport-pinch from also firing.
+		event.preventDefault();
+
+		const distance = this.currentPinchDistance();
+		if (distance === null) return;
+
+		const scale = distance / this.pinchStartDistance;
+		this.setZoomLevel(this.pinchStartZoom * scale);
+	}
+
+	onPinchPointerEnd(event: ReactPointerEvent): void {
+		this.activePinchPointers.delete(event.pointerId);
+		if (this.activePinchPointers.size < 2) {
+			this.pinchStartDistance = null;
+		}
+	}
+
+	private currentPinchDistance(): number | null {
+		if (this.activePinchPointers.size < 2) return null;
+		const [a, b] = [...this.activePinchPointers.values()];
+		if (!a || !b) return null;
+		return Math.hypot(a.x - b.x, a.y - b.y);
 	}
 
 	reconcileInitialAndMinZoom({

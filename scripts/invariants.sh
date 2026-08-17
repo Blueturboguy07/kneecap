@@ -20,18 +20,22 @@
 # there) — flag debt loudly and gate against it getting worse, rather than
 # either silently laundering it or blocking unrelated work on fixing it.
 #
-# Two gates are intentionally NOT strict yet and say so loudly every run:
+# One gate note still worth reading every run:
 #   - bridge-import gate: fully strict (plan §2.4: "no editor UI file
 #     imports a Capacitor or Tauri symbol"). Now genuinely exercised —
 #     apps/mobile and packages/native-bridge both exist as of M3, and
 #     packages/native-bridge/src/{capacitor-bridge,index}.ts DO import
 #     @capacitor/core, which is exactly why that one directory is excluded
 #     from the scan below rather than the gate being vacuously green.
-#   - mouse-event gate: NOT strict — apps/web/src/timeline's controllers
-#     are still mouse-only (pre-M5; see plan M5 "Rewrite six mouse-only
-#     controllers to Pointer Events"). It reports the current count as a
-#     non-blocking warning. Flip STRICT_MOUSE_EVENT_GATE to 1 once M5's
-#     pointer-event rewrite lands.
+#   - mouse-event gate: STRICT as of M5 (2026-08-17) — the six controllers
+#     named in plan M5 item 1 (element-interaction, resize, playhead, seek,
+#     keyframe-drag, zoom) were rewired from mouse events to Pointer Events,
+#     plus the same rewrite for the bookmark-drag and audio-volume-line
+#     surfaces that live under apps/web/src/timeline and were caught by the
+#     same scan. Desktop mouse keeps working through the identical pointer
+#     path (pointerdown/move/up fire for mouse too) — nothing platform-
+#     specific was added on the mouse side. STRICT_MOUSE_EVENT_GATE can
+#     still be forced to 0 for a one-off debug run; it defaults on now.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -99,7 +103,7 @@ BASELINE_LINT_ERRORS=108
 BASELINE_TEST_PASS_MIN=250
 BASELINE_TEST_FAIL_MAX=3
 
-STRICT_MOUSE_EVENT_GATE="${STRICT_MOUSE_EVENT_GATE:-0}"
+STRICT_MOUSE_EVENT_GATE="${STRICT_MOUSE_EVENT_GATE:-1}"
 
 FAILED=0
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
@@ -319,14 +323,15 @@ fi
 # ---------------------------------------------------------------------------
 # 7. Mouse-event gate (plan M5 exit criterion: "Zero mousedown/mousemove/
 #    mouseup listeners remain in packages/mobile-ui and the ported timeline
-#    controllers"). NOT STRICT YET — pre-M5, apps/web/src/timeline's
-#    controllers are still mouse-only by design (six controllers named
-#    explicitly in plan M5 item 1). This step always reports the current
-#    count and, by default, never fails the build on it. Set
-#    STRICT_MOUSE_EVENT_GATE=1 to make it a hard gate (that's the flip M5
-#    should do on landing the Pointer Events rewrite).
+#    controllers"). STRICT by default as of M5 (2026-08-17): the six
+#    controllers named in plan M5 item 1, plus the bookmark-drag and
+#    audio-volume-line surfaces the same scan caught, were rewired to
+#    Pointer Events — `apps/web/src/timeline` now has zero raw
+#    mousedown/mousemove/mouseup listeners or onMouseDown/Move/Up= JSX
+#    attributes. Set STRICT_MOUSE_EVENT_GATE=0 to downgrade this to a
+#    non-blocking warning for a one-off debug run.
 # ---------------------------------------------------------------------------
-step "mouse-event gate (placeholder — strict from M5)"
+step "mouse-event gate (strict since M5)"
 MOUSE_SCAN_DIRS=("$REPO_ROOT/apps/web/src/timeline")
 [ -d "$REPO_ROOT/packages/mobile-ui" ] && MOUSE_SCAN_DIRS+=("$REPO_ROOT/packages/mobile-ui")
 MOUSE_HITS="$(grep -rnE "addEventListener\([\"']mouse(down|move|up)[\"']|onMouse(Down|Move|Up)=" \
@@ -339,7 +344,7 @@ elif [ "$STRICT_MOUSE_EVENT_GATE" = "1" ]; then
 	fail "$MOUSE_HIT_COUNT raw mouse-event listener(s) — gate is now STRICT (M5 landed) and this must be 0:"
 	printf '%s\n' "$MOUSE_HITS"
 else
-	info "$MOUSE_HIT_COUNT raw mouse-event listener(s) found — NON-BLOCKING placeholder, expected pre-M5 (plan M5 rewrites these six controllers to Pointer Events). Not counted as pass or fail."
+	info "$MOUSE_HIT_COUNT raw mouse-event listener(s) found — NON-BLOCKING because STRICT_MOUSE_EVENT_GATE=0 was set explicitly for this run. Not counted as pass or fail."
 fi
 
 # ---------------------------------------------------------------------------

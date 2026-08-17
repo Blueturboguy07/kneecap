@@ -1,4 +1,7 @@
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type {
+	MouseEvent as ReactMouseEvent,
+	PointerEvent as ReactPointerEvent,
+} from "react";
 import {
 	buildMoveGroup,
 	resolveGroupMove,
@@ -21,6 +24,7 @@ import type { FrameRate } from "opencut-wasm";
 import { computeDropTarget } from "@/timeline/components/drop-target";
 import { getMouseTimeFromClientX } from "@/timeline/drag-utils";
 import { generateUUID } from "@/utils/id";
+import { hapticTick } from "@/timeline/haptics";
 import type { SnapPoint } from "@/timeline/snapping";
 import type {
 	DropTarget,
@@ -32,6 +36,18 @@ import type {
 } from "@/timeline";
 
 const MOUSE_BUTTON_RIGHT = 2;
+
+// CapCut mobile's documented model (corpus 05 §2c): touching a clip's body
+// doesn't immediately drag it — the clip must "lift" under a long-press
+// before a reorder-drag begins. This disambiguates "drag to reorder" from
+// "scroll the track stack vertically", which a touch-and-immediately-move
+// would otherwise be ambiguous with. A real mouse has no such ambiguity
+// (there is no competing scroll gesture bound to the primary button), so
+// desktop keeps the original immediate-drag-past-threshold behavior.
+const TOUCH_LONG_PRESS_MS = 350;
+// If the pointer travels further than this before the long-press timer
+// fires, treat it as a scroll/flick, not a lift-to-reorder attempt.
+const TOUCH_LONG_PRESS_CANCEL_SLOP_PX = 10;
 
 // --- Config ---
 
@@ -97,13 +113,18 @@ interface MousedownSnapshot {
 	readonly startElementTime: MediaTime;
 	readonly clickOffsetTime: MediaTime;
 	readonly selectedElements: readonly ElementRef[];
+	readonly pointerId: number;
+	readonly captureTarget: Element;
+	// Touch/pen pointers must clear the long-press gate (see
+	// TOUCH_LONG_PRESS_MS) before a drag can begin; mouse never gates.
+	readonly requiresLongPress: boolean;
 }
 
 interface DragProgress {
 	moveGroup: MoveGroup;
 	// Pre-minted per member so the identity of any "new track" created by
-	// this drag stays stable across mousemove-driven drop-target recomputes.
-	// `resolveGroupMoveForDrop` runs every mousemove and emits a
+	// this drag stays stable across pointermove-driven drop-target recomputes.
+	// `resolveGroupMoveForDrop` runs every pointermove and emits a
 	// `createTracks[]` carrying these IDs; downstream consumers (snap
 	// indicator, drop-line, commit path) see the same entity every frame
 	// instead of a churning UUID.
@@ -291,10 +312,18 @@ function resolveGroupMoveForDrop({
 export class ElementInteractionController {
 	private session: Session = { kind: "idle" };
 	// True once the active gesture crossed the drag threshold. Read by
-	// onElementClick, which fires after mouseup — by which point the session
+	// onElementClick, which fires after pointerup — by which point the session
 	// has already returned to idle, so the "was this a drag?" answer must
-	// outlive the session. Reset on the next mousedown.
+	// outlive the session. Reset on the next pointerdown.
 	private lastGestureWasDrag = false;
+	// Set once a touch/pen long-press clears TOUCH_LONG_PRESS_MS without
+	// exceeding the cancel-slop. Mouse pointers are armed immediately.
+	private longPressArmed = false;
+	private longPressTimer: ReturnType<typeof setTimeout> | null = null;
+	// Identity of the last snap point we already ticked for — so a haptic
+	// fires once per NEW snap acquisition, not on every frame the drag
+	// happens to still be resting on the same snap point.
+	private lastTickedSnapTime: MediaTime | null = null;
 
 	private readonly subscribers = new Set<() => void>();
 	private readonly depsRef: ElementInteractionDepsRef;
@@ -341,6 +370,7 @@ export class ElementInteractionController {
 
 	cancel = (): void => {
 		this.lastGestureWasDrag = false;
+		this.clearLongPressTimer();
 		this.finishSession();
 	};
 
@@ -354,7 +384,7 @@ export class ElementInteractionController {
 		element,
 		track,
 	}: {
-		event: ReactMouseEvent;
+		event: ReactPointerEvent;
 		element: TimelineElement;
 		track: TimelineTrack;
 	}): void => {
@@ -366,6 +396,10 @@ export class ElementInteractionController {
 			}
 			return;
 		}
+
+		// A second finger touching down mid-gesture must not perturb an
+		// already-armed session.
+		if (this.session.kind !== "idle") return;
 
 		event.stopPropagation();
 		this.lastGestureWasDrag = false;
@@ -380,6 +414,14 @@ export class ElementInteractionController {
 			? this.deps.selection.getSelected()
 			: [ref];
 
+		const isTouchLike = event.pointerType !== "mouse";
+		try {
+			event.currentTarget.setPointerCapture(event.pointerId);
+		} catch {
+			// Safari sometimes throws on setPointerCapture for already-released
+			// pointers; the document-level listeners below still work without it.
+		}
+
 		this.session = {
 			kind: "pending",
 			mousedown: {
@@ -393,12 +435,28 @@ export class ElementInteractionController {
 					zoomLevel: this.deps.viewport.getZoomLevel(),
 				}),
 				selectedElements,
+				pointerId: event.pointerId,
+				captureTarget: event.currentTarget,
+				requiresLongPress: isTouchLike,
 			},
 		};
+		this.longPressArmed = !isTouchLike;
+		if (isTouchLike) {
+			this.longPressTimer = setTimeout(() => {
+				this.longPressTimer = null;
+				if (this.session.kind !== "pending") return;
+				this.longPressArmed = true;
+				hapticTick();
+				this.notify();
+			}, TOUCH_LONG_PRESS_MS);
+		}
 		this.activate();
 		this.notify();
 	};
 
+	// Wired to onClick (a genuine click/tap, fired after pointerup), not
+	// onPointerDown — so this one stays a MouseEvent, unlike
+	// onElementMouseDown above.
 	onElementClick = ({
 		event,
 		element,
@@ -430,20 +488,57 @@ export class ElementInteractionController {
 	};
 
 	private activate(): void {
-		document.addEventListener("mousemove", this.handleMouseMove);
-		document.addEventListener("mouseup", this.handleMouseUp);
+		document.addEventListener("pointermove", this.handlePointerMove);
+		document.addEventListener("pointerup", this.handlePointerUp);
+		document.addEventListener("pointercancel", this.handlePointerCancel);
 	}
 
 	private deactivate(): void {
-		document.removeEventListener("mousemove", this.handleMouseMove);
-		document.removeEventListener("mouseup", this.handleMouseUp);
+		document.removeEventListener("pointermove", this.handlePointerMove);
+		document.removeEventListener("pointerup", this.handlePointerUp);
+		document.removeEventListener("pointercancel", this.handlePointerCancel);
+	}
+
+	private clearLongPressTimer(): void {
+		if (this.longPressTimer === null) return;
+		clearTimeout(this.longPressTimer);
+		this.longPressTimer = null;
+	}
+
+	private releaseCapture(): void {
+		const target =
+			this.session.kind === "idle" ? null : this.session.mousedown.captureTarget;
+		const pointerId =
+			this.session.kind === "idle" ? null : this.session.mousedown.pointerId;
+		if (target === null || pointerId === null) return;
+		try {
+			if ("releasePointerCapture" in target) {
+				(target as Element).releasePointerCapture(pointerId);
+			}
+		} catch {
+			// Capture may already have been released by the browser (e.g. the
+			// element was removed from the DOM mid-drag) — nothing to clean up.
+		}
 	}
 
 	private notify(): void {
 		for (const fn of this.subscribers) fn();
 	}
 
+	/** Forwards a snap-change to the caller and ticks haptics once per new
+	 * (non-null) snap point acquired — not continuously while held. */
+	private notifySnap(snapPoint: SnapPoint | null): void {
+		if (snapPoint && snapPoint.time !== this.lastTickedSnapTime) {
+			hapticTick();
+		}
+		this.lastTickedSnapTime = snapPoint?.time ?? null;
+		this.deps.snap.onChange?.(snapPoint);
+	}
+
 	private finishSession(): void {
+		this.lastTickedSnapTime = null;
+		this.clearLongPressTimer();
+		this.releaseCapture();
 		this.session = { kind: "idle" };
 		this.deactivate();
 		this.deps.snap.onChange?.(null);
@@ -526,11 +621,35 @@ export class ElementInteractionController {
 				: null;
 	}
 
-	private handleMouseMove = ({ clientX, clientY }: MouseEvent): void => {
+	private handlePointerMove = (event: PointerEvent): void => {
+		const { clientX, clientY } = event;
 		const scrollContainer = this.deps.viewport.getTracksScrollEl();
 		if (!scrollContainer) return;
 
 		if (this.session.kind === "pending") {
+			if (event.pointerId !== this.session.mousedown.pointerId) return;
+
+			// A touch/pen gesture still waiting on its long-press timer: only
+			// cancel if it travels past the slop (a scroll/flick, not a lift).
+			// Once armed, it falls through to beginDragFromPending like mouse.
+			if (
+				this.session.mousedown.requiresLongPress &&
+				!this.longPressArmed
+			) {
+				if (
+					Math.abs(clientX - this.session.mousedown.origin.x) >
+						TOUCH_LONG_PRESS_CANCEL_SLOP_PX ||
+					Math.abs(clientY - this.session.mousedown.origin.y) >
+						TOUCH_LONG_PRESS_CANCEL_SLOP_PX
+				) {
+					// Let the gesture fall through as a scroll — this session never
+					// became a drag, so there's nothing to commit.
+					this.lastGestureWasDrag = false;
+					this.finishSession();
+				}
+				return;
+			}
+
 			this.beginDragFromPending({
 				mousedown: this.session.mousedown,
 				clientX,
@@ -541,6 +660,7 @@ export class ElementInteractionController {
 		}
 
 		if (this.session.kind === "dragging") {
+			if (event.pointerId !== this.session.mousedown.pointerId) return;
 			this.updateActiveDrag({
 				mousedown: this.session.mousedown,
 				drag: this.session.drag,
@@ -629,7 +749,7 @@ export class ElementInteractionController {
 			snappedTime,
 		});
 
-		this.deps.snap.onChange?.(snapPoint);
+		this.notifySnap(snapPoint);
 		this.notify();
 	}
 
@@ -673,17 +793,19 @@ export class ElementInteractionController {
 			snappedTime,
 		});
 
-		this.deps.snap.onChange?.(snapPoint);
+		this.notifySnap(snapPoint);
 		this.notify();
 	}
 
-	private handleMouseUp = ({ clientX, clientY }: MouseEvent): void => {
+	private handlePointerUp = (event: PointerEvent): void => {
+		if (this.session.kind === "idle") return;
+		if (event.pointerId !== this.session.mousedown.pointerId) return;
+		const { clientX, clientY } = event;
+
 		if (this.session.kind === "pending") {
 			this.finishSession();
 			return;
 		}
-
-		if (this.session.kind !== "dragging") return;
 
 		const { mousedown, drag } = this.session;
 
@@ -726,6 +848,17 @@ export class ElementInteractionController {
 			});
 		}
 
+		this.finishSession();
+	};
+
+	// Fires when the OS/browser interrupts a touch mid-gesture (e.g. an
+	// incoming call, or the browser deciding it's actually a page scroll).
+	// Always a cancel, never a commit — unlike pointerup, there is no "did
+	// the user mean to drop this here" question to ask.
+	private handlePointerCancel = (event: PointerEvent): void => {
+		if (this.session.kind === "idle") return;
+		if (event.pointerId !== this.session.mousedown.pointerId) return;
+		this.lastGestureWasDrag = false;
 		this.finishSession();
 	};
 }

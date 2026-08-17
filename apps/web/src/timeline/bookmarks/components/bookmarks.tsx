@@ -60,13 +60,13 @@ interface TimelineBookmarksRowProps {
 	dynamicTimelineWidth: number;
 	dragState: BookmarkDragState;
 	onBookmarkMouseDown: (params: {
-		event: React.MouseEvent;
+		event: React.PointerEvent;
 		bookmark: Bookmark;
 	}) => void;
 	handleWheel: (event: React.WheelEvent) => void;
 	handleTimelineContentClick: (event: React.MouseEvent) => void;
-	handleRulerTrackingMouseDown: (event: React.MouseEvent) => void;
-	handleRulerMouseDown: (event: React.MouseEvent) => void;
+	handleRulerTrackingMouseDown: (event: React.PointerEvent) => void;
+	handleRulerMouseDown: (event: React.PointerEvent) => void;
 }
 
 export function TimelineBookmarksRow({
@@ -99,7 +99,7 @@ export function TimelineBookmarksRow({
 					if (!event.currentTarget.contains(event.target as Node)) return;
 					handleTimelineContentClick(event);
 				}}
-				onMouseDown={(event) => {
+				onPointerDown={(event) => {
 					if (!event.currentTarget.contains(event.target as Node)) return;
 					handleRulerMouseDown(event);
 					handleRulerTrackingMouseDown(event);
@@ -129,7 +129,7 @@ function TimelineBookmark({
 	zoomLevel: number;
 	dragState: BookmarkDragState;
 	onBookmarkMouseDown: (params: {
-		event: React.MouseEvent;
+		event: React.PointerEvent;
 		bookmark: Bookmark;
 	}) => void;
 }) {
@@ -174,7 +174,7 @@ function TimelineBookmark({
 		handleSeek();
 	};
 
-	const handleMouseDown = (event: React.MouseEvent) => {
+	const handleMouseDown = (event: React.PointerEvent) => {
 		onBookmarkMouseDown({ event, bookmark });
 		event.preventDefault();
 		event.stopPropagation();
@@ -191,7 +191,7 @@ function TimelineBookmark({
 					}}
 					aria-label={`Bookmark at ${formatNumberForDisplay({ value: mediaTimeToSeconds({ time }), fractionDigits: 1 })}s`}
 					type="button"
-					onMouseDown={handleMouseDown}
+					onPointerDown={handleMouseDown}
 					onClick={handleClick}
 					onKeyDown={handleKeyDown}
 				>

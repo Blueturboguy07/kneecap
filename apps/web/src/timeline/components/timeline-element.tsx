@@ -202,13 +202,13 @@ interface TimelineElementProps {
 	zoomLevel: number;
 	isSelected: boolean;
 	onResizeStart: (params: {
-		event: React.MouseEvent;
+		event: React.PointerEvent;
 		element: TimelineElementType;
 		track: TimelineTrack;
 		side: "left" | "right";
 	}) => void;
 	onElementMouseDown: (params: {
-		event: React.MouseEvent;
+		event: React.PointerEvent;
 		element: TimelineElementType;
 	}) => void;
 	onElementClick: (params: {
@@ -536,11 +536,11 @@ function ElementInner({
 		element: TimelineElementType;
 	}) => void;
 	onElementMouseDown: (params: {
-		event: React.MouseEvent;
+		event: React.PointerEvent;
 		element: TimelineElementType;
 	}) => void;
 	onResizeStart: (params: {
-		event: React.MouseEvent;
+		event: React.PointerEvent;
 		element: TimelineElementType;
 		track: TimelineTrack;
 		side: "left" | "right";
@@ -578,9 +578,9 @@ function ElementInner({
 					<button
 						type="button"
 						tabIndex={-1}
-						className="absolute inset-0 size-full flex flex-col"
+						className="absolute inset-0 size-full flex flex-col touch-none"
 						onClick={(event) => onElementClick({ event, element })}
-						onMouseDown={(event) => onElementMouseDown({ event, element })}
+						onPointerDown={(event) => onElementMouseDown({ event, element })}
 					>
 						<div
 							className={cn(
@@ -633,7 +633,7 @@ function ResizeHandle({
 	element: TimelineElementType;
 	track: TimelineTrack;
 	onResizeStart: (params: {
-		event: React.MouseEvent;
+		event: React.PointerEvent;
 		element: TimelineElementType;
 		track: TimelineTrack;
 		side: "left" | "right";
@@ -641,13 +641,18 @@ function ResizeHandle({
 }) {
 	const isLeft = side === "left";
 	return (
+		// This button paints nothing (no visible fill/border) — it's a pure hit
+		// target, so doubling its width (plan M5: trim-handle hit area >=2x the
+		// nominal 4px visual edge) costs nothing visually and needs no
+		// pseudo-element trick. touch-none keeps the browser's own scroll/zoom
+		// from stealing the gesture once a thumb lands here.
 		<button
 			type="button"
 			className={cn(
-				"absolute top-0 bottom-0 w-2",
-				isLeft ? "-left-1 cursor-w-resize" : "-right-1 cursor-e-resize",
+				"absolute top-0 bottom-0 w-4 touch-none",
+				isLeft ? "-left-2 cursor-w-resize" : "-right-2 cursor-e-resize",
 			)}
-			onMouseDown={(event) => onResizeStart({ event, element, track, side })}
+			onPointerDown={(event) => onResizeStart({ event, element, track, side })}
 			onClick={(event) => event.stopPropagation()}
 			aria-label={`${isLeft ? "Left" : "Right"} resize handle`}
 		></button>
@@ -668,7 +673,7 @@ function KeyframeIndicators({
 	displayedStartTime: MediaTime;
 	elementLeft: number;
 	onKeyframeMouseDown: (params: {
-		event: React.MouseEvent;
+		event: React.PointerEvent;
 		keyframes: SelectedKeyframeRef[];
 	}) => void;
 	onKeyframeClick: (params: {
@@ -709,9 +714,9 @@ function KeyframeIndicators({
 			<button
 				key={indicator.time}
 				type="button"
-				className="pointer-events-auto absolute top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-grab mr-0.5"
+				className="pointer-events-auto absolute top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none mr-0.5"
 				style={{ left: visualOffsetPx }}
-				onMouseDown={(event) =>
+				onPointerDown={(event) =>
 					onKeyframeMouseDown({ event, keyframes: indicator.keyframes })
 				}
 				onClick={(event) =>
@@ -764,11 +769,11 @@ function ExpandedKeyframeLanes({
 	elementLeft: number;
 	keyframeDragState: KeyframeDragState;
 	onKeyframeMouseDown: (params: {
-		event: React.MouseEvent;
+		event: React.PointerEvent;
 		keyframes: SelectedKeyframeRef[];
 	}) => void;
 	containerRef: React.RefObject<HTMLDivElement | null>;
-	onLaneMouseDown: (event: React.MouseEvent) => void;
+	onLaneMouseDown: (event: React.PointerEvent) => void;
 	onLaneClick: (event: React.MouseEvent) => void;
 	selectionBox: {
 		bounds: SelectionBoxBounds;
@@ -811,7 +816,7 @@ function ExpandedKeyframeLanes({
 		<div
 			ref={containerRef}
 			className="relative flex flex-col"
-			onMouseDown={onLaneMouseDown}
+			onPointerDown={onLaneMouseDown}
 			onClick={onLaneClick}
 		>
 			{rows.map((row) => {
@@ -855,11 +860,11 @@ function ExpandedKeyframeLanes({
 									key={kf.id}
 									type="button"
 									className={cn(
-										"pointer-events-auto absolute top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-grab",
+										"pointer-events-auto absolute top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none",
 										isBoxSelecting && "pointer-events-none",
 									)}
 									style={{ left: visualOffset }}
-									onMouseDown={(event) => {
+									onPointerDown={(event) => {
 										event.stopPropagation();
 										onKeyframeMouseDown({
 											event,
@@ -1073,7 +1078,7 @@ function EffectsButton({
 		<button
 			type="button"
 			className="flex shrink-0 justify-center text-white cursor-pointer"
-			onMouseDown={(event) => event.stopPropagation()}
+			onPointerDown={(event) => event.stopPropagation()}
 			onClick={handleClick}
 		>
 			<HugeiconsIcon icon={MagicWand05Icon} size={12} />

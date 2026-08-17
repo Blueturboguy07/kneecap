@@ -16,8 +16,8 @@ interface TimelineRulerProps {
 	tracksScrollRef: React.RefObject<HTMLElement | null>;
 	handleWheel: (e: React.WheelEvent) => void;
 	handleTimelineContentClick: (e: React.MouseEvent) => void;
-	handleRulerTrackingMouseDown: (e: React.MouseEvent) => void;
-	handleRulerMouseDown: (e: React.MouseEvent) => void;
+	handleRulerTrackingMouseDown: (e: React.PointerEvent) => void;
+	handleRulerMouseDown: (e: React.PointerEvent) => void;
 }
 
 export function TimelineRuler({
@@ -105,17 +105,17 @@ export function TimelineRuler({
 			aria-valuemin={0}
 			aria-valuemax={effectiveDurationSeconds}
 			aria-valuenow={0}
-			className="relative flex-1 overflow-x-visible"
+			className="relative flex-1 touch-none overflow-x-visible"
 			style={{ height: TIMELINE_RULER_HEIGHT_PX }}
 			onWheel={handleWheel}
 			onClick={(event) => {
-				// Ruler seek already happens on mousedown via playhead scrubbing.
+				// Ruler seek already happens on pointerdown via playhead scrubbing.
 				// Forwarding the follow-up click re-enters the selection-clearing path.
 				if (event.target === event.currentTarget) {
 					handleTimelineContentClick(event);
 				}
 			}}
-			onMouseDown={handleRulerTrackingMouseDown}
+			onPointerDown={handleRulerTrackingMouseDown}
 			onKeyDown={() => {}}
 		>
 			<div
@@ -126,7 +126,7 @@ export function TimelineRuler({
 					height: TIMELINE_RULER_HEIGHT_PX,
 					width: `${dynamicTimelineWidth}px`,
 				}}
-				onMouseDown={handleRulerMouseDown}
+				onPointerDown={handleRulerMouseDown}
 			>
 				{timelineTicks}
 			</div>
