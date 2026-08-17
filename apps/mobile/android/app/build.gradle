@@ -36,6 +36,19 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    // kneecap M1 spike ONLY (SpikeDiagnosticsPlugin.java, test 3 / plan M1
+    // item 3) — Media3 Transformer for the native hardware export test.
+    // Verified directly against androidx/media's RELEASENOTES.md on
+    // 2026-08-17 (latest release 1.11.0): no cross-clip video
+    // transition/crossfade support has landed — plan risk-register item #4
+    // ("Media3 has no cross-clip transitions... as of Media3 1.10") still
+    // holds at 1.11.0. SpikeDiagnosticsPlugin therefore does a real 2-clip
+    // sequential export + text overlay, NOT a crossfade — see that file's
+    // comment. Not a production dependency; remove alongside the rest of
+    // the spike harness once M1 is read.
+    implementation "androidx.media3:media3-transformer:1.11.0"
+    implementation "androidx.media3:media3-common:1.11.0"
+    implementation "androidx.media3:media3-effect:1.11.0"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

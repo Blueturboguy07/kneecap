@@ -192,6 +192,44 @@ async function main() {
 	app.appendChild(el("span", "badge", "M1 SPIKE HARNESS — throwaway, not the product UI"));
 	app.appendChild(el("h1", undefined, "kneecap spike"));
 
+	// Automation/CI hook: `spike.html?autorun=1` runs all tests immediately
+	// and marks completion on `document.title` + a dedicated DOM node, so a
+	// screenshot or a headless-browser text read is enough to confirm the
+	// harness executed — no UI-automation tooling required. Deliberately
+	// placed above-the-fold (before the Environment card and everything
+	// else) so a single screenshot with no scrolling shows every test's
+	// full result — this is what agent sessions verifying this harness
+	// without UI-automation tooling read from; see docs/SPIKE-GUIDE.md's
+	// "verifying without a founder" section. Not how a human founder runs
+	// this — that's the "Run all 6 tests" button and the
+	// kneecap-spike:// deep link.
+	if (new URLSearchParams(location.search).get("autorun") === "1") {
+		const autorunStatus = el("p", "export-status", "autorun: running…");
+		autorunStatus.id = "autorun-status";
+		app.appendChild(autorunStatus);
+		const summary = el("pre", "output autorun-summary") as HTMLPreElement;
+		summary.id = "autorun-summary";
+		app.appendChild(summary);
+		void initEnvironment(); // populates results-store's environment for buildExport(), UI not shown in autorun mode
+		void runAll().then(
+			() => {
+				autorunStatus.textContent = "autorun: complete";
+				document.title = "kneecap spike — autorun complete";
+				summary.textContent = JSON.stringify(buildExport(), null, 2);
+				autoScrollForScreenshotVerification();
+			},
+			(err) => {
+				autorunStatus.textContent = `autorun: error — ${err instanceof Error ? err.message : String(err)}`;
+				document.title = "kneecap spike — autorun error";
+				summary.textContent = JSON.stringify(buildExport(), null, 2);
+				autoScrollForScreenshotVerification();
+			},
+		);
+		// Autorun mode is a single-screenshot-readable dump, not the
+		// interactive card UI — see this block's header comment.
+		return;
+	}
+
 	const envCard = el("section", "card");
 	envCard.appendChild(el("h2", undefined, "Environment"));
 	const envOutput = el("pre", "output", "loading…");
@@ -274,6 +312,25 @@ async function main() {
 		}
 		app.appendChild(buildCard({ id, title, thresholdKey, onRun }));
 	}
+}
+
+/**
+ * Slow, steady auto-scroll (no touch input) purely so a sequence of
+ * timed screenshots — taken by a session with no UI-automation/tap
+ * capability — can page through the full autorun summary. Real founders
+ * scroll normally; this only runs in `?autorun=1` mode.
+ */
+function autoScrollForScreenshotVerification() {
+	const stepPx = 500;
+	const intervalMs = 1500;
+	const timer = setInterval(() => {
+		const atBottom = window.scrollY + window.innerHeight >= document.body.scrollHeight - 4;
+		if (atBottom) {
+			clearInterval(timer);
+			return;
+		}
+		window.scrollBy({ top: stepPx, behavior: "instant" as ScrollBehavior });
+	}, intervalMs);
 }
 
 void main();

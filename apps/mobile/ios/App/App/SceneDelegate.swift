@@ -29,7 +29,28 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        // kneecap M1 spike — throwaway deep link (`kneecap-spike://open`)
+        // that navigates the already-loaded WKWebView to spike.html, the
+        // hidden diagnostics screen (docs/SPIKE-GUIDE.md has the exact
+        // trigger commands). Purely additive: only intercepts our own
+        // scheme and always still forwards to SceneDelegateProxy so
+        // Capacitor's own URL-open plugin handling (e.g. OAuth deep links)
+        // is untouched.
+        if let url = URLContexts.first?.url, url.scheme == "kneecap-spike" {
+            navigateToSpikeHarness()
+        }
         SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
+    }
+
+    private func navigateToSpikeHarness() {
+        guard let bridgeViewController = window?.rootViewController as? CAPBridgeViewController,
+              let webView = bridgeViewController.bridge?.webView else {
+            // First-run screen hasn't handed off to the bridge yet, or the
+            // bridge isn't ready — see docs/SPIKE-GUIDE.md's "open the app
+            // and wait for it to finish loading first" instruction.
+            return
+        }
+        webView.evaluateJavaScript("window.location.href = 'spike.html';")
     }
 
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {

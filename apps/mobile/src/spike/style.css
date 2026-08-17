@@ -163,3 +163,8 @@ button:active:not(:disabled) {
 .raw-json {
 	max-height: 400px;
 }
+
+.autorun-summary {
+	max-height: none;
+	font-size: 13px;
+}

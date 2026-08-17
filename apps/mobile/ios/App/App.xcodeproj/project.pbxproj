@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		22235B3E510EF14B724DC2B0 /* NativeBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C29089217A122709B9713B2 /* NativeBridgePlugin.swift */; };
+		BB99AD77BABC7E36C2D9E72A /* SpikeDiagnosticsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD54DF527E15EA673D177402 /* SpikeDiagnosticsPlugin.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		306E70E3B3B4F1E17C8E53EA /* FirstRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B85B4A3074F3DECCE8DF32C /* FirstRunView.swift */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
@@ -32,6 +33,7 @@
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		5C29089217A122709B9713B2 /* NativeBridgePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeBridgePlugin.swift; sourceTree = "<group>"; };
+		CD54DF527E15EA673D177402 /* SpikeDiagnosticsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpikeDiagnosticsPlugin.swift; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -78,6 +80,7 @@
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 				5C29089217A122709B9713B2 /* NativeBridgePlugin.swift */,
+				CD54DF527E15EA673D177402 /* SpikeDiagnosticsPlugin.swift */,
 				2B85B4A3074F3DECCE8DF32C /* FirstRunView.swift */,
 			);
 			path = App;
@@ -167,6 +170,7 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				22235B3E510EF14B724DC2B0 /* NativeBridgePlugin.swift in Sources */,
+				BB99AD77BABC7E36C2D9E72A /* SpikeDiagnosticsPlugin.swift in Sources */,
 				306E70E3B3B4F1E17C8E53EA /* FirstRunView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

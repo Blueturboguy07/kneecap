@@ -126,6 +126,24 @@ export async function runBackendFrameTimeAndMemoryWatermark(): Promise<{
 	let terminatedDuringRun = false;
 
 	try {
+		// REAL M1 FINDING, not a spike-only workaround: `opencut-wasm` requires
+		// `await initializeGpu()` before `initCompositor()` — calling
+		// `initCompositor()` without it throws "GPU context not initialized.
+		// Call initializeGpu() first." (verified directly against the real
+		// wasm binary in a WKWebView-equivalent WebKit engine, iOS Simulator
+		// Safari, in this spike). `@kneecap/editor-core`'s own
+		// `wasm-compositor.ts` (M2 product code) does NOT call
+		// `initializeGpu()` anywhere — its `ensureInitialized()` goes straight
+		// to `initCompositor()`. That means the PRODUCT renderer would fail
+		// identically the first time it actually runs in a browser, not just
+		// this spike. Flagged for the M2 owner; not fixed in
+		// wasm-compositor.ts itself here to avoid touching product code
+		// outside this milestone's scope while another track may be actively
+		// working in that file. See docs/SPIKE-GUIDE.md's "bugs this spike
+		// found" section.
+		const { initializeGpu } = await import("opencut-wasm");
+		await initializeGpu();
+
 		const { wasmCompositor } = await import(
 			"@kneecap/editor-core/services/renderer/compositor/wasm-compositor"
 		);
@@ -186,7 +204,7 @@ export async function runBackendFrameTimeAndMemoryWatermark(): Promise<{
 		};
 	} catch (err) {
 		terminatedDuringRun = false;
-		const message = err instanceof Error ? err.message : "unknown compositor error";
+		const message = stringifyUnknownError(err);
 		return {
 			backendFrameTime: {
 				testId: "backend-frametime",
@@ -206,6 +224,31 @@ export async function runBackendFrameTimeAndMemoryWatermark(): Promise<{
 				error: `Skipped/aborted — driven by the same failure as backend-frametime: ${message}`,
 			},
 		};
+	}
+}
+
+/**
+ * wasm-bindgen panics and some WebKit-internal failures don't always surface
+ * as a plain `Error` with a useful `.message` — richer than the generic
+ * "unknown error" fallback most of this codebase's other catch blocks use,
+ * specifically because this compositor path had never been exercised
+ * through a real bundler/browser before this spike (see vite.config.ts's
+ * header comment) and a vague error here would defeat the point of M1 test
+ * 1 entirely.
+ */
+function stringifyUnknownError(err: unknown): string {
+	if (err instanceof Error) return `${err.name}: ${err.message}`;
+	if (typeof err === "string") return err;
+	try {
+		const json = JSON.stringify(err);
+		if (json && json !== "{}") return json;
+	} catch {
+		// Fall through.
+	}
+	try {
+		return String(err);
+	} catch {
+		return "unknown compositor error (unstringifiable)";
 	}
 }
 

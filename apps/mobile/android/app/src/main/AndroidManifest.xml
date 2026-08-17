@@ -32,7 +32,22 @@
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
-            android:exported="false">
+            android:exported="true">
+            <!-- kneecap M1 spike ONLY — throwaway deep link to the hidden
+                 diagnostics screen. See MainActivity.java#onNewIntent and
+                 docs/SPIKE-GUIDE.md. Safe/expected to delete once M1 is
+                 read. android:exported flipped to true (from M3's false)
+                 specifically so this scheme is externally reachable the
+                 same way iOS's CFBundleURLTypes is — MainActivity itself
+                 gains no other new external entry point since it was
+                 already the app's own runtime target, just not
+                 externally-launchable before. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="kneecap-spike" />
+            </intent-filter>
         </activity>
 
         <provider
