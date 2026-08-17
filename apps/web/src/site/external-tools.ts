@@ -1,5 +1,3 @@
-import { OcDataBuddyIcon, OcMarbleIcon } from "@/components/icons";
-
 export type ExternalTool = {
 	name: string;
 	description: string;
@@ -7,18 +5,7 @@ export type ExternalTool = {
 	icon: React.ElementType;
 };
 
-export const EXTERNAL_TOOLS: ExternalTool[] = [
-	{
-		name: "Marble",
-		description:
-			"Modern headless CMS for content management and the blog for OpenCut",
-		url: "https://marblecms.com?utm_source=opencut",
-		icon: OcMarbleIcon,
-	},
-	{
-		name: "Databuddy",
-		description: "GDPR compliant analytics and user insights for OpenCut",
-		url: "https://databuddy.cc?utm_source=opencut",
-		icon: OcDataBuddyIcon,
-	},
-];
+// Kneecap: the previous entries here (Marble CMS, Databuddy analytics)
+// were both removed network dependencies — see offline-audit. Nothing
+// currently integrates with a third-party service, so this list is empty.
+export const EXTERNAL_TOOLS: ExternalTool[] = [];

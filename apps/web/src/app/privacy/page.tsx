@@ -53,8 +53,7 @@ export default function PrivacyPage() {
 							</li>
 							<li>Project data stays on your device, not our servers</li>
 							<li>
-								We use anonymized analytics to improve the app, but no personal video
-								content is tracked
+								We do not run any analytics, telemetry, or tracking scripts
 							</li>
 							<li>You can clear local data from your browser at any time</li>
 							<li>
@@ -108,21 +107,8 @@ export default function PrivacyPage() {
 			<section className="flex flex-col gap-3">
 				<h2 className="text-2xl font-semibold">Analytics</h2>
 				<p>
-					We use{" "}
-					<a
-						href="https://www.databuddy.cc"
-						target="_blank"
-						rel="noopener noreferrer"
-						className="text-primary hover:underline"
-					>
-						Databuddy
-					</a>{" "}
-					for basic, anonymized visitor counts. We do not track clicks,
-					interactions, or how you use the editor.
-				</p>
-				<p>
-					No personal information is collected, no individual users are tracked,
-					and no data that could identify you is stored.
+					We do not run any analytics, telemetry, or tracking scripts. Nothing
+					about your visit or your use of the editor is sent anywhere.
 				</p>
 			</section>
 
@@ -142,15 +128,10 @@ export default function PrivacyPage() {
 
 			<section className="flex flex-col gap-3">
 				<h2 className="text-2xl font-semibold">Third-Party Services</h2>
-				<p>OpenCut integrates with these services:</p>
-				<ul className="list-disc space-y-2 pl-6">
-					<li>
-						<strong>Vercel:</strong> For hosting and content delivery
-					</li>
-					<li>
-						<strong>Databuddy:</strong> For anonymized analytics
-					</li>
-				</ul>
+				<p>
+					Kneecap does not integrate with any third-party analytics, CMS, or
+					sound-search service. The editor runs fully offline.
+				</p>
 			</section>
 
 			<section className="flex flex-col gap-3">

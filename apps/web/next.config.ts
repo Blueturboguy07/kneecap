@@ -1,5 +1,4 @@
 import type { NextConfig } from "next";
-import { withBotId } from "botid/next/config";
 import { withContentCollections } from "@content-collections/next";
 
 const nextConfig: NextConfig = {
@@ -21,10 +20,6 @@ const nextConfig: NextConfig = {
 			},
 			{
 				protocol: "https",
-				hostname: "images.marblecms.com",
-			},
-			{
-				protocol: "https",
 				hostname: "lh3.googleusercontent.com",
 			},
 			{
@@ -43,12 +38,12 @@ const nextConfig: NextConfig = {
 				protocol: "https",
 				hostname: "api.unisvg.com",
 			},
-			{
-				protocol: "https",
-				hostname: "cdn.brandfetch.io",
-			},
 		],
 	},
 };
 
-export default withContentCollections(withBotId(nextConfig));
+// Kneecap: withBotId (Vercel Bot Protection, calls out to a remote
+// detection service on every protected route) was removed as a network
+// dependency. @content-collections/next only reads local markdown at
+// build time (src/lib/changelog/entries/*.md) — no network — so it stays.
+export default withContentCollections(nextConfig);

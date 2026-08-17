@@ -27,35 +27,13 @@ interface Contributor {
 	type: string;
 }
 
+// Kneecap: this used to fetch live contributor stats from the GitHub API
+// at build/request time, an external network dependency this offline-first
+// app cannot have. Hard-disabled rather than deleted — the page still
+// renders (with an empty contributor list) so the join-the-community CTA
+// below stays reachable.
 async function getContributors(): Promise<Contributor[]> {
-	try {
-		const response = await fetch(
-			"https://api.github.com/repos/OpenCut-app/OpenCut/contributors?per_page=100",
-			{
-				headers: {
-					Accept: "application/vnd.github.v3+json",
-					"User-Agent": "OpenCut-Web-App",
-				},
-				next: { revalidate: 600 }, // 10 minutes
-			},
-		);
-
-		if (!response.ok) {
-			console.error("Failed to fetch contributors");
-			return [];
-		}
-
-		const contributors = (await response.json()) as Contributor[];
-
-		const filteredContributors = contributors.filter(
-			(contributor) => contributor.type === "User",
-		);
-
-		return filteredContributors;
-	} catch (error) {
-		console.error("Error fetching contributors:", error);
-		return [];
-	}
+	return [];
 }
 
 export default async function ContributorsPage() {
