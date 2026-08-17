@@ -22,16 +22,8 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     env:
-      DATABASE_URL: "postgresql://opencut:opencut@localhost:5432/opencut"
-      BETTER_AUTH_SECRET: "supersecret"
       NEXT_PUBLIC_SITE_URL: "http://localhost:3000"
-      UPSTASH_REDIS_REST_URL: "https://your-upstash-redis-url"
-      UPSTASH_REDIS_REST_TOKEN: "your-upstash-redis-token"
-      NEXT_PUBLIC_MARBLE_API_URL: "https://placeholder.example.com"
-      MARBLE_WORKSPACE_KEY: "placeholder"
-      FREESOUND_CLIENT_ID: "placeholder"
-      FREESOUND_API_KEY: "placeholder"
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -74,6 +66,9 @@ jobs:
       - name: Build
         working-directory: apps/web
         run: bun run build
+
+      - name: Offline audit (no outbound network references)
+        run: bash scripts/offline-audit.sh
 
       - name: Run tests
         working-directory: apps/web
