@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type {
+	CaptionElement,
 	EffectElement,
 	GraphicElement,
 	ImageElement,
@@ -21,6 +22,7 @@ import {
 	MusicNote03Icon,
 	MagicWand05Icon,
 	DashboardSpeed02Icon,
+	ClosedCaptionIcon,
 } from "@hugeicons/core-free-icons";
 import { ElementParamsTab } from "./components/element-params-tab";
 import { ClipEffectsTab, StandaloneEffectTab } from "@/effects/components/effects-tab";
@@ -57,6 +59,23 @@ const TEXT_PARAM_KEYS = [
 	"background.paddingY",
 	"background.offsetX",
 	"background.offsetY",
+] as const;
+const CAPTION_PARAM_KEYS = [
+	"stylePresetId",
+	"fontFamily",
+	"fontSize",
+	"fontWeight",
+	"color",
+	"highlightColor",
+	"strokeColor",
+	"strokeWidth",
+	"background.enabled",
+	"background.color",
+	"activeWordBackground.enabled",
+	"activeWordBackground.color",
+	"position",
+	"uppercase",
+	"animationStyle",
 ] as const;
 
 export type TabContentProps = {
@@ -192,6 +211,26 @@ function buildTextTab({ element }: { element: TextElement }): PropertiesTabDef {
 	};
 }
 
+function buildCaptionTab({
+	element,
+}: {
+	element: CaptionElement;
+}): PropertiesTabDef {
+	return {
+		id: "caption",
+		label: "Captions",
+		icon: <HugeiconsIcon icon={ClosedCaptionIcon} size={16} />,
+		content: ({ trackId }) => (
+			<ElementParamsTab
+				element={element}
+				trackId={trackId}
+				paramKeys={CAPTION_PARAM_KEYS}
+				sectionKey="caption"
+			/>
+		),
+	};
+}
+
 function buildGraphicTab({
 	element,
 }: {
@@ -231,6 +270,22 @@ function getTextConfig({
 			buildTextTab({ element }),
 			buildTransformTab({ element }),
 			buildBlendingTab({ element }),
+		],
+	};
+}
+
+function getCaptionConfig({
+	element,
+}: {
+	element: CaptionElement;
+}): ElementPropertiesConfig {
+	return {
+		defaultTab: "caption",
+		tabs: [
+			buildCaptionTab({ element }),
+			buildTransformTab({ element }),
+			buildBlendingTab({ element }),
+			buildClipEffectsTab({ element }),
 		],
 	};
 }
@@ -350,5 +405,7 @@ export function getPropertiesConfig({
 			return getAudioConfig({ element });
 		case "effect":
 			return getEffectConfig({ element });
+		case "caption":
+			return getCaptionConfig({ element });
 	}
 }

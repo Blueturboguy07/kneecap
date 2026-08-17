@@ -1,5 +1,6 @@
 import type {
 	AudioTrack,
+	CaptionTrack,
 	EffectTrack,
 	GraphicTrack,
 	OverlayTrack,
@@ -153,6 +154,12 @@ function buildPlacedOverlayTrack({
 			return {
 				...buildEmptyTrack({ id, type: "effect" }),
 				elements: elements as EffectTrack["elements"],
+			};
+		case "caption":
+			return {
+				...buildEmptyTrack({ id, type: "caption" }),
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- same narrowing cast as every other case in this switch (audio/video/text/sticker-graphic/effect, all pre-existing): `elements` is `TimelineElement[]`, already runtime-guaranteed homogeneous by the caller (every element in a batch placement shares `elementType`/`trackType`); the assertion recovers that invariant for the type checker, matching the established pattern here rather than introducing a new one.
+				elements: elements as CaptionTrack["elements"],
 			};
 	}
 }

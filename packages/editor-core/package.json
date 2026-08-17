@@ -8,6 +8,8 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./edl": "./src/edl/index.ts",
+		"./captions": "./src/captions/index.ts",
+		"./wasm": "./src/wasm/index.ts",
 		"./react": "./react/index.ts",
 		"./*": "./src/*"
 	},

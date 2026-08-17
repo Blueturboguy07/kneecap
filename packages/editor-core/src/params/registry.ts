@@ -15,6 +15,7 @@ import {
 	CORNER_RADIUS_MAX,
 	CORNER_RADIUS_MIN,
 } from "@/text/background";
+import { CAPTION_STYLE_PRESETS, getDefaultCaptionStylePreset } from "@/captions/styles";
 
 export type ElementParamDefinition<TKey extends string = string> =
 	ParamDefinition<TKey> & {
@@ -326,6 +327,163 @@ const textElementParams: ElementParamDefinition[] = [
 	},
 ];
 
+/**
+ * Caption params — plan M10 items 5/6. Deliberately its own set rather than
+ * reusing `textElementParams`: captions are generated (never hand-typed) and
+ * carry a `stylePresetId` bookkeeping field plus karaoke-specific keys
+ * (`highlightColor`, `activeWordBackground.*`, `animationStyle`) that a plain
+ * text clip has no use for. Defaults come from `getDefaultCaptionStylePreset()`
+ * (`captions/styles.ts`) so a caption inserted with zero explicit params
+ * already renders as the "Classic" preset — there is exactly one place
+ * (`captions/styles.ts`) that defines what "Classic" looks like.
+ */
+const defaultCaptionStyle = getDefaultCaptionStylePreset();
+
+function captionDefault({ key, fallback }: { key: string; fallback: ParamValue }): ParamValue {
+	return defaultCaptionStyle.params[key] ?? fallback;
+}
+
+const captionElementParams: ElementParamDefinition[] = [
+	{
+		key: "stylePresetId",
+		label: "Style Preset",
+		type: "select",
+		default: defaultCaptionStyle.id,
+		keyframable: false,
+		options: CAPTION_STYLE_PRESETS.map((preset) => ({
+			value: preset.id,
+			label: preset.name,
+		})),
+	},
+	{
+		key: "fontFamily",
+		label: "Font Family",
+		type: "font",
+		default: String(captionDefault({ key: "fontFamily", fallback: "Arial" })),
+		keyframable: false,
+	},
+	{
+		key: "fontSize",
+		label: "Font Size",
+		type: "number",
+		default: Number(captionDefault({ key: "fontSize", fallback: 22 })),
+		min: 1,
+		step: 1,
+		// Not keyframable: `resolveCaptionNode` (services/renderer/resolve.ts)
+		// reads this as a static param, matching every other caption style key
+		// below. Unlike text's `color`/`opacity`, caption params are not run
+		// through `resolveXAtTime` in this pass — offering keyframing here
+		// would be a UI affordance the renderer silently ignores.
+		keyframable: false,
+	},
+	{
+		key: "fontWeight",
+		label: "Font Weight",
+		type: "select",
+		default: String(captionDefault({ key: "fontWeight", fallback: "bold" })),
+		keyframable: false,
+		options: [
+			{ value: "normal", label: "Normal" },
+			{ value: "bold", label: "Bold" },
+		],
+	},
+	{
+		key: "color",
+		label: "Text Color",
+		type: "color",
+		default: String(captionDefault({ key: "color", fallback: "#ffffff" })),
+		keyframable: false,
+	},
+	{
+		key: "highlightColor",
+		label: "Active Word Color",
+		type: "color",
+		default: String(captionDefault({ key: "highlightColor", fallback: "#FFDE59" })),
+		keyframable: false,
+	},
+	{
+		key: "strokeColor",
+		label: "Stroke Color",
+		type: "color",
+		default: String(captionDefault({ key: "strokeColor", fallback: "#000000" })),
+		keyframable: false,
+	},
+	{
+		key: "strokeWidth",
+		label: "Stroke Width",
+		type: "number",
+		default: Number(captionDefault({ key: "strokeWidth", fallback: 6 })),
+		min: 0,
+		max: 40,
+		step: 1,
+		keyframable: false,
+	},
+	{
+		key: "background.enabled",
+		label: "Background Enabled",
+		type: "boolean",
+		default: captionDefault({ key: "background.enabled", fallback: false }) === true,
+		keyframable: false,
+	},
+	{
+		key: "background.color",
+		label: "Background Color",
+		type: "color",
+		default: String(captionDefault({ key: "background.color", fallback: "#000000" })),
+		dependencies: [{ param: "background.enabled", equals: true }],
+		keyframable: false,
+	},
+	{
+		key: "activeWordBackground.enabled",
+		label: "Active Word Pill",
+		type: "boolean",
+		default:
+			captionDefault({ key: "activeWordBackground.enabled", fallback: false }) === true,
+		keyframable: false,
+	},
+	{
+		key: "activeWordBackground.color",
+		label: "Active Word Pill Color",
+		type: "color",
+		default: String(
+			captionDefault({ key: "activeWordBackground.color", fallback: "#FFDE59" }),
+		),
+		dependencies: [{ param: "activeWordBackground.enabled", equals: true }],
+		keyframable: false,
+	},
+	{
+		key: "position",
+		label: "Position",
+		type: "select",
+		default: String(captionDefault({ key: "position", fallback: "bottom" })),
+		keyframable: false,
+		options: [
+			{ value: "top", label: "Top" },
+			{ value: "center", label: "Center" },
+			{ value: "bottom", label: "Bottom" },
+		],
+	},
+	{
+		key: "uppercase",
+		label: "Uppercase",
+		type: "boolean",
+		default: captionDefault({ key: "uppercase", fallback: false }) === true,
+		keyframable: false,
+	},
+	{
+		key: "animationStyle",
+		label: "Word Animation",
+		type: "select",
+		default: String(captionDefault({ key: "animationStyle", fallback: "karaoke" })),
+		keyframable: false,
+		options: [
+			{ value: "karaoke", label: "Karaoke" },
+			{ value: "pop", label: "Pop" },
+			{ value: "none", label: "None" },
+		],
+	},
+];
+
 export const elementParamRegistry = new DefinitionRegistry<
 	ElementType,
 	readonly ElementParamDefinition[]
@@ -339,6 +497,10 @@ elementParamRegistry.register({ key: "image", definition: visualElementParams })
 elementParamRegistry.register({
 	key: "text",
 	definition: [...textElementParams, ...visualElementParams],
+});
+elementParamRegistry.register({
+	key: "caption",
+	definition: [...captionElementParams, ...visualElementParams],
 });
 elementParamRegistry.register({
 	key: "sticker",

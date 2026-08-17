@@ -194,6 +194,11 @@ export class InsertElementCommand extends Command {
 			return false;
 		}
 
+		if (element.type === "caption" && element.words.length === 0) {
+			console.error("Caption element must have at least one word");
+			return false;
+		}
+
 		if (element.type === "effect" && !element.effectType) {
 			console.error("Effect element must have effectType");
 			return false;

@@ -143,7 +143,9 @@
 			"properties": {
 				"trackId": { "type": "string" },
 				"kind": { "enum": ["main", "overlay", "audio"] },
-				"trackType": { "enum": ["video", "text", "audio", "graphic", "effect"] },
+				"trackType": {
+					"enum": ["video", "text", "audio", "graphic", "effect", "caption"]
+				},
 				"name": { "type": "string" },
 				"zIndex": {
 					"description": "0 is the bottom-most composited layer; higher paints on top. null for audio tracks, which are not composited.",
@@ -266,13 +268,23 @@
 				"effects",
 				"masks",
 				"animations",
+				"captionWords",
 				"params"
 			],
 			"additionalProperties": false,
 			"properties": {
 				"clipId": { "type": "string" },
 				"kind": {
-					"enum": ["video", "image", "audio", "text", "sticker", "graphic", "effect"]
+					"enum": [
+						"video",
+						"image",
+						"audio",
+						"text",
+						"sticker",
+						"graphic",
+						"effect",
+						"caption"
+					]
 				},
 				"assetId": { "type": ["string", "null"] },
 				"name": { "type": "string" },
@@ -298,7 +310,22 @@
 					"type": "array",
 					"items": { "$ref": "#/$defs/animationChannel" }
 				},
+				"captionWords": {
+					"description": "[] unless kind is \"caption\". Ticks are in the same source-tick space as sourceStartTicks/sourceEndTicks above.",
+					"type": "array",
+					"items": { "$ref": "#/$defs/captionWord" }
+				},
 				"params": { "$ref": "#/$defs/paramBag" }
+			}
+		},
+		"captionWord": {
+			"type": "object",
+			"required": ["text", "startTicks", "endTicks"],
+			"additionalProperties": false,
+			"properties": {
+				"text": { "type": "string" },
+				"startTicks": { "$ref": "#/$defs/ticks" },
+				"endTicks": { "$ref": "#/$defs/ticks" }
 			}
 		},
 		"overlay": {

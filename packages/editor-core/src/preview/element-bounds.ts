@@ -8,6 +8,13 @@ import {
 } from "@/animation";
 import { resolveTransformAtTime } from "@/rendering/animation-values";
 import { buildTransformFromParams } from "@/rendering";
+import { resolveCaptionStyle } from "@/captions/resolve-style";
+import { getActiveCaptionWordIndex, getVisibleCaptionWords } from "@/captions/layout";
+import {
+	captionPositionBaselineY,
+	measureVisibleCaptionLine,
+} from "@/services/renderer/nodes/caption-node";
+import { getTextMeasurementContext } from "@/text/measure-element";
 
 export interface ElementBounds {
 	cx: number;
@@ -192,6 +199,52 @@ function getElementBounds({
 			canvasHeight,
 			rect: measured.visualRect,
 			transform,
+		});
+	}
+
+	if (element.type === "caption") {
+		const transform = resolveTransformAtTime({
+			baseTransform: buildTransformFromParams({ params: element.params }),
+			animations: element.animations,
+			localTime,
+		});
+
+		const style = resolveCaptionStyle({ element });
+		const sourceLocalTime = element.trimStart + localTime;
+		const visible = getVisibleCaptionWords({ element });
+		const activeElementWordIndex = getActiveCaptionWordIndex({
+			element,
+			sourceLocalTime,
+		});
+		const activeVisibleIndex =
+			activeElementWordIndex === null
+				? null
+				: visible.findIndex((v) => v.index === activeElementWordIndex);
+
+		const line = measureVisibleCaptionLine({
+			visibleWords: visible.map((v) => v.word),
+			activeVisibleIndex: activeVisibleIndex === -1 ? null : activeVisibleIndex,
+			style,
+			canvasHeight,
+			ctx: getTextMeasurementContext(),
+		});
+		if (!line) return null;
+
+		const offsetY = captionPositionBaselineY({ position: style.position, canvasHeight });
+
+		return getTransformedRectBounds({
+			canvasWidth,
+			canvasHeight,
+			rect: {
+				left: -line.totalWidth / 2,
+				top: -line.totalHeight / 2,
+				width: line.totalWidth,
+				height: line.totalHeight,
+			},
+			transform: {
+				...transform,
+				position: { x: transform.position.x, y: transform.position.y + offsetY },
+			},
 		});
 	}
 
