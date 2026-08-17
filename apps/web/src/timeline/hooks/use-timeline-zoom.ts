@@ -1,4 +1,5 @@
 import {
+	type PointerEvent as ReactPointerEvent,
 	type WheelEvent as ReactWheelEvent,
 	type RefObject,
 	useEffect,
@@ -30,6 +31,9 @@ interface UseTimelineZoomReturn {
 	setZoomLevel: (zoomLevel: number | ((prev: number) => number)) => void;
 	handleWheel: (event: ReactWheelEvent) => void;
 	saveScrollPosition: () => void;
+	onPinchPointerDown: (event: ReactPointerEvent) => void;
+	onPinchPointerMove: (event: ReactPointerEvent) => void;
+	onPinchPointerEnd: (event: ReactPointerEvent) => void;
 }
 
 export function useTimelineZoom({
@@ -92,5 +96,8 @@ export function useTimelineZoom({
 		setZoomLevel: controller.setZoomLevel,
 		handleWheel: controller.handleWheel,
 		saveScrollPosition: controller.saveScrollPosition,
+		onPinchPointerDown: controller.onPinchPointerDown,
+		onPinchPointerMove: controller.onPinchPointerMove,
+		onPinchPointerEnd: controller.onPinchPointerEnd,
 	};
 }

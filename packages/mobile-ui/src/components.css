@@ -1,0 +1,899 @@
+/*
+ * components.css — plain CSS, deliberately NOT Tailwind utility classes.
+ *
+ * Why: this package is consumed from two different app shells with two
+ * different build stacks — apps/web (Next.js + Tailwind v4) and apps/mobile
+ * (plain Vite, no Tailwind at all — see apps/mobile/src/style.css). Writing
+ * Tailwind arbitrary-value classes here would depend on Tailwind's content
+ * scanner reaching across a workspace-package boundary (via a node_modules
+ * symlink, which Tailwind v4's default source detection does not walk into
+ * without an explicit `@source` directive per consumer) — a real, easy-to-
+ * miss "works in dev, silently unstyled in a prod build" failure class.
+ * Plain CSS keyed to the tokens in tokens.css has no such dependency and
+ * works identically in both shells. This mirrors the existing
+ * headless/framework-agnostic discipline packages/editor-core already
+ * follows, just for styling instead of logic.
+ *
+ * Every rule here assumes it is rendered inside (or under) an element
+ * carrying [data-kneecap-theme="capcut-mobile"] — see tokens.css.
+ */
+
+[data-kneecap-theme="capcut-mobile"] {
+	font-family: var(--cc-font-ui);
+	color: var(--cc-text-primary);
+}
+
+/* ============================== Toolbar row ============================== */
+/* Shared by BottomToolbar (primary) and SubToolbar (contextual, clip-
+   selected) — corpus 04 §4 flags the primary-vs-contextual relationship
+   itself as [NEEDS-CAPTURE] ("replace vs overlay vs horizontal-scroll-
+   reveal... not pinned down by sources"), so both render with the same
+   visual grammar and differ only in height/usage until that's resolved. */
+.cc-toolbar {
+	display: flex;
+	align-items: stretch;
+	gap: var(--cc-space-1);
+	background: var(--cc-bg-panel);
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+	-webkit-overflow-scrolling: touch;
+	touch-action: pan-x;
+}
+.cc-toolbar::-webkit-scrollbar {
+	display: none;
+}
+.cc-toolbar--primary {
+	height: var(--cc-toolbar-height);
+}
+.cc-toolbar--contextual {
+	height: var(--cc-subtoolbar-height);
+}
+.cc-toolbar__item {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--cc-space-1);
+	min-width: var(--cc-touch-target-ios);
+	padding: 0 var(--cc-space-3);
+	background: none;
+	border: none;
+	color: var(--cc-text-primary);
+	font-family: inherit;
+	cursor: pointer;
+	flex-shrink: 0;
+}
+.cc-toolbar__item:disabled {
+	color: var(--cc-text-disabled);
+	cursor: default;
+}
+.cc-toolbar__item-label {
+	font-size: var(--cc-text-label);
+	font-weight: var(--cc-font-weight-inactive);
+	line-height: 1;
+	white-space: nowrap;
+}
+.cc-toolbar__item--active .cc-toolbar__item-label {
+	color: var(--cc-accent);
+}
+.cc-toolbar__item--active svg {
+	color: var(--cc-accent);
+}
+
+/* ================================ Tab bar ================================ */
+/* Matches the measured pattern exactly (corpus 06 §2.2 + this session's
+   direct read of iphone_shots/zoom_tabs_ip1.png and zoom_tabs_ip5.png):
+   active = primary-white + weight 600 + cyan underline; inactive =
+   secondary-gray + weight 400, no underline. */
+.cc-tabbar {
+	display: flex;
+	align-items: center;
+	gap: var(--cc-space-5);
+	overflow-x: auto;
+	scrollbar-width: none;
+	touch-action: pan-x;
+}
+.cc-tabbar::-webkit-scrollbar {
+	display: none;
+}
+.cc-tabbar__tab {
+	position: relative;
+	flex-shrink: 0;
+	background: none;
+	border: none;
+	padding: var(--cc-space-3) 0 var(--cc-space-2);
+	font-family: inherit;
+	font-size: var(--cc-text-tab);
+	color: var(--cc-text-secondary);
+	font-weight: var(--cc-font-weight-inactive);
+	cursor: pointer;
+	white-space: nowrap;
+}
+.cc-tabbar__tab--active {
+	color: var(--cc-text-primary);
+	font-weight: var(--cc-font-weight-active);
+}
+.cc-tabbar__underline {
+	position: absolute;
+	left: 0;
+	bottom: 0;
+	height: 3px;
+	width: 100%;
+	background: var(--cc-accent);
+	border-radius: var(--cc-radius-pill);
+}
+
+/* ============================== Panel sheet =============================== */
+.cc-sheet-scrim {
+	position: fixed;
+	inset: 0;
+	background: var(--cc-bg-scrim);
+	/* Explicit, not load-bearing on its own — see .cc-sheet's z-index
+	   comment below for why BOTH need an explicit value. */
+	z-index: 0;
+}
+.cc-sheet {
+	background: var(--cc-bg-panel);
+	border-top-left-radius: var(--cc-radius-sheet);
+	border-top-right-radius: var(--cc-radius-sheet);
+	display: flex;
+	flex-direction: column;
+	max-height: 70vh;
+	overflow: hidden;
+	/* M8 bugfix, found via real in-browser click testing (not caught by
+	   any prior visual-only check): CSS paints/hit-tests POSITIONED
+	   elements above NON-positioned siblings within the same stacking
+	   context, regardless of DOM order. `.cc-sheet-scrim` is
+	   `position: fixed`; this element, `.cc-sheet` — its DOM sibling in
+	   `PanelSheet`'s fragment, rendered AFTER the scrim — was plain
+	   `position: static` (the default), so the browser stacked the scrim
+	   ON TOP of the entire sheet despite the scrim being earlier in the
+	   DOM. `document.elementFromPoint()` at a real sheet button's center
+	   returned the scrim div, not the button: every tap anywhere inside
+	   an open sheet actually hit the scrim and called `onClose`,
+	   silently closing the sheet instead of running the button's own
+	   handler — with zero console error, so it was invisible to any
+	   check short of clicking through a real render and inspecting hit-
+	   testing directly. `position: relative` (a no-op for layout with no
+	   top/left/etc. offsets — this element keeps flowing normally) plus
+	   an explicit `z-index` above the scrim's is what actually fixes it.
+	   Confirmed after this fix: `elementFromPoint` at a sheet button's
+	   center returns the button. */
+	position: relative;
+	z-index: 1;
+}
+.cc-sheet__body {
+	overflow-y: auto;
+	padding: var(--cc-space-4);
+}
+
+/* ============================== Sheet header =============================== */
+.cc-sheet-header-group {
+	display: flex;
+	flex-direction: column;
+}
+.cc-sheet-header__tabbar {
+	flex: 1;
+}
+.cc-sheet-header {
+	display: flex;
+	align-items: center;
+	gap: var(--cc-space-3);
+	padding: var(--cc-space-4) var(--cc-space-4) var(--cc-space-2);
+}
+.cc-sheet-header__search {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	gap: var(--cc-space-2);
+	background: var(--cc-bg-raised);
+	border-radius: var(--cc-radius-chip);
+	padding: var(--cc-space-2) var(--cc-space-3);
+	min-height: var(--cc-touch-target-ios);
+}
+.cc-sheet-header__search input {
+	flex: 1;
+	background: none;
+	border: none;
+	outline: none;
+	color: var(--cc-text-primary);
+	font-family: inherit;
+	font-size: var(--cc-text-body);
+}
+.cc-sheet-header__search input::placeholder {
+	color: var(--cc-text-secondary);
+}
+.cc-sheet-header__icon-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--cc-touch-target-ios);
+	height: var(--cc-touch-target-ios);
+	background: none;
+	border: none;
+	color: var(--cc-text-primary);
+	cursor: pointer;
+	flex-shrink: 0;
+}
+
+/* ================================ Chip row ================================ */
+.cc-chiprow {
+	display: flex;
+	gap: var(--cc-space-2);
+	overflow-x: auto;
+	scrollbar-width: none;
+	touch-action: pan-x;
+}
+.cc-chiprow::-webkit-scrollbar {
+	display: none;
+}
+.cc-chip {
+	flex-shrink: 0;
+	background: transparent;
+	border: 1px solid var(--cc-bg-raised);
+	border-radius: var(--cc-radius-pill);
+	padding: var(--cc-space-2) var(--cc-space-4);
+	font-family: inherit;
+	font-size: var(--cc-text-body);
+	color: var(--cc-text-primary);
+	font-weight: var(--cc-font-weight-inactive);
+	cursor: pointer;
+	white-space: nowrap;
+}
+/* Deliberately --cc-text-primary even when inactive, never
+   --cc-text-secondary here — see tokens.ts's contrast-audit comment: the
+   measured secondary gray does not reach WCAG AA against a raised/chip
+   surface, so this kit's rule is raised surfaces always carry primary
+   text. */
+.cc-chip--active {
+	background: var(--cc-bg-raised);
+	font-weight: var(--cc-font-weight-active);
+}
+
+/* ============================== Thumbnail grid ============================= */
+.cc-thumbgrid {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: var(--cc-space-2);
+}
+.cc-thumb {
+	position: relative;
+	aspect-ratio: 1;
+	border-radius: var(--cc-radius-card);
+	overflow: hidden;
+	background: var(--cc-bg-raised);
+	border: none;
+	padding: 0;
+	cursor: pointer;
+}
+.cc-thumb img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+.cc-thumb--selected {
+	outline: 2px solid var(--cc-text-primary);
+	outline-offset: -2px;
+}
+.cc-thumb__badge {
+	position: absolute;
+	top: var(--cc-space-1);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 999px;
+	background: rgb(0 0 0 / 45%);
+	color: var(--cc-text-primary);
+}
+.cc-thumb__badge--download {
+	left: var(--cc-space-1);
+}
+.cc-thumb__badge--pro {
+	right: var(--cc-space-1);
+	color: var(--cc-badge-pro);
+	background: transparent;
+}
+.cc-thumb__label {
+	position: absolute;
+	inset: auto 0 0 0;
+	padding: var(--cc-space-1) var(--cc-space-2);
+	font-size: var(--cc-text-label);
+	color: var(--cc-text-primary);
+	background: linear-gradient(to top, rgb(0 0 0 / 60%), transparent);
+	text-align: left;
+}
+
+/* ================================= Slider ================================= */
+.cc-slider {
+	position: relative;
+	display: flex;
+	align-items: center;
+	width: 100%;
+	height: var(--cc-touch-target-ios);
+	touch-action: none;
+	user-select: none;
+}
+.cc-slider__track {
+	position: relative;
+	flex: 1;
+	height: 4px;
+	border-radius: var(--cc-radius-pill);
+	background: var(--cc-bg-raised);
+}
+.cc-slider__range {
+	position: absolute;
+	height: 100%;
+	border-radius: var(--cc-radius-pill);
+	background: var(--cc-accent);
+}
+.cc-slider__thumb {
+	display: block;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: var(--cc-text-primary);
+	box-shadow: 0 1px 3px rgb(0 0 0 / 40%);
+}
+.cc-slider__thumb:focus-visible {
+	outline: 2px solid var(--cc-accent);
+	outline-offset: 2px;
+}
+
+/* ============================= Segmented control ============================ */
+.cc-segmented {
+	display: inline-flex;
+	background: var(--cc-bg-raised);
+	border-radius: var(--cc-radius-pill);
+	padding: 3px;
+	gap: 2px;
+}
+.cc-segmented__option {
+	border: none;
+	background: none;
+	border-radius: var(--cc-radius-pill);
+	padding: var(--cc-space-2) var(--cc-space-4);
+	font-family: inherit;
+	font-size: var(--cc-text-body);
+	color: var(--cc-text-primary);
+	font-weight: var(--cc-font-weight-inactive);
+	cursor: pointer;
+}
+.cc-segmented__option--active {
+	background: var(--cc-accent);
+	color: var(--cc-accent-contrast);
+	font-weight: var(--cc-font-weight-active);
+}
+
+/* =============================== Export button ============================== */
+.cc-export-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--cc-space-1);
+	height: 34px;
+	padding: 0 var(--cc-space-4);
+	border: none;
+	border-radius: var(--cc-radius-pill);
+	background: var(--cc-accent);
+	color: var(--cc-accent-contrast);
+	font-family: inherit;
+	font-size: var(--cc-text-body);
+	font-weight: var(--cc-font-weight-active);
+	cursor: pointer;
+	min-width: var(--cc-touch-target-ios);
+	min-height: var(--cc-touch-target-ios);
+}
+.cc-export-btn:active {
+	background: var(--cc-accent-active);
+}
+.cc-export-btn:disabled {
+	background: var(--cc-bg-raised);
+	color: var(--cc-text-disabled);
+	cursor: default;
+}
+
+/* ============================== Progress overlay ============================= */
+.cc-progress-overlay {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--cc-space-4);
+	background: rgb(0 0 0 / 80%);
+	color: var(--cc-text-primary);
+	z-index: 50;
+}
+.cc-progress-overlay__label {
+	font-size: var(--cc-text-body);
+}
+.cc-progress-overlay__percent {
+	font-size: var(--cc-text-title);
+	font-variant-numeric: tabular-nums;
+	font-feature-settings: "tnum";
+}
+.cc-progress-overlay__cancel {
+	background: none;
+	border: 1px solid var(--cc-bg-raised);
+	border-radius: var(--cc-radius-pill);
+	color: var(--cc-text-secondary);
+	padding: var(--cc-space-2) var(--cc-space-5);
+	font-family: inherit;
+	font-size: var(--cc-text-body);
+	cursor: pointer;
+}
+
+/* ================================ Timeline (M7) ================================ */
+/* The single hardest surface (plan M7). Architecture: ONE scrollable element
+ * (`.cc-timeline__scroll`) does double duty as both the horizontal time axis
+ * and the vertical track stack — its `scrollLeft` IS "what time is at the
+ * left edge," so ruler + every track's clips move in lockstep for free
+ * (they're all just document flow inside the same scroll container) instead
+ * of needing separate synced-scroll listeners. The playhead
+ * (`.cc-timeline__playhead`) lives OUTSIDE that scroll container, absolutely
+ * positioned at the wrapper's horizontal center — "fixed playhead, content
+ * scrolls beneath it" per corpus 05 §1a, implemented by timeline-view.tsx
+ * keeping `scrollLeft` synced to `timeToPixels(currentTimeSec) - centerPx`
+ * rather than by moving a playhead element around a fixed content strip
+ * (which is the OPPOSITE, desktop-editor model apps/web/src/timeline
+ * already uses — see that package's own header for why this is a new,
+ * separate component tree rather than a restyle of that one).
+ */
+.cc-timeline {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	background: var(--cc-bg-base);
+	overflow: hidden;
+	touch-action: none; /* all gestures here are interpreted by our own pointer handlers */
+}
+.cc-timeline__scroll {
+	flex: 1;
+	overflow-x: auto;
+	overflow-y: auto;
+	/* Single-finger pan (both axes) stays native/cheap; two-finger pinch is
+	 * NOT a pan gesture so it's left for our own onPointerDown/Move/End pinch
+	 * handlers to interpret as zoom instead of the browser zooming the page —
+	 * same reasoning as the existing desktop `zoom-controller.ts` comment. */
+	touch-action: pan-x pan-y;
+	scrollbar-width: thin;
+	-webkit-overflow-scrolling: touch;
+}
+.cc-timeline__content {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+}
+.cc-timeline__ruler {
+	position: sticky;
+	top: 0;
+	z-index: 3;
+	height: var(--cc-ruler-height);
+	background: var(--cc-bg-base);
+	border-bottom: 1px solid var(--cc-bg-panel);
+}
+.cc-timeline__ruler-tick {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 1px;
+	background: var(--cc-bg-raised);
+}
+.cc-timeline__ruler-label {
+	position: absolute;
+	top: 2px;
+	font-size: 10px;
+	font-variant-numeric: tabular-nums;
+	font-feature-settings: "tnum";
+	color: var(--cc-text-secondary);
+	white-space: nowrap;
+	transform: translateX(2px);
+}
+
+.cc-timeline__track-row {
+	position: relative;
+	height: var(--cc-track-height);
+	border-bottom: 1px solid var(--cc-bg-base);
+}
+.cc-timeline__track-row--main {
+	background: var(--cc-track-color-main);
+}
+.cc-timeline__track-row--overlay {
+	background: var(--cc-track-color-overlay);
+}
+.cc-timeline__track-row--text {
+	background: var(--cc-track-color-text);
+}
+.cc-timeline__track-row--sticker {
+	background: var(--cc-track-color-sticker);
+}
+.cc-timeline__track-row--audio {
+	background: var(--cc-track-color-audio);
+}
+
+.cc-timeline__clip {
+	position: absolute;
+	top: 2px;
+	bottom: 2px;
+	border-radius: var(--cc-radius-chip);
+	overflow: hidden;
+	background: var(--cc-bg-raised);
+	cursor: pointer;
+	touch-action: none;
+}
+.cc-timeline__clip--selected {
+	border: var(--cc-clip-selection-border);
+	z-index: 2;
+}
+.cc-timeline__clip-thumbnails {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	overflow: hidden;
+}
+.cc-timeline__clip-thumbnail {
+	flex-shrink: 0;
+	height: 100%;
+	background-size: cover;
+	background-position: center;
+	border-right: 1px solid rgb(0 0 0 / 25%);
+}
+.cc-timeline__clip-label {
+	position: absolute;
+	left: var(--cc-space-1);
+	bottom: 2px;
+	font-size: 10px;
+	color: var(--cc-text-primary);
+	text-shadow: 0 1px 2px rgb(0 0 0 / 70%);
+	pointer-events: none;
+	white-space: nowrap;
+	max-width: calc(100% - 8px);
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.cc-timeline__clip-duration-badge {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	background: rgb(0 0 0 / 70%);
+	color: var(--cc-text-primary);
+	font-size: 10px;
+	font-variant-numeric: tabular-nums;
+	font-feature-settings: "tnum";
+	padding: 1px 4px;
+	border-radius: var(--cc-radius-chip);
+	pointer-events: none;
+}
+
+/* Trim handles: a slim visible bar plus a much wider invisible hit target
+ * (corpus 05 §2b), positioned as a negative-margin overlay so the hit area
+ * extends past the clip's own visual edge without affecting layout. */
+.cc-timeline__clip-handle {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: var(--cc-clip-handle-hit-width);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	touch-action: none;
+	z-index: 3;
+}
+.cc-timeline__clip-handle--start {
+	left: calc(var(--cc-clip-handle-hit-width) / -2);
+}
+.cc-timeline__clip-handle--end {
+	right: calc(var(--cc-clip-handle-hit-width) / -2);
+}
+.cc-timeline__clip-handle-grip {
+	width: var(--cc-clip-handle-visible-width);
+	height: 60%;
+	background: #ffffff;
+	border-radius: var(--cc-radius-chip);
+	box-shadow: 0 0 0 1px rgb(0 0 0 / 40%);
+}
+.cc-timeline__trim-readout {
+	position: absolute;
+	top: -22px;
+	transform: translateX(-50%);
+	background: var(--cc-bg-raised);
+	color: var(--cc-text-primary);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	font-feature-settings: "tnum";
+	padding: 2px 6px;
+	border-radius: var(--cc-radius-chip);
+	white-space: nowrap;
+	pointer-events: none;
+	z-index: 4;
+}
+
+/* Transition square — the small tappable control between adjacent
+ * main-track clips (corpus 05 §5, capcut.com/help/transitions-in-capcut
+ * "Tap the small white square icon between the clips"). */
+.cc-timeline__transition-square {
+	position: absolute;
+	top: 50%;
+	width: var(--cc-transition-square-size);
+	height: var(--cc-transition-square-size);
+	transform: translate(-50%, -50%);
+	background: #ffffff;
+	border-radius: 3px;
+	z-index: 3;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-shadow: 0 0 0 1px rgb(0 0 0 / 30%);
+	cursor: pointer;
+}
+.cc-timeline__transition-square--applied {
+	background: var(--cc-accent);
+}
+
+.cc-timeline__keyframe-diamond {
+	position: absolute;
+	bottom: 2px;
+	width: 8px;
+	height: 8px;
+	transform: translateX(-50%) rotate(45deg);
+	background: var(--cc-accent);
+	border: 1px solid var(--cc-accent-contrast);
+	z-index: 3;
+	cursor: pointer;
+	touch-action: none;
+}
+
+.cc-timeline__waveform {
+	position: absolute;
+	inset: 0;
+}
+
+/* Playhead: fixed at the wrapper's horizontal center, spans the full
+ * viewport height of the track stack, sits above the scroll container. */
+.cc-timeline__playhead {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 50%;
+	width: var(--cc-playhead-width);
+	background: var(--cc-accent);
+	pointer-events: none;
+	z-index: 5;
+}
+.cc-timeline__playhead::before {
+	content: "";
+	position: absolute;
+	top: 0;
+	left: 50%;
+	transform: translate(-50%, -100%);
+	border-left: 5px solid transparent;
+	border-right: 5px solid transparent;
+	border-bottom: 6px solid var(--cc-accent);
+}
+
+.cc-timeline__snap-indicator {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 1px;
+	background: var(--cc-snap-indicator-color);
+	z-index: 4;
+	pointer-events: none;
+}
+
+.cc-timeline__zoom-readout {
+	position: absolute;
+	bottom: var(--cc-space-2);
+	right: var(--cc-space-2);
+	background: rgb(0 0 0 / 70%);
+	color: var(--cc-text-secondary);
+	font-size: 11px;
+	padding: 2px 6px;
+	border-radius: var(--cc-radius-chip);
+	pointer-events: none;
+	z-index: 6;
+}
+
+/* ============================================================================
+ * M8 — editor chrome, panel rows, export sheet (plan M8: panels/toolbars/
+ * export sheet). Same [NEEDS-CAPTURE]-until-M6a-capture status as the rest
+ * of this file's un-measured metrics (top bar height, playback bar height,
+ * panel-row spacing) — built self-consistently off the existing spacing/
+ * radius/color tokens above, not a CapCut pixel read.
+ * ========================================================================= */
+
+.cc-editor-shell {
+	display: flex;
+	flex-direction: column;
+	background: var(--cc-bg-base);
+	color: var(--cc-text-primary);
+	font-family: var(--cc-font-ui);
+	height: 100%;
+	overflow: hidden;
+}
+
+/* ------------------------------- Top bar ---------------------------------- */
+.cc-topbar {
+	display: flex;
+	align-items: center;
+	gap: var(--cc-space-2);
+	padding: var(--cc-space-2) var(--cc-space-3);
+	flex-shrink: 0;
+}
+.cc-topbar__title {
+	flex: 1;
+	font-size: var(--cc-text-body);
+	font-weight: var(--cc-font-weight-active);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.cc-topbar__right {
+	display: flex;
+	align-items: center;
+	gap: var(--cc-space-1);
+}
+.cc-topbar__icon-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 36px;
+	height: 36px;
+	background: none;
+	border: none;
+	color: var(--cc-text-primary);
+	cursor: pointer;
+	flex-shrink: 0;
+}
+.cc-topbar__icon-btn:disabled {
+	color: var(--cc-text-disabled);
+	cursor: default;
+}
+
+/* ----------------------------- Preview stage ------------------------------- */
+.cc-preview-stage {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 0;
+	padding: var(--cc-space-3);
+}
+.cc-preview-stage__canvas {
+	max-width: 100%;
+	max-height: 100%;
+	border-radius: var(--cc-radius-card);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+}
+
+/* ----------------------------- Playback bar -------------------------------- */
+.cc-playbackbar {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--cc-space-2);
+	padding: var(--cc-space-2);
+	flex-shrink: 0;
+}
+.cc-playbackbar__time {
+	font-variant-numeric: var(--cc-tabular-nums);
+	font-size: var(--cc-text-label);
+	color: var(--cc-text-secondary);
+	margin-left: var(--cc-space-2);
+}
+
+/* ------------------------------- Panel rows -------------------------------- */
+.cc-param-row {
+	padding: var(--cc-space-3) 0;
+}
+.cc-param-row__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: var(--cc-space-2);
+}
+.cc-param-row__label {
+	font-size: var(--cc-text-body);
+	color: var(--cc-text-primary);
+}
+.cc-param-row__value {
+	font-variant-numeric: var(--cc-tabular-nums);
+	font-size: var(--cc-text-label);
+	color: var(--cc-text-secondary);
+}
+
+.cc-toggle-row {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	background: none;
+	border: none;
+	color: var(--cc-text-primary);
+	font-family: inherit;
+	font-size: var(--cc-text-body);
+	padding: var(--cc-space-3) 0;
+	cursor: pointer;
+}
+.cc-toggle-row__pill {
+	width: 40px;
+	height: 24px;
+	border-radius: var(--cc-radius-pill);
+	background: var(--cc-bg-raised);
+	position: relative;
+	transition: background var(--cc-motion-toolbar-crossfade);
+	flex-shrink: 0;
+}
+.cc-toggle-row__pill-knob {
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	background: var(--cc-text-primary);
+	transition: transform var(--cc-motion-toolbar-crossfade);
+}
+.cc-toggle-row--active .cc-toggle-row__pill {
+	background: var(--cc-accent);
+}
+.cc-toggle-row--active .cc-toggle-row__pill-knob {
+	transform: translateX(16px);
+	background: var(--cc-accent-contrast);
+}
+
+.cc-panel-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--cc-space-3);
+	padding: var(--cc-space-2) 0;
+}
+.cc-panel-actions__btn {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--cc-space-1);
+	background: none;
+	border: none;
+	color: var(--cc-text-primary);
+	font-family: inherit;
+	font-size: var(--cc-text-label);
+	cursor: pointer;
+	min-width: 64px;
+}
+.cc-panel-actions__btn:disabled {
+	color: var(--cc-text-disabled);
+	cursor: default;
+}
+
+.cc-panel-note {
+	display: flex;
+	align-items: center;
+	gap: var(--cc-space-1);
+	font-size: var(--cc-text-label);
+	color: var(--cc-text-secondary);
+	padding: var(--cc-space-2) 0;
+	line-height: 1.4;
+}
+
+.cc-swatch-row {
+	display: flex;
+	gap: var(--cc-space-2);
+	flex-wrap: wrap;
+}
+.cc-swatch {
+	width: 32px;
+	height: 32px;
+	border-radius: 50%;
+	border: 1px solid var(--cc-bg-raised);
+	cursor: pointer;
+	padding: 0;
+}

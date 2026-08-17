@@ -1,4 +1,4 @@
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import type { FrameRate } from "opencut-wasm";
 import {
 	mediaTime,
@@ -28,10 +28,12 @@ interface ScrubSession {
 	kind: "scrubbing";
 	/** True when scrub started from a ruler click (not the playhead handle). */
 	didStartFromRuler: boolean;
-	/** True once the mouse has moved during a ruler drag. */
+	/** True once the pointer has moved during a ruler drag. */
 	hasMoved: boolean;
 	/** Most recent frame-snapped time set by scrub(). */
 	currentTime: MediaTime | null;
+	pointerId: number;
+	captureTarget: Element;
 }
 
 type Session = { kind: "idle" } | ScrubSession;
@@ -104,8 +106,9 @@ export class PlayheadController {
 		this.configRef = deps.configRef;
 		this.onPlayheadMouseDown = this.onPlayheadMouseDown.bind(this);
 		this.onRulerMouseDown = this.onRulerMouseDown.bind(this);
-		this.handleMouseMove = this.handleMouseMove.bind(this);
-		this.handleMouseUp = this.handleMouseUp.bind(this);
+		this.handlePointerMove = this.handlePointerMove.bind(this);
+		this.handlePointerUp = this.handlePointerUp.bind(this);
+		this.handlePointerCancel = this.handlePointerCancel.bind(this);
 	}
 
 	private get config(): PlayheadConfig {
@@ -126,35 +129,49 @@ export class PlayheadController {
 
 	// --- Public event handlers (bound, stable references) ---
 
-	onPlayheadMouseDown(event: ReactMouseEvent): void {
+	onPlayheadMouseDown(event: ReactPointerEvent): void {
 		event.preventDefault();
 		event.stopPropagation();
+		this.beginCapture(event);
 		this.session = {
 			kind: "scrubbing",
 			didStartFromRuler: false,
 			hasMoved: false,
 			currentTime: null,
+			pointerId: event.pointerId,
+			captureTarget: event.currentTarget,
 		};
 		this.config.setScrubbing(true);
 		this.scrub({ event, isElementSnappingEnabled: true });
 		this.activate();
 	}
 
-	onRulerMouseDown(event: ReactMouseEvent): void {
+	onRulerMouseDown(event: ReactPointerEvent): void {
 		if (event.button !== 0) return;
 		if (this.config.getPlayheadEl()?.contains(event.target as Node)) return;
 
 		event.preventDefault();
+		this.beginCapture(event);
 		this.session = {
 			kind: "scrubbing",
 			didStartFromRuler: true,
 			hasMoved: false,
 			currentTime: null,
+			pointerId: event.pointerId,
+			captureTarget: event.currentTarget,
 		};
 		this.config.setScrubbing(true);
 		// No element-edge snapping on initial ruler click — avoids a jarring jump.
 		this.scrub({ event, isElementSnappingEnabled: false });
 		this.activate();
+	}
+
+	private beginCapture(event: ReactPointerEvent): void {
+		try {
+			event.currentTarget.setPointerCapture(event.pointerId);
+		} catch {
+			// Best-effort; window-level listeners still work without capture.
+		}
 	}
 
 	// --- Public non-session methods ---
@@ -215,13 +232,24 @@ export class PlayheadController {
 	// --- Private ---
 
 	private activate(): void {
-		window.addEventListener("mousemove", this.handleMouseMove);
-		window.addEventListener("mouseup", this.handleMouseUp);
+		window.addEventListener("pointermove", this.handlePointerMove);
+		window.addEventListener("pointerup", this.handlePointerUp);
+		window.addEventListener("pointercancel", this.handlePointerCancel);
 	}
 
 	private deactivate(): void {
-		window.removeEventListener("mousemove", this.handleMouseMove);
-		window.removeEventListener("mouseup", this.handleMouseUp);
+		window.removeEventListener("pointermove", this.handlePointerMove);
+		window.removeEventListener("pointerup", this.handlePointerUp);
+		window.removeEventListener("pointercancel", this.handlePointerCancel);
+	}
+
+	private releaseCapture(): void {
+		if (this.session.kind !== "scrubbing") return;
+		try {
+			this.session.captureTarget.releasePointerCapture(this.session.pointerId);
+		} catch {
+			// Already released — fine.
+		}
 	}
 
 	/**
@@ -233,7 +261,7 @@ export class PlayheadController {
 		event,
 		isElementSnappingEnabled,
 	}: {
-		event: MouseEvent | ReactMouseEvent;
+		event: PointerEvent | ReactPointerEvent;
 		isElementSnappingEnabled: boolean;
 	}): void {
 		const ruler = this.config.getRulerEl();
@@ -284,19 +312,31 @@ export class PlayheadController {
 		this.lastMouseClientX = event.clientX;
 	}
 
-	private handleMouseMove(event: MouseEvent): void {
+	private handlePointerMove(event: PointerEvent): void {
 		if (this.session.kind !== "scrubbing") return;
+		if (event.pointerId !== this.session.pointerId) return;
 		this.scrub({ event, isElementSnappingEnabled: true });
 		if (this.session.didStartFromRuler) {
 			this.session.hasMoved = true;
 		}
 	}
 
-	private handleMouseUp(event: MouseEvent): void {
+	private handlePointerCancel(event: PointerEvent): void {
 		if (this.session.kind !== "scrubbing") return;
+		if (event.pointerId !== this.session.pointerId) return;
+		this.config.setScrubbing(false);
+		this.releaseCapture();
+		this.session = { kind: "idle" };
+		this.deactivate();
+	}
+
+	private handlePointerUp(event: PointerEvent): void {
+		if (this.session.kind !== "scrubbing") return;
+		if (event.pointerId !== this.session.pointerId) return;
 
 		const session = this.session;
 		this.config.setScrubbing(false);
+		this.releaseCapture();
 
 		if (session.currentTime !== null) {
 			this.config.seek(session.currentTime);
@@ -307,7 +347,7 @@ export class PlayheadController {
 			});
 		}
 
-		// Ruler click without drag: snap to clicked position on mouseup.
+		// Ruler click without drag: snap to clicked position on pointerup.
 		if (session.didStartFromRuler && !session.hasMoved) {
 			this.scrub({ event, isElementSnappingEnabled: false });
 		}

@@ -180,8 +180,15 @@ export function Timeline() {
 
 	const savedViewState = editor.project.getTimelineViewState();
 
-	const { zoomLevel, setZoomLevel, handleWheel, saveScrollPosition } =
-		useTimelineZoom({
+	const {
+		zoomLevel,
+		setZoomLevel,
+		handleWheel,
+		saveScrollPosition,
+		onPinchPointerDown,
+		onPinchPointerMove,
+		onPinchPointerEnd,
+	} = useTimelineZoom({
 			containerRef: timelineRef,
 			minZoom: minZoomLevel,
 			initialZoom: savedViewState?.zoomLevel,
@@ -508,12 +515,21 @@ export function Timeline() {
 					</div>
 
 					<ScrollArea
-						className="flex-1"
+						// touch-pan-y: single-finger vertical scroll of the track stack
+						// stays native (cheap, smooth); horizontal pan and the browser's
+						// own pinch-zoom are disabled so the two-finger gesture is ours
+						// to interpret as timeline zoom (onPinchPointer* below) instead
+						// of the OS zooming the whole webview viewport.
+						className="flex-1 touch-pan-y"
 						ref={tracksScrollRef}
 						onScroll={() => {
 							syncFollowers();
 							saveScrollPosition();
 						}}
+						onPointerDown={onPinchPointerDown}
+						onPointerMove={onPinchPointerMove}
+						onPointerUp={onPinchPointerEnd}
+						onPointerCancel={onPinchPointerEnd}
 					>
 						<div
 							className="flex min-h-full flex-col"
@@ -536,7 +552,7 @@ export function Timeline() {
 										) + TIMELINE_CONTENT_TOP_PADDING_PX
 									}px`,
 								}}
-								onMouseDown={(event) => {
+								onPointerDown={(event) => {
 									const isDirectTarget = event.target === event.currentTarget;
 									if (!isDirectTarget) return;
 									event.stopPropagation();
@@ -570,7 +586,7 @@ export function Timeline() {
 								)}
 							</div>
 							<TimelineGutter
-								onMouseDown={(event) => {
+								onPointerDown={(event) => {
 									handleTracksMouseDown(event);
 									handleSelectionMouseDown(event);
 								}}
@@ -752,8 +768,8 @@ function TimelineTrackRows({
 	onElementClick: React.ComponentProps<
 		typeof TimelineTrackContent
 	>["onElementClick"];
-	onTrackMouseDown: (event: React.MouseEvent) => void;
-	onTrackMouseUp: (event: React.MouseEvent) => void;
+	onTrackMouseDown: (event: React.PointerEvent) => void;
+	onTrackMouseUp: (event: React.PointerEvent) => void;
 	shouldIgnoreClick: () => boolean;
 	isDragOver: boolean;
 	dropTarget: DropTarget | null;
@@ -894,15 +910,15 @@ function TimelineTrackRows({
 }
 
 function TimelineGutter({
-	onMouseDown,
+	onPointerDown,
 	onClick,
 }: {
-	onMouseDown: (event: React.MouseEvent) => void;
+	onPointerDown: (event: React.PointerEvent) => void;
 	onClick: (event: React.MouseEvent) => void;
 }) {
 	return (
 		// eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- spatial gesture surface (empty space below tracks); clicks here clear selection. Keyboard control is global timeline shortcuts.
-		<div className="flex-1" onMouseDown={onMouseDown} onClick={onClick} />
+		<div className="flex-1" onPointerDown={onPointerDown} onClick={onClick} />
 	);
 }
 

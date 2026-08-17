@@ -12,13 +12,13 @@ interface TimelineTrackContentProps {
 	zoomLevel: number;
 	dragView: ElementDragView;
 	onResizeStart: (params: {
-		event: React.MouseEvent;
+		event: React.PointerEvent;
 		element: TimelineElementType;
 		track: TimelineTrack;
 		side: "left" | "right";
 	}) => void;
 	onElementMouseDown: (params: {
-		event: React.MouseEvent;
+		event: React.PointerEvent;
 		element: TimelineElementType;
 		track: TimelineTrack;
 	}) => void;
@@ -27,8 +27,8 @@ interface TimelineTrackContentProps {
 		element: TimelineElementType;
 		track: TimelineTrack;
 	}) => void;
-	onTrackMouseDown?: (event: React.MouseEvent) => void;
-	onTrackMouseUp?: (event: React.MouseEvent) => void;
+	onTrackMouseDown?: (event: React.PointerEvent) => void;
+	onTrackMouseUp?: (event: React.PointerEvent) => void;
 	shouldIgnoreClick?: () => boolean;
 	targetElementId?: string | null;
 }
@@ -53,25 +53,29 @@ export function TimelineTrackContent({
 				type="button"
 				className="absolute inset-0 m-0 size-full appearance-none border-0 bg-transparent p-0"
 				aria-label={`Select ${track.name} track`}
-				onMouseUp={(event) => {
+				onPointerUp={(event) => {
 					if (shouldIgnoreClick?.()) return;
 					onTrackMouseUp?.(event);
 				}}
-				onMouseDown={(event) => {
+				onPointerDown={(event) => {
 					event.preventDefault();
 					onTrackMouseDown?.(event);
 				}}
 			/>
-			{/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- spatial gesture surface; the wrapping <button> handles keyboard track selection, this <div> only forwards background clicks for box-select / deselect. */}
+			{/* jsx-a11y/no-static-element-interactions doesn't flag onPointer* props
+			    (unlike onMouseDown/onClick), so no disable directive is needed here
+			    — the wrapping <button> above still handles keyboard track selection;
+			    this <div> only forwards background pointer events for box-select /
+			    deselect. */}
 			<div
 				className="relative h-full min-w-full"
 				style={{ zIndex: TIMELINE_LAYERS.trackContent }}
-				onMouseUp={(event) => {
+				onPointerUp={(event) => {
 					if (event.target !== event.currentTarget) return;
 					if (shouldIgnoreClick?.()) return;
 					onTrackMouseUp?.(event);
 				}}
-				onMouseDown={(event) => {
+				onPointerDown={(event) => {
 					if (event.target !== event.currentTarget) return;
 					event.preventDefault();
 					onTrackMouseDown?.(event);

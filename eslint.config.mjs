@@ -47,6 +47,14 @@ const coreReactFiles = ["packages/editor-core/react/**/*.ts"];
 // WITHOUT the bridge-import ban.
 const nativeBridgeFiles = ["packages/native-bridge/src/**/*.ts"];
 
+// kneecap M6: the CapCut-mobile design tokens + component kit. Unlike
+// editor-core/native-bridge this package DOES render actual interactive UI
+// (buttons, sliders, tabs), so it gets the same React/JSX-a11y rule sets as
+// webFiles — but deliberately NOT `next.configs["core-web-vitals"]`: this
+// package has no Next.js dependency (it also ships to the plain-Vite
+// apps/mobile shell) and must not gain one just to satisfy a lint rule.
+const mobileUiFiles = ["packages/mobile-ui/src/**/*.{ts,tsx}"];
+
 const opencutEslintPlugin = {
 	meta: {
 		name: "eslint-plugin-opencut",
@@ -324,5 +332,66 @@ export default [
 	{
 		...eslintConfigPrettier,
 		files: nativeBridgeFiles,
+	},
+
+	// --- packages/mobile-ui (M6: CapCut-mobile tokens + component kit) -------
+	{
+		files: mobileUiFiles,
+		languageOptions: {
+			ecmaVersion: "latest",
+			sourceType: "module",
+			globals: {
+				...globals.browser,
+			},
+			parserOptions: {
+				ecmaFeatures: {
+					jsx: true,
+				},
+				projectService: true,
+				tsconfigRootDir: import.meta.dirname,
+			},
+		},
+		linterOptions: {
+			reportUnusedDisableDirectives: "error",
+		},
+		settings: {
+			react: {
+				version: "detect",
+			},
+		},
+	},
+	...[
+		js.configs.recommended,
+		...tseslint.configs.recommended,
+		react.configs.flat.recommended,
+		react.configs.flat["jsx-runtime"],
+		reactHooks.configs.flat["recommended-latest"],
+		jsxA11y.flatConfigs.recommended,
+	].map((config) => ({ ...config, files: mobileUiFiles })),
+	{
+		files: mobileUiFiles,
+		plugins: {
+			opencut: opencutEslintPlugin,
+		},
+		rules: {
+			"@typescript-eslint/no-empty-object-type": "warn",
+			"@typescript-eslint/no-unsafe-type-assertion": "error",
+			"@typescript-eslint/no-unused-vars": [
+				"warn",
+				{
+					argsIgnorePattern: "^_",
+					caughtErrorsIgnorePattern: "^_",
+					destructuredArrayIgnorePattern: "^_",
+					varsIgnorePattern: "^_",
+				},
+			],
+			"no-empty": "warn",
+			"opencut/prefer-object-params": "error",
+			"react/prop-types": "off",
+		},
+	},
+	{
+		...eslintConfigPrettier,
+		files: mobileUiFiles,
 	},
 ];

@@ -145,10 +145,6 @@ export function AudioVolumeLine({
 		event.stopPropagation();
 	}, []);
 
-	const handleMouseDown = useCallback((event: React.MouseEvent) => {
-		event.stopPropagation();
-	}, []);
-
 	const handlePointerDown = useCallback(
 		(event: React.PointerEvent<HTMLDivElement>) => {
 			if (event.button !== 0) {
@@ -239,12 +235,11 @@ export function AudioVolumeLine({
 					)}
 					style={{ top: lineTop }}
 				/>
-				{/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- custom drag widget for clip volume; pointer events drive the interaction, the click/mousedown handlers are propagation-stoppers. The a11y-correct long-term shape is <input type="range"> with a custom thumb. */}
+				{/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- custom drag widget for clip volume; pointer events drive the interaction, the click handler is a propagation-stopper. The a11y-correct long-term shape is <input type="range"> with a custom thumb. */}
 				<div
 					className="absolute inset-x-0 -translate-y-1/2 touch-none cursor-ns-resize pointer-events-auto"
 					style={{ top: lineTop, height: `${HIT_AREA_HEIGHT_PX}px` }}
 					onClick={handleClick}
-					onMouseDown={handleMouseDown}
 					onPointerDown={handlePointerDown}
 					onPointerMove={handlePointerMove}
 					onPointerUp={handlePointerUp}

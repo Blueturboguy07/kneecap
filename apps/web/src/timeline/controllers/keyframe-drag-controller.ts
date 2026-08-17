@@ -1,4 +1,7 @@
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type {
+	MouseEvent as ReactMouseEvent,
+	PointerEvent as ReactPointerEvent,
+} from "react";
 import type { FrameRate } from "opencut-wasm";
 import { BASE_TIMELINE_PIXELS_PER_SECOND } from "@/timeline/scale";
 import {
@@ -26,6 +29,8 @@ interface PendingSession {
 	kind: "pending";
 	keyframeRefs: SelectedKeyframeRef[];
 	startMouseX: number;
+	pointerId: number;
+	captureTarget: Element;
 }
 
 interface ActiveSession {
@@ -33,6 +38,8 @@ interface ActiveSession {
 	keyframeRefs: SelectedKeyframeRef[];
 	startMouseX: number;
 	deltaTicks: number;
+	pointerId: number;
+	captureTarget: Element;
 }
 
 type Session = { kind: "idle" } | PendingSession | ActiveSession;
@@ -83,7 +90,7 @@ export interface KeyframeDragConfigRef {
 
 export class KeyframeDragController {
 	private session: Session = { kind: "idle" };
-	// Persists through mouseup so the click handler can detect drag vs click
+	// Persists through pointerup so the click handler can detect drag vs click
 	private mouseDownX: number | null = null;
 	private readonly subscribers = new Set<() => void>();
 	private readonly configRef: KeyframeDragConfigRef;
@@ -93,8 +100,9 @@ export class KeyframeDragController {
 		this.onKeyframeMouseDown = this.onKeyframeMouseDown.bind(this);
 		this.onKeyframeClick = this.onKeyframeClick.bind(this);
 		this.getVisualOffsetPx = this.getVisualOffsetPx.bind(this);
-		this.handleMouseMove = this.handleMouseMove.bind(this);
-		this.handleMouseUp = this.handleMouseUp.bind(this);
+		this.handlePointerMove = this.handlePointerMove.bind(this);
+		this.handlePointerUp = this.handlePointerUp.bind(this);
+		this.handlePointerCancel = this.handlePointerCancel.bind(this);
 	}
 
 	private get config(): KeyframeDragConfig {
@@ -135,7 +143,7 @@ export class KeyframeDragController {
 		event,
 		keyframes,
 	}: {
-		event: ReactMouseEvent;
+		event: ReactPointerEvent;
 		keyframes: SelectedKeyframeRef[];
 	}): void {
 		event.preventDefault();
@@ -152,15 +160,29 @@ export class KeyframeDragController {
 			this.config.setKeyframeSelection({ keyframes });
 		}
 
+		// Keyframe diamonds are small, unambiguous targets like trim handles —
+		// no long-press gate; the drag starts immediately for touch and mouse
+		// alike.
+		try {
+			event.currentTarget.setPointerCapture(event.pointerId);
+		} catch {
+			// Best-effort; document-level listeners still work without capture.
+		}
+
 		this.session = {
 			kind: "pending",
 			keyframeRefs: anySelected ? this.config.selectedKeyframes : keyframes,
 			startMouseX: event.clientX,
+			pointerId: event.pointerId,
+			captureTarget: event.currentTarget,
 		};
 		this.activate();
 		this.notify();
 	}
 
+	// Wired to onClick (a genuine click/tap, fired after pointerup), not
+	// onPointerDown — so this one stays a MouseEvent, unlike
+	// onKeyframeMouseDown below.
 	onKeyframeClick({
 		event,
 		keyframes,
@@ -242,13 +264,24 @@ export class KeyframeDragController {
 	}
 
 	private activate(): void {
-		document.addEventListener("mousemove", this.handleMouseMove);
-		document.addEventListener("mouseup", this.handleMouseUp);
+		document.addEventListener("pointermove", this.handlePointerMove);
+		document.addEventListener("pointerup", this.handlePointerUp);
+		document.addEventListener("pointercancel", this.handlePointerCancel);
 	}
 
 	private deactivate(): void {
-		document.removeEventListener("mousemove", this.handleMouseMove);
-		document.removeEventListener("mouseup", this.handleMouseUp);
+		document.removeEventListener("pointermove", this.handlePointerMove);
+		document.removeEventListener("pointerup", this.handlePointerUp);
+		document.removeEventListener("pointercancel", this.handlePointerCancel);
+	}
+
+	private releaseCapture(): void {
+		if (this.session.kind === "idle") return;
+		try {
+			this.session.captureTarget.releasePointerCapture(this.session.pointerId);
+		} catch {
+			// Already released — fine.
+		}
 	}
 
 	private notify(): void {
@@ -256,6 +289,7 @@ export class KeyframeDragController {
 	}
 
 	private finishSession(): void {
+		this.releaseCapture();
 		this.session = { kind: "idle" };
 		this.deactivate();
 		this.notify();
@@ -303,7 +337,11 @@ export class KeyframeDragController {
 		}
 	}
 
-	private handleMouseMove({ clientX }: MouseEvent): void {
+	private handlePointerMove(event: PointerEvent): void {
+		if (this.session.kind === "idle") return;
+		if (event.pointerId !== this.session.pointerId) return;
+		const { clientX } = event;
+
 		if (this.session.kind === "pending") {
 			const deltaX = Math.abs(clientX - this.session.startMouseX);
 			if (deltaX <= TIMELINE_DRAG_THRESHOLD_PX) return;
@@ -313,6 +351,8 @@ export class KeyframeDragController {
 				keyframeRefs: this.session.keyframeRefs,
 				startMouseX: this.session.startMouseX,
 				deltaTicks: 0,
+				pointerId: this.session.pointerId,
+				captureTarget: this.session.captureTarget,
 			};
 			this.notify();
 			return;
@@ -333,13 +373,21 @@ export class KeyframeDragController {
 		this.notify();
 	}
 
-	private handleMouseUp(): void {
+	private handlePointerCancel(event: PointerEvent): void {
+		if (this.session.kind === "idle") return;
+		if (event.pointerId !== this.session.pointerId) return;
+		this.mouseDownX = null;
+		this.finishSession();
+	}
+
+	private handlePointerUp(event: PointerEvent): void {
+		if (this.session.kind === "idle") return;
+		if (event.pointerId !== this.session.pointerId) return;
+
 		if (this.session.kind === "pending") {
 			this.finishSession();
 			return;
 		}
-
-		if (this.session.kind !== "active") return;
 
 		const { selectedKeyframes, element } = this.config;
 		const { keyframeRefs, deltaTicks } = this.session;

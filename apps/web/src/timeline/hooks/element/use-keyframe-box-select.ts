@@ -189,7 +189,7 @@ export function useKeyframeBoxSelect({
 	});
 
 	const handleExpandedAreaMouseDown = useCallback(
-		(event: React.MouseEvent) => {
+		(event: React.PointerEvent) => {
 			event.stopPropagation();
 			initialKeyframesRef.current = selectedKeyframes;
 			boxSelectMouseDown(event);

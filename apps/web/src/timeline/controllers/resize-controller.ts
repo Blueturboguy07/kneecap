@@ -1,5 +1,6 @@
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { BASE_TIMELINE_PIXELS_PER_SECOND } from "@/timeline/scale";
+import { hapticTick } from "@/timeline/haptics";
 import {
 	addMediaTime,
 	maxMediaTime,
@@ -43,6 +44,8 @@ interface ResizeSession {
 	fps: FrameRate;
 	members: GroupResizeMember[];
 	result: GroupResizeResult | null;
+	pointerId: number;
+	captureTarget: Element;
 }
 
 type Session = { kind: "idle" } | ResizeSession;
@@ -161,14 +164,16 @@ function hasResizeChanges({
 
 export class ResizeController {
 	private session: Session = { kind: "idle" };
+	private lastTickedSnapTime: MediaTime | null = null;
 	private readonly subscribers = new Set<() => void>();
 	private readonly configRef: ResizeConfigRef;
 
 	constructor(deps: { configRef: ResizeConfigRef }) {
 		this.configRef = deps.configRef;
 		this.onResizeStart = this.onResizeStart.bind(this);
-		this.handleMouseMove = this.handleMouseMove.bind(this);
-		this.handleMouseUp = this.handleMouseUp.bind(this);
+		this.handlePointerMove = this.handlePointerMove.bind(this);
+		this.handlePointerUp = this.handlePointerUp.bind(this);
+		this.handlePointerCancel = this.handlePointerCancel.bind(this);
 	}
 
 	private get config(): ResizeConfig {
@@ -200,7 +205,7 @@ export class ResizeController {
 		track,
 		side,
 	}: {
-		event: ReactMouseEvent;
+		event: ReactPointerEvent;
 		element: TimelineElement;
 		track: TimelineTrack;
 		side: ResizeSide;
@@ -230,6 +235,16 @@ export class ResizeController {
 
 		this.config.discardPreview();
 
+		// Trim handles are small, unambiguous targets — unlike a clip body,
+		// touching one is never confusable with "scroll the track stack", so
+		// (unlike element-interaction's clip-body drag) touch gets no
+		// long-press gate here: the drag starts immediately, same as mouse.
+		try {
+			event.currentTarget.setPointerCapture(event.pointerId);
+		} catch {
+			// Best-effort; document-level listeners still work without capture.
+		}
+
 		this.session = {
 			kind: "active",
 			side,
@@ -237,19 +252,32 @@ export class ResizeController {
 			fps,
 			members,
 			result: null,
+			pointerId: event.pointerId,
+			captureTarget: event.currentTarget,
 		};
 		this.activate();
 		this.notify();
 	}
 
 	private activate(): void {
-		document.addEventListener("mousemove", this.handleMouseMove);
-		document.addEventListener("mouseup", this.handleMouseUp);
+		document.addEventListener("pointermove", this.handlePointerMove);
+		document.addEventListener("pointerup", this.handlePointerUp);
+		document.addEventListener("pointercancel", this.handlePointerCancel);
 	}
 
 	private deactivate(): void {
-		document.removeEventListener("mousemove", this.handleMouseMove);
-		document.removeEventListener("mouseup", this.handleMouseUp);
+		document.removeEventListener("pointermove", this.handlePointerMove);
+		document.removeEventListener("pointerup", this.handlePointerUp);
+		document.removeEventListener("pointercancel", this.handlePointerCancel);
+	}
+
+	private releaseCapture(): void {
+		if (this.session.kind !== "active") return;
+		try {
+			this.session.captureTarget.releasePointerCapture(this.session.pointerId);
+		} catch {
+			// Already released (e.g. element unmounted mid-drag) — fine.
+		}
 	}
 
 	private notify(): void {
@@ -257,10 +285,22 @@ export class ResizeController {
 	}
 
 	private finishSession(): void {
+		this.releaseCapture();
 		this.session = { kind: "idle" };
 		this.deactivate();
+		this.lastTickedSnapTime = null;
 		this.config.onSnapPointChange?.(null);
 		this.notify();
+	}
+
+	/** Same "tick once per newly-acquired snap point" rule as
+	 * element-interaction-controller's notifySnap. */
+	private notifySnap(snapPoint: SnapPoint | null): void {
+		if (snapPoint && snapPoint.time !== this.lastTickedSnapTime) {
+			hapticTick();
+		}
+		this.lastTickedSnapTime = snapPoint?.time ?? null;
+		this.config.onSnapPointChange?.(snapPoint);
 	}
 
 	private snappedDelta({
@@ -273,7 +313,7 @@ export class ResizeController {
 		const { snappingEnabled, isShiftHeld, zoomLevel } = this.config;
 
 		if (!snappingEnabled || isShiftHeld()) {
-			this.config.onSnapPointChange?.(null);
+			this.notifySnap(null);
 			return rawDeltaTime;
 		}
 
@@ -318,13 +358,15 @@ export class ResizeController {
 			}
 		}
 
-		this.config.onSnapPointChange?.(closestSnapPoint);
+		this.notifySnap(closestSnapPoint);
 		return deltaTime;
 	}
 
-	private handleMouseMove({ clientX }: MouseEvent): void {
+	private handlePointerMove(event: PointerEvent): void {
 		if (this.session.kind !== "active") return;
+		if (event.pointerId !== this.session.pointerId) return;
 		const session = this.session;
+		const { clientX } = event;
 
 		const rawDeltaTime = mediaTime({
 			ticks: Math.round(
@@ -345,8 +387,15 @@ export class ResizeController {
 		this.config.previewElements(result.updates);
 	}
 
-	private handleMouseUp(): void {
+	private handlePointerCancel(event: PointerEvent): void {
 		if (this.session.kind !== "active") return;
+		if (event.pointerId !== this.session.pointerId) return;
+		this.cancel();
+	}
+
+	private handlePointerUp(event: PointerEvent): void {
+		if (this.session.kind !== "active") return;
+		if (event.pointerId !== this.session.pointerId) return;
 		const session = this.session;
 
 		this.config.discardPreview();

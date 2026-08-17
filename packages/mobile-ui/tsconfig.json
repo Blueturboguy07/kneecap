@@ -1,0 +1,48 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"lib": ["dom", "dom.iterable", "esnext"],
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"jsx": "react-jsx",
+		"forceConsistentCasingInFileNames": true,
+		// `@/*` resolves against `../editor-core/src/*` FIRST, `./src/*` as
+		// fallback — the REVERSE of the order you'd guess, and load-bearing:
+		// `packages/editor-core/src/timeline/types.ts` (real `SceneTracks`/
+		// `TimelineElement`/...) and `packages/mobile-ui/src/timeline/
+		// types.ts` (M7's OWN unrelated view-model types, `TimelineClipVM`
+		// etc.) BOTH exist at the same `timeline/types` subpath, so whichever
+		// target is listed first wins for every `@/timeline/types` import.
+		// No pre-M8 file in this package ever used a bare `@/*` import
+		// (confirmed by grep — everything here uses relative imports, e.g.
+		// `../lib/cn`), so editor-core-first is safe: it satisfies
+		// editor-core's OWN internal `@/*` imports (which need its real
+		// types) when its files get pulled transitively into this package's
+		// type-check program (M8 added a real `@kneecap/editor-core`
+		// package.json dependency), without this package's own M7 code ever
+		// hitting the collision. `./src/*` stays listed only so a future
+		// same-named local file would still resolve if editor-core doesn't
+		// have one. Same two-target-array pattern apps/web/tsconfig.json
+		// already uses for the identical "internal `@/*` needs a fallback"
+		// reason.
+		"paths": {
+			"@/*": ["../editor-core/src/*", "./src/*"]
+		}
+	},
+	"include": [
+		"src/**/*.ts",
+		"src/**/*.tsx",
+		"src/**/*.d.ts",
+		// Ambient module shims (soundtouchjs has no upstream types) only take
+		// effect if the program actually includes the .d.ts file — apps/web's
+		// tsconfig.json does the identical thing for the identical reason.
+		"../editor-core/src/types/**/*.d.ts"
+	],
+	"exclude": ["node_modules"]
+}

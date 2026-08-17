@@ -76,6 +76,17 @@ const ALLOWED_HOSTS = new Set([
 	// links in its minified error-decoder strings — a doc link a developer
 	// might read in a console error, never fetched by the app.
 	"react.dev",
+	// M8: the EDL v1 bridge's `EDL_SCHEMA_ID` (packages/editor-core/src/edl/
+	// types.ts) is `"https://kneecap.dev/schema/edl-v1.json"` — a JSON
+	// Schema `$id`/`$schema` namespace identifier per the JSON Schema spec,
+	// embedded verbatim into every `Edl.$schema` field. It is never
+	// fetched — grepped across packages/editor-core/src and apps/web/src,
+	// the only consumers are the literal assignment in build.ts and two
+	// string-equality assertions in edl.test.ts, no `fetch`/schema-resolver
+	// call anywhere. First appeared in a CLIENT bundle this session because
+	// M8's export sheet (apps/web/src/app/dev/mobile-editor) is the first
+	// browser-bundled code path to import `@kneecap/editor-core/edl`.
+	"kneecap.dev",
 ]);
 
 // Known-bad hosts that must NEVER reappear, checked explicitly (independent

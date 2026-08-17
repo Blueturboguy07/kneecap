@@ -1,0 +1,220 @@
+/*
+ * kneecap mobile-ui — CapCut MOBILE design tokens
+ * Plan M6b (opencut-mobile-port.md), track B1: FULL pixel fidelity.
+ *
+ * FOUNDER DIRECTIVE (overrides corpus 06 §7.3's own default proposal):
+ * this track ships CapCut's *actual* measured tokens, including the real
+ * cyan #00CAE0 — only the app name (kneecap), icon, and splash screen are
+ * original. Do not swap --cc-accent for a trade-dress color on this track.
+ *
+ * Every value below carries a provenance comment:
+ *   MEASURED <confidence>  — pixel-sampled from real CapCut iOS App Store
+ *                            screenshots (corpus 06, cross-checked this
+ *                            session — see the two re-verifications noted
+ *                            inline).
+ *   DERIVED                — computed from a MEASURED value (e.g. a
+ *                            pressed-state darken), not itself observed.
+ *   DESIGN DECISION         — a deliberate choice documented in corpus 06
+ *                            (e.g. icon stroke weight), not a raw pixel read.
+ *   [NEEDS-CAPTURE]         — could not be measured from the available
+ *                            marketing screenshots; flagged per plan M6 for
+ *                            the founder capture session (plan M6a). The
+ *                            value shipped is a reasonable placeholder, not
+ *                            a claimed measurement — treat every one of
+ *                            these as provisional.
+ *
+ * Source: /Users/mannbellani/opencut-research/06-capcut-ui-visual.md
+ *         /Users/mannbellani/opencut-research/04-capcut-ui-inventory.md
+ *         /Users/mannbellani/opencut-research/iphone_shots/ip_1..10.jpg
+ *
+ * Scoped under [data-kneecap-theme="capcut-mobile"] rather than merged into
+ * apps/web's own `.dark` theme — CapCut mobile chrome is dark-only (no
+ * light-mode evidence in any of the 10 screenshots) and must not shift with
+ * the desktop editor's light/dark toggle.
+ */
+
+[data-kneecap-theme="capcut-mobile"] {
+	/* ============================== Surfaces ============================== */
+	/* MEASURED high confidence — corpus 06 §2.1: bottom-40%-crop pixel scan,
+	   10/10 screenshots. Deepest bg ranged #000000-#101010; #000000 is the
+	   plain reading (2/10 screenshots, the two with the largest true-black
+	   canvas area: ip_6.jpg 10.7%, ip_9.jpg 16.2%). */
+	--cc-bg-base: #000000;
+	/* MEASURED high confidence — corpus 06 §2.1: dominant color 23-43% in
+	   8/10 screenshots, the single most consistent finding in the report. */
+	--cc-bg-panel: #202020;
+	/* MEASURED medium-high confidence — corpus 06 §2.1: midpoint of the
+	   observed #282828-#383838 secondary/chip-surface range. */
+	--cc-bg-raised: #2e2e2e;
+	/* [NEEDS-CAPTURE] backdrop scrim opacity behind an open sheet is not
+	   legible in any marketing composite (the promo background art sits
+	   there instead of a live scrim). Placeholder: standard iOS/Android
+	   sheet-scrim value. */
+	--cc-bg-scrim: rgb(0 0 0 / 55%);
+
+	/* ================================ Text ================================= */
+	/* MEASURED high confidence — corpus 06 §2.1, visible on every active
+	   tab label / headline overlay sampled. */
+	--cc-text-primary: #f5f5f5;
+	/* MEASURED high confidence — corpus 06 §2.1: isolated pixel sample off
+	   inactive tab labels in ip_1.jpg, rgb(139,138,144). Near-identical to
+	   iOS systemGray (#8E8E93) — corroborating, not coincidental (see report
+	   §3): safe to keep verbatim, it's Apple's color, not CapCut's own. */
+	--cc-text-secondary: #8b8a90;
+	/* DERIVED — no disabled-state screenshot exists to measure from.
+	   [NEEDS-CAPTURE] real disabled-state treatment. */
+	--cc-text-disabled: rgb(139 138 144 / 50%);
+
+	/* =============================== Accent ================================ */
+	/* MEASURED very-high confidence — corpus 06 §2.2: isolated 130x30px
+	   interior crop of the "Use template" CTA in ip_9.jpg, 42.2% single-
+	   color dominance (i.e. an essentially flat-fill button). Independently
+	   re-sampled this session directly off iphone_shots/ip_9.jpg at
+	   box (620,2470)-(750,2500): rgb(0,202,224) in 34/36 probe points —
+	   confirms the corpus figure exactly, not just trusted secondhand. */
+	--cc-accent: #00cae0;
+	/* DERIVED — ~12% darken of --cc-accent for a pressed/active button
+	   state. [NEEDS-CAPTURE]: no pressed-state screenshot available to
+	   measure the real value. */
+	--cc-accent-active: #00a8ba;
+	/* DERIVED — ink color for text/icons placed on top of --cc-accent.
+	   Near-black reads correctly on #00CAE0 (contrast-checked, see
+	   src/__tests__/contrast-audit.test.ts); CapCut's own on-accent ink
+	   was not independently isolated in any screenshot. */
+	--cc-accent-contrast: #04181a;
+	/* MEASURED medium confidence — sampled this session directly from the
+	   "Pro" gem/diamond badges visible on grid tiles in ip_1.jpg and
+	   ip_7.jpg (dominant cluster over a scanned region, not one isolated
+	   flat-fill swatch like --cc-accent above, hence one confidence tier
+	   down). Cluster centered on rgb(136,0,232)/rgb(136,8,224). */
+	--cc-badge-pro: #8800e8;
+
+	/* ================================ Radii ================================= */
+	/* [NEEDS-CAPTURE] — corpus 06 §5 already flagged this low-medium
+	   confidence (the App Store screenshots are composited into a rounded
+	   promotional phone-frame, contaminating any edge-scan). This session
+	   tried its own independent edge-scan on ip_1.jpg's sheet corner
+	   (iphone_shots/ip_1.jpg, top-left corner near y~1836-1901) and hit the
+	   exact contamination the corpus warned about: the apparent curve never
+	   flattens within a plausible sheet-radius distance, implying >50pt at
+	   3x scale — a value no shipping bottom sheet actually uses, which
+	   means the promotional frame's own curvature is being measured, not
+	   the in-app sheet. Falling back to corpus 06 §8's safe default rather
+	   than either its own or this session's contaminated reading. */
+	--cc-radius-sheet: 20px;
+	/* MEASURED low-medium confidence — generous/soft rounding visually
+	   consistent across all 10 screenshots' thumbnail grid tiles (ip_1.jpg,
+	   ip_7.jpg). No clean isolated edge-scan (same contamination risk as
+	   --cc-radius-sheet); this is a visual-impression read, not a pixel
+	   measurement. */
+	--cc-radius-card: 12px;
+	--cc-radius-pill: 999px;
+	--cc-radius-chip: 8px;
+
+	/* ============================== Typography ============================== */
+	/* Inter is already self-hosted in apps/web (fonts/local-fonts.css, SIL
+	   OFL, zero remote requests) — corpus 06 §7.2 recommendation: metrically
+	   close to both SF Pro and Roboto, has tabular figures for timecodes,
+	   one file covers the bold-active/regular-inactive tab pattern seen in
+	   every screenshot. Do NOT use Filson Pro or Nexa (06 §7.2: the CapCut
+	   wordmark's own fonts are commercial and third-party-sourced only). */
+	--cc-font-ui: "Inter", -apple-system, system-ui, sans-serif;
+	--cc-font-weight-active: 600;
+	--cc-font-weight-inactive: 400;
+	/* [NEEDS-CAPTURE] exact type scale in pt/dp — no marketing screenshot
+	   gives an unobstructed, uncompressed, 1:1 crop of dense UI chrome text
+	   free of promotional-template scaling (corpus 06 §5's own limitation).
+	   This is an internally-consistent scale built to read correctly at
+	   real device sizes, not a pixel measurement — every size below is
+	   provisional pending the M6a capture session. */
+	--cc-text-tab: 0.9375rem; /* 15px */
+	--cc-text-label: 0.6875rem; /* 11px — bottom-toolbar icon captions */
+	--cc-text-body: 0.9375rem; /* 15px */
+	--cc-text-title: 1.0625rem; /* 17px */
+	--cc-tabular-nums: tabular-nums; /* corpus 06 §3 recommendation for timecodes */
+
+	/* ============================== Icon system ============================== */
+	/* [NEEDS-CAPTURE] — corpus 06 §4 explicit: "toolbar icons elsewhere in
+	   the app are very likely smaller" than the one measured sample
+	   (the AI-tools menu grid); this size is not independently measured. */
+	--cc-icon-size-toolbar: 24px;
+	/* MEASURED medium confidence — corpus 06 §4: edge-scan on the "AI
+	   Video" icon frame in ip_2.jpg, 84px @3x device scale ≈ 28pt. Single
+	   sample; generalizing across every icon context is not claimed. */
+	--cc-icon-size-menu-grid: 28px;
+	/* DESIGN DECISION, not a measurement — corpus 06 §7.1: Lucide's default
+	   2px/24px stroke (~8.3%) is bumped toward CapCut's measured ~11.8%
+	   stroke-to-size ratio (06 §4) without tracing CapCut's actual icon
+	   shapes. Applied as `strokeWidth={CC_ICON_STROKE}` in JS/TS, kept here
+	   too for any CSS-driven SVG consumers. */
+	--cc-icon-stroke: 2.5;
+
+	/* ======================= Touch targets (platform, not CapCut) ======================= */
+	/* Corpus 06 §5 explicit: CapCut's own touch-target sizes are not
+	   measurable from marketing composites (arbitrarily scaled). These are
+	   platform HIG/Material minimums, used as the floor for every
+	   interactive element in this kit — not a CapCut-specific figure. */
+	--cc-touch-target-ios: 44px;
+	--cc-touch-target-android: 48px;
+
+	/* ============================ Component metrics ============================ */
+	/* [NEEDS-CAPTURE] — corpus 06 §9 / §5 explicit unknowns: "no
+	   unobstructed timeline screenshot was available"; "Bottom toolbar
+	   height — Unknown — same limitation." Every value below is a
+	   reasonable placeholder sized off --cc-touch-target-ios /
+	   --cc-icon-size-toolbar / --cc-text-label, not a CapCut measurement. */
+	--cc-toolbar-height: 64px;
+	--cc-subtoolbar-height: 48px;
+	--cc-track-height: 48px;
+	--cc-ruler-height: 24px;
+
+	/* ================================ Motion ================================ */
+	/* Corpus 06 §6 explicit: "No direct evidence available... treat this
+	   whole section as a starting hypothesis to validate against a live
+	   device, not as ground truth." [NEEDS-CAPTURE] in full. */
+	--cc-motion-sheet-duration: 260ms;
+	--cc-motion-sheet-easing: cubic-bezier(0.32, 0.72, 0, 1);
+	--cc-motion-toolbar-crossfade: 150ms;
+
+	/* ============================ Timeline (M7) ============================ */
+	/* DESIGN DECISION — corpus 04 §2 confirms each track TYPE is "visually
+	   distinguished" but no screenshot gives clean per-track-type color
+	   swatches to measure (same marketing-composite limitation as radii
+	   above). These are a self-consistent palette built from the measured
+	   --cc-accent/--cc-badge-pro hues plus neutral tones, not CapCut pixel
+	   reads — flagged [NEEDS-CAPTURE] for the M6a session same as the rest
+	   of this file's un-measurable metrics. */
+	--cc-track-color-main: #3a3a3a;
+	--cc-track-color-overlay: #2f4a52;
+	--cc-track-color-text: #4a3f1f;
+	--cc-track-color-sticker: #4a2f4a;
+	--cc-track-color-audio: #1f3d33;
+	/* MEASURED medium-high confidence — corpus 05 §2a: "the selected clip
+	   has a white border around it," multiple independent CapCut-specific
+	   sources. Exact stroke width is [NEEDS-CAPTURE] (05 §2a: "Low
+	   confidence for exact stroke width/color token"); 2px is a readable,
+	   platform-reasonable placeholder pending the capture session. */
+	--cc-clip-selection-border: 2px solid #ffffff;
+	/* DESIGN DECISION — corpus 05 §2b confirms oversized trim-handle hit
+	   areas as a documented-good-practice pattern (img.ly teardown,
+	   "more than twice as wide as the visual appearance suggests"), not a
+	   CapCut pixel measurement. Applied as extra invisible hit padding
+	   beyond the visible handle width below. */
+	--cc-clip-handle-visible-width: 6px;
+	--cc-clip-handle-hit-width: 24px;
+	/* DESIGN DECISION — a 2px playhead line is a common cross-platform
+	   convention; corpus does not give a measured width. */
+	--cc-playhead-width: 2px;
+	--cc-snap-indicator-color: var(--cc-accent);
+	--cc-transition-square-size: 20px;
+
+	/* ================================ Spacing ================================ */
+	/* Not independently CapCut-measured; a standard 4px rhythm consistent
+	   with the icon/radius sizes that ARE measured above. */
+	--cc-space-1: 4px;
+	--cc-space-2: 8px;
+	--cc-space-3: 12px;
+	--cc-space-4: 16px;
+	--cc-space-5: 20px;
+	--cc-space-6: 24px;
+}

@@ -32,6 +32,7 @@ interface PendingBookmarkDrag {
 	bookmarkTime: MediaTime;
 	startMouseX: number;
 	startMouseY: number;
+	pointerId: number;
 }
 
 interface UseBookmarkDragProps {
@@ -63,6 +64,21 @@ export function useBookmarkDrag({
 	const [isPendingDrag, setIsPendingDrag] = useState(false);
 	const pendingDragRef = useRef<PendingBookmarkDrag | null>(null);
 	const lastMouseXRef = useRef(0);
+	const activePointerIdRef = useRef<number | null>(null);
+	const captureTargetRef = useRef<Element | null>(null);
+
+	const releaseCapture = useCallback(() => {
+		const target = captureTargetRef.current;
+		const pointerId = activePointerIdRef.current;
+		captureTargetRef.current = null;
+		activePointerIdRef.current = null;
+		if (!target || pointerId === null) return;
+		try {
+			target.releasePointerCapture(pointerId);
+		} catch {
+			// Already released — fine.
+		}
+	}, []);
 
 	const startDrag = useCallback(
 		({
@@ -133,7 +149,8 @@ export function useBookmarkDrag({
 	useEffect(() => {
 		if (!dragState.isDragging && !isPendingDrag) return;
 
-		const handleMouseMove = (event: MouseEvent) => {
+		const handleMouseMove = (event: PointerEvent) => {
+			if (event.pointerId !== activePointerIdRef.current) return;
 			lastMouseXRef.current = event.clientX;
 
 			const scrollContainer = scrollRef.current;
@@ -212,8 +229,8 @@ export function useBookmarkDrag({
 			onSnapPointChange?.(snapResult.snapPoint);
 		};
 
-		document.addEventListener("mousemove", handleMouseMove);
-		return () => document.removeEventListener("mousemove", handleMouseMove);
+		document.addEventListener("pointermove", handleMouseMove);
+		return () => document.removeEventListener("pointermove", handleMouseMove);
 	}, [
 		dragState.isDragging,
 		dragState.bookmarkTime,
@@ -230,7 +247,10 @@ export function useBookmarkDrag({
 	useEffect(() => {
 		if (!dragState.isDragging) return;
 
-		const handleMouseUp = () => {
+		const handleMouseUp = (event: PointerEvent) => {
+			if (event.pointerId !== activePointerIdRef.current) return;
+			releaseCapture();
+
 			if (dragState.bookmarkTime === null) {
 				endDrag();
 				onSnapPointChange?.(null);
@@ -249,8 +269,12 @@ export function useBookmarkDrag({
 			onSnapPointChange?.(null);
 		};
 
-		document.addEventListener("mouseup", handleMouseUp);
-		return () => document.removeEventListener("mouseup", handleMouseUp);
+		document.addEventListener("pointerup", handleMouseUp);
+		document.addEventListener("pointercancel", handleMouseUp);
+		return () => {
+			document.removeEventListener("pointerup", handleMouseUp);
+			document.removeEventListener("pointercancel", handleMouseUp);
+		};
 	}, [
 		dragState.isDragging,
 		dragState.bookmarkTime,
@@ -259,32 +283,48 @@ export function useBookmarkDrag({
 		endDrag,
 		onSnapPointChange,
 		editor.scenes,
+		releaseCapture,
 	]);
 
 	useEffect(() => {
 		if (!isPendingDrag) return;
 
-		const handleMouseUp = () => {
+		const handleMouseUp = (event: PointerEvent) => {
+			if (event.pointerId !== activePointerIdRef.current) return;
+			releaseCapture();
 			pendingDragRef.current = null;
 			setIsPendingDrag(false);
 			onSnapPointChange?.(null);
 		};
 
-		document.addEventListener("mouseup", handleMouseUp);
-		return () => document.removeEventListener("mouseup", handleMouseUp);
-	}, [isPendingDrag, onSnapPointChange]);
+		document.addEventListener("pointerup", handleMouseUp);
+		document.addEventListener("pointercancel", handleMouseUp);
+		return () => {
+			document.removeEventListener("pointerup", handleMouseUp);
+			document.removeEventListener("pointercancel", handleMouseUp);
+		};
+	}, [isPendingDrag, onSnapPointChange, releaseCapture]);
 
 	const handleBookmarkMouseDown = useCallback(
-		({ event, bookmark }: { event: React.MouseEvent; bookmark: Bookmark }) => {
+		({ event, bookmark }: { event: React.PointerEvent; bookmark: Bookmark }) => {
 			if (event.button !== 0) return;
 
 			event.preventDefault();
 			event.stopPropagation();
 
+			try {
+				event.currentTarget.setPointerCapture(event.pointerId);
+				captureTargetRef.current = event.currentTarget;
+			} catch {
+				captureTargetRef.current = null;
+			}
+			activePointerIdRef.current = event.pointerId;
+
 			pendingDragRef.current = {
 				bookmarkTime: bookmark.time,
 				startMouseX: event.clientX,
 				startMouseY: event.clientY,
+				pointerId: event.pointerId,
 			};
 			setIsPendingDrag(true);
 		},
