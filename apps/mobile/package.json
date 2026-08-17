@@ -15,7 +15,9 @@
 		"cap:open:ios": "cap open ios",
 		"cap:open:android": "cap open android",
 		"ios:build:sim": "bash scripts/build-ios-simulator.sh",
-		"android:build:debug": "bash scripts/build-android-debug.sh"
+		"android:build:debug": "bash scripts/build-android-debug.sh",
+		"ios:build:unsigned-ipa": "bash scripts/build-ios-unsigned-ipa.sh",
+		"android:build:release": "bash scripts/build-android-release.sh"
 	},
 	"dependencies": {
 		"@capacitor/android": "^8.0.0",

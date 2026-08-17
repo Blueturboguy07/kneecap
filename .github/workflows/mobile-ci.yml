@@ -4,13 +4,18 @@ name: Mobile CI
 # installable iOS build (ad-hoc or unsigned .ipa) from a clean checkout."
 # This workflow covers the unsigned/debug half of that (iOS simulator build
 # with CODE_SIGNING_ALLOWED=NO, Android debug APK via gradle) — the same two
-# builds verified locally in the M3 session. Real device/ad-hoc signing for
-# direct distribution (plan §8.0 item 5: no App Store / Play Store release)
-# is M12/M13 scope; this job's iOS build intentionally targets the
-# Simulator, not a device, for exactly the reason the plan gives for doing
-# that from an agent session: "local signing is flaky from agent sessions —
-# real signing happens in CI" still needs a signing identity + provisioning
-# profile that only exists once M13 wires distribution certs into secrets.
+# builds verified locally in the M3 session, run on EVERY push/PR to `main`
+# so debug builds never silently rot.
+#
+# The signed-release half of that exit criterion (real Android release
+# keystore signing + an unsigned iOS device .ipa for direct distribution,
+# plan §8.0 item 5: no App Store / Play Store release) now lives in
+# .github/workflows/release.yml, gated behind a `v*.*.*` tag push rather
+# than every push — see docs/RELEASING.md. This workflow's iOS build
+# intentionally still targets the Simulator, not a device: local signing
+# is flaky from agent sessions, and there is deliberately no CI-held Apple
+# signing identity anywhere in this project (release.yml's iOS artifact is
+# unsigned by design — see that workflow's header comment for why).
 
 concurrency:
   group: mobile-ci-${{ github.ref }}
