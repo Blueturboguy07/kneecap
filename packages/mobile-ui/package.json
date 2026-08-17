@@ -15,9 +15,11 @@
 		"test": "bun test src"
 	},
 	"dependencies": {
+		"@kneecap/editor-core": "workspace:*",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
 		"lucide-react": "^0.562.0",
+		"opencut-wasm": "^0.2.10",
 		"radix-ui": "^1.4.3",
 		"tailwind-merge": "^3.5.0"
 	},

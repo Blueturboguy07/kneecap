@@ -129,6 +129,9 @@
 	position: fixed;
 	inset: 0;
 	background: var(--cc-bg-scrim);
+	/* Explicit, not load-bearing on its own — see .cc-sheet's z-index
+	   comment below for why BOTH need an explicit value. */
+	z-index: 0;
 }
 .cc-sheet {
 	background: var(--cc-bg-panel);
@@ -138,6 +141,27 @@
 	flex-direction: column;
 	max-height: 70vh;
 	overflow: hidden;
+	/* M8 bugfix, found via real in-browser click testing (not caught by
+	   any prior visual-only check): CSS paints/hit-tests POSITIONED
+	   elements above NON-positioned siblings within the same stacking
+	   context, regardless of DOM order. `.cc-sheet-scrim` is
+	   `position: fixed`; this element, `.cc-sheet` — its DOM sibling in
+	   `PanelSheet`'s fragment, rendered AFTER the scrim — was plain
+	   `position: static` (the default), so the browser stacked the scrim
+	   ON TOP of the entire sheet despite the scrim being earlier in the
+	   DOM. `document.elementFromPoint()` at a real sheet button's center
+	   returned the scrim div, not the button: every tap anywhere inside
+	   an open sheet actually hit the scrim and called `onClose`,
+	   silently closing the sheet instead of running the button's own
+	   handler — with zero console error, so it was invisible to any
+	   check short of clicking through a real render and inspecting hit-
+	   testing directly. `position: relative` (a no-op for layout with no
+	   top/left/etc. offsets — this element keeps flowing normally) plus
+	   an explicit `z-index` above the scrim's is what actually fixes it.
+	   Confirmed after this fix: `elementFromPoint` at a sheet button's
+	   center returns the button. */
+	position: relative;
+	z-index: 1;
 }
 .cc-sheet__body {
 	overflow-y: auto;
@@ -673,4 +697,203 @@
 	border-radius: var(--cc-radius-chip);
 	pointer-events: none;
 	z-index: 6;
+}
+
+/* ============================================================================
+ * M8 — editor chrome, panel rows, export sheet (plan M8: panels/toolbars/
+ * export sheet). Same [NEEDS-CAPTURE]-until-M6a-capture status as the rest
+ * of this file's un-measured metrics (top bar height, playback bar height,
+ * panel-row spacing) — built self-consistently off the existing spacing/
+ * radius/color tokens above, not a CapCut pixel read.
+ * ========================================================================= */
+
+.cc-editor-shell {
+	display: flex;
+	flex-direction: column;
+	background: var(--cc-bg-base);
+	color: var(--cc-text-primary);
+	font-family: var(--cc-font-ui);
+	height: 100%;
+	overflow: hidden;
+}
+
+/* ------------------------------- Top bar ---------------------------------- */
+.cc-topbar {
+	display: flex;
+	align-items: center;
+	gap: var(--cc-space-2);
+	padding: var(--cc-space-2) var(--cc-space-3);
+	flex-shrink: 0;
+}
+.cc-topbar__title {
+	flex: 1;
+	font-size: var(--cc-text-body);
+	font-weight: var(--cc-font-weight-active);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.cc-topbar__right {
+	display: flex;
+	align-items: center;
+	gap: var(--cc-space-1);
+}
+.cc-topbar__icon-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 36px;
+	height: 36px;
+	background: none;
+	border: none;
+	color: var(--cc-text-primary);
+	cursor: pointer;
+	flex-shrink: 0;
+}
+.cc-topbar__icon-btn:disabled {
+	color: var(--cc-text-disabled);
+	cursor: default;
+}
+
+/* ----------------------------- Preview stage ------------------------------- */
+.cc-preview-stage {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 0;
+	padding: var(--cc-space-3);
+}
+.cc-preview-stage__canvas {
+	max-width: 100%;
+	max-height: 100%;
+	border-radius: var(--cc-radius-card);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+}
+
+/* ----------------------------- Playback bar -------------------------------- */
+.cc-playbackbar {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--cc-space-2);
+	padding: var(--cc-space-2);
+	flex-shrink: 0;
+}
+.cc-playbackbar__time {
+	font-variant-numeric: var(--cc-tabular-nums);
+	font-size: var(--cc-text-label);
+	color: var(--cc-text-secondary);
+	margin-left: var(--cc-space-2);
+}
+
+/* ------------------------------- Panel rows -------------------------------- */
+.cc-param-row {
+	padding: var(--cc-space-3) 0;
+}
+.cc-param-row__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: var(--cc-space-2);
+}
+.cc-param-row__label {
+	font-size: var(--cc-text-body);
+	color: var(--cc-text-primary);
+}
+.cc-param-row__value {
+	font-variant-numeric: var(--cc-tabular-nums);
+	font-size: var(--cc-text-label);
+	color: var(--cc-text-secondary);
+}
+
+.cc-toggle-row {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	background: none;
+	border: none;
+	color: var(--cc-text-primary);
+	font-family: inherit;
+	font-size: var(--cc-text-body);
+	padding: var(--cc-space-3) 0;
+	cursor: pointer;
+}
+.cc-toggle-row__pill {
+	width: 40px;
+	height: 24px;
+	border-radius: var(--cc-radius-pill);
+	background: var(--cc-bg-raised);
+	position: relative;
+	transition: background var(--cc-motion-toolbar-crossfade);
+	flex-shrink: 0;
+}
+.cc-toggle-row__pill-knob {
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	background: var(--cc-text-primary);
+	transition: transform var(--cc-motion-toolbar-crossfade);
+}
+.cc-toggle-row--active .cc-toggle-row__pill {
+	background: var(--cc-accent);
+}
+.cc-toggle-row--active .cc-toggle-row__pill-knob {
+	transform: translateX(16px);
+	background: var(--cc-accent-contrast);
+}
+
+.cc-panel-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--cc-space-3);
+	padding: var(--cc-space-2) 0;
+}
+.cc-panel-actions__btn {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--cc-space-1);
+	background: none;
+	border: none;
+	color: var(--cc-text-primary);
+	font-family: inherit;
+	font-size: var(--cc-text-label);
+	cursor: pointer;
+	min-width: 64px;
+}
+.cc-panel-actions__btn:disabled {
+	color: var(--cc-text-disabled);
+	cursor: default;
+}
+
+.cc-panel-note {
+	display: flex;
+	align-items: center;
+	gap: var(--cc-space-1);
+	font-size: var(--cc-text-label);
+	color: var(--cc-text-secondary);
+	padding: var(--cc-space-2) 0;
+	line-height: 1.4;
+}
+
+.cc-swatch-row {
+	display: flex;
+	gap: var(--cc-space-2);
+	flex-wrap: wrap;
+}
+.cc-swatch {
+	width: 32px;
+	height: 32px;
+	border-radius: 50%;
+	border: 1px solid var(--cc-bg-raised);
+	cursor: pointer;
+	padding: 0;
 }

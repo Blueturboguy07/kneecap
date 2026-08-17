@@ -16,6 +16,12 @@ import { SYSTEM_FONTS } from "@/fonts/system-fonts";
  */
 const LOCAL_FONTS = new Set<string>(["Inter"]);
 
+/** M8 Text panel's font picker reads this rather than re-declaring its own
+ *  list — see the header above for why it's still just `["Inter"]`. */
+export function getLocallyAvailableFonts(): string[] {
+	return Array.from(LOCAL_FONTS);
+}
+
 const FONT_ATLAS_PATH = "/fonts/font-atlas.json";
 const FONT_CHUNK_PATH_PREFIX = "/fonts/font-chunk-";
 

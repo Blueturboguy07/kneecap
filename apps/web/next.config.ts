@@ -16,7 +16,15 @@ const nextConfig: NextConfig = {
 	// Next excludes node_modules — symlinked workspace packages included —
 	// from its default transform pipeline, so without this the raw TSX
 	// would fail to build the moment anything actually imports it.
-	transpilePackages: ["@kneecap/mobile-ui"],
+	//
+	// kneecap M8: mobile-ui now depends on @kneecap/editor-core directly
+	// (packages/mobile-ui/package.json) so its panels can call real engine
+	// commands — a second, independent path to the same engine apps/web's
+	// OWN code reaches via the `@/*` tsconfig alias above. Node resolves
+	// mobile-ui's import through the node_modules symlink
+	// (node_modules/@kneecap/editor-core -> ../../packages/editor-core), so
+	// it needs the same raw-source transpile treatment as mobile-ui itself.
+	transpilePackages: ["@kneecap/mobile-ui", "@kneecap/editor-core"],
 	images: {
 		remotePatterns: [
 			{

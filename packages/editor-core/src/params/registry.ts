@@ -171,6 +171,24 @@ const audioElementParams: ElementParamDefinition[] = [
 		default: false,
 		keyframable: false,
 	},
+	{
+		// M8 Edit panel's "Reverse" control writes here. Real, persisted,
+		// undoable state — but `@/retime/rate.ts` (`clampRetimeRate`) only
+		// accepts rate > 0, and the inherited engine has no negative-rate or
+		// playback-direction concept anywhere in the Rust/wasm compositor.
+		// This param is therefore the same category of honest partial-engine
+		// gap as `EdlTransition` being frozen at `[]` (see M7 handoff): the
+		// UI control is fully wired and the state genuinely round-trips, but
+		// nothing downstream (preview or export) reads it yet. Closing that
+		// requires either a compositor change or a source-side sample-reversal
+		// pass — out of scope for M8 (panels/toolbars), tracked for whoever
+		// owns preview/export playback next.
+		key: "reversed",
+		label: "Reverse",
+		type: "boolean",
+		default: false,
+		keyframable: false,
+	},
 ];
 
 const textElementParams: ElementParamDefinition[] = [

@@ -47,3 +47,11 @@ export type {
 	TimelineClipKind,
 	TimelineKeyframeVM,
 } from "./timeline/types";
+
+// ======================== Panels/toolbars/export (M8) ========================
+export { EditorShell } from "./components/editor/editor-shell";
+export { TopBar } from "./components/editor/top-bar";
+export { PlaybackBar } from "./components/editor/playback-bar";
+export { PreviewStage } from "./components/editor/preview-stage";
+export { PRIMARY_TOOLBAR_ITEMS, type PrimaryToolId } from "./components/editor/toolbar-defs";
+export { bootstrapDemoProject, resetDemoProjectBootstrap, type DemoProjectRefs } from "./editor/demo-project";
