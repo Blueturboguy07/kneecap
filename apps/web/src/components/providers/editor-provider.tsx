@@ -10,6 +10,7 @@ import { useKeybindingsStore } from "@/actions/keybindings-store";
 import { useTimelineStore } from "@/timeline/timeline-store";
 import { useEditorActions } from "@/actions/use-editor-actions";
 import { loadFontAtlas } from "@/fonts/local-fonts";
+import { registerDefaultMaskIcons } from "@/masks/builtin/icons";
 import {
 	initializeGpuRenderer,
 	isGpuAvailable,
@@ -34,6 +35,10 @@ export function EditorProvider({ projectId, children }: EditorProviderProps) {
 	useEffect(() => {
 		let cancelled = false;
 		const editor = EditorCore.getInstance();
+		// Engine registers icon-less mask definitions (it must not depend on a UI
+		// icon pack); the web host binds the icons. Ordering matters —
+		// `getInstance()` above is what runs `registerDefaultMasks()`.
+		registerDefaultMaskIcons();
 
 		const loadProject = async () => {
 			try {

@@ -33,7 +33,7 @@ import { getGuidePreviewOverlaySource } from "@/guides";
 import {
 	bookmarkNotesPreviewOverlay,
 	getBookmarkPreviewOverlaySource,
-} from "@/timeline/bookmarks/index";
+} from "@/timeline/bookmarks/ui";
 
 export default function Editor() {
 	const params = useParams();

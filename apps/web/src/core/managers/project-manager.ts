@@ -9,7 +9,7 @@ import type {
 } from "@/project/types";
 import type { ExportOptions, ExportResult, ExportState } from "@/export";
 import { storageService } from "@/services/storage/service";
-import { toast } from "sonner";
+import { toast } from "@/core/notifications";
 import { generateUUID } from "@/utils/id";
 import { UpdateProjectSettingsCommand } from "@/commands/project";
 import { DEFAULT_BACKGROUND_COLOR } from "@/background/color";

@@ -9,13 +9,30 @@ import type {
 	MaskRenderer,
 	MaskType,
 } from "@/masks/types";
-import type { HugeiconsIconProps } from "@hugeicons/react";
 import { DefinitionRegistry } from "@/params/registry";
 
+/**
+ * Structural mirror of `@hugeicons/react`'s `IconSvgElement` — a plain array of
+ * `[tagName, attributes]` pairs.
+ *
+ * kneecap M2: the engine must not import a React icon library (not even for a
+ * type), so the shape is restated here. It stays assignable in both directions
+ * with the real `IconSvgElement`, so `<HugeiconsIcon {...definition.icon} />`
+ * in the UI keeps type-checking. Icon *data* is supplied by the host via
+ * `masksRegistry.setIcon()`; the engine never interprets it.
+ */
+export type MaskIconSvgElement = readonly (readonly [
+	string,
+	{ readonly [key: string]: string | number },
+])[];
+
 export type MaskIconProps = {
-	icon: HugeiconsIconProps["icon"];
+	icon: MaskIconSvgElement;
 	strokeWidth?: number;
 };
+
+/** Renders as nothing. Used until the host installs real icon data. */
+export const EMPTY_MASK_ICON: MaskIconProps = { icon: [] };
 
 type RegisteredMaskWithoutId = Mask extends infer TMask
 	? TMask extends Mask
@@ -82,10 +99,10 @@ export class MasksRegistry extends DefinitionRegistry<
 
 	registerMask({
 		definition,
-		icon,
+		icon = EMPTY_MASK_ICON,
 	}: {
 		definition: MaskDefinitionForRegistration;
-		icon: MaskIconProps;
+		icon?: MaskIconProps;
 	}): void {
 		const withBaseParams: RegisteredMaskDefinition = {
 			type: definition.type,
@@ -103,6 +120,18 @@ export class MasksRegistry extends DefinitionRegistry<
 			key: definition.type,
 			definition: withBaseParams,
 		});
+	}
+
+	/**
+	 * Host-side icon injection. Called by the UI layer after the engine has
+	 * registered the (icon-less) definitions. No-ops for unknown mask types so
+	 * an icon pack can lag behind the engine's mask set.
+	 */
+	setIcon({ type, icon }: { type: MaskType; icon: MaskIconProps }): void {
+		if (!this.has(type)) {
+			return;
+		}
+		this.get(type).icon = icon;
 	}
 }
 

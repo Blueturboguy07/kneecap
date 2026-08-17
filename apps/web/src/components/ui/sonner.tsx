@@ -1,9 +1,20 @@
 "use client";
 
 import { useTheme } from "next-themes";
-import { Toaster as Sonner } from "sonner";
+import { Toaster as Sonner, toast as sonnerToast } from "sonner";
+import { setNotifier } from "@/core/notifications";
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
+
+// kneecap M2: the headless engine emits notifications through
+// `@/core/notifications` instead of importing sonner. This module is the web
+// host's renderer for that port. Bound at module scope so it is installed for
+// every route the moment the root layout's <Toaster /> module is evaluated —
+// including the project-list routes, which surface engine errors without ever
+// mounting the editor.
+setNotifier(({ level, message, description, duration, action }) => {
+	sonnerToast[level](message, { description, duration, action });
+});
 
 const Toaster = ({ ...props }: ToasterProps) => {
 	const { theme = "system" } = useTheme();

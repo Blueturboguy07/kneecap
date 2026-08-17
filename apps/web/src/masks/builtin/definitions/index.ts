@@ -1,7 +1,6 @@
 import {
 	masksRegistry,
 	type MaskDefinitionForRegistration,
-	type MaskIconProps,
 } from "../../registry";
 import { cinematicBarsMaskDefinition } from "./cinematic-bars";
 import { diamondMaskDefinition } from "./diamond";
@@ -12,67 +11,33 @@ import { splitMaskDefinition } from "./split";
 import { starMaskDefinition } from "./star";
 import { textMaskDefinition } from "./text";
 import { freeformMaskDefinition } from "../../freeform/definition";
-import {
-	MinusSignIcon,
-	PanelRightDashedIcon,
-	SquareIcon,
-	CircleIcon,
-	FavouriteIcon,
-	DiamondIcon,
-	StarsIcon,
-	TextFontIcon,
-	PenToolAddIcon,
-} from "@hugeicons/core-free-icons";
+
+// kneecap M2: icon *data* used to be imported here from
+// `@hugeicons/core-free-icons` and passed to `registerMask`. That put a UI asset
+// package in the engine's import closure. Definitions now register icon-less and
+// the host installs icons via `masksRegistry.setIcon()` — see
+// `apps/web/src/masks/builtin/icons.ts`.
 
 function registerDefaultMask({
 	definition,
-	icon,
 }: {
 	definition: MaskDefinitionForRegistration;
-	icon: MaskIconProps;
 }) {
 	if (masksRegistry.has(definition.type)) {
 		return;
 	}
 
-	masksRegistry.registerMask({ definition, icon });
+	masksRegistry.registerMask({ definition });
 }
 
 export function registerDefaultMasks(): void {
-	registerDefaultMask({
-		definition: splitMaskDefinition,
-		icon: { icon: PanelRightDashedIcon, strokeWidth: 1 },
-	});
-	registerDefaultMask({
-		definition: cinematicBarsMaskDefinition,
-		icon: { icon: MinusSignIcon },
-	});
-	registerDefaultMask({
-		definition: rectangleMaskDefinition,
-		icon: { icon: SquareIcon },
-	});
-	registerDefaultMask({
-		definition: ellipseMaskDefinition,
-		icon: { icon: CircleIcon },
-	});
-	registerDefaultMask({
-		definition: heartMaskDefinition,
-		icon: { icon: FavouriteIcon },
-	});
-	registerDefaultMask({
-		definition: diamondMaskDefinition,
-		icon: { icon: DiamondIcon },
-	});
-	registerDefaultMask({
-		definition: starMaskDefinition,
-		icon: { icon: StarsIcon },
-	});
-	registerDefaultMask({
-		definition: textMaskDefinition,
-		icon: { icon: TextFontIcon },
-	});
-	registerDefaultMask({
-		definition: freeformMaskDefinition,
-		icon: { icon: PenToolAddIcon },
-	});
+	registerDefaultMask({ definition: splitMaskDefinition });
+	registerDefaultMask({ definition: cinematicBarsMaskDefinition });
+	registerDefaultMask({ definition: rectangleMaskDefinition });
+	registerDefaultMask({ definition: ellipseMaskDefinition });
+	registerDefaultMask({ definition: heartMaskDefinition });
+	registerDefaultMask({ definition: diamondMaskDefinition });
+	registerDefaultMask({ definition: starMaskDefinition });
+	registerDefaultMask({ definition: textMaskDefinition });
+	registerDefaultMask({ definition: freeformMaskDefinition });
 }

@@ -75,7 +75,7 @@ import { TimelineRuler } from "./timeline-ruler";
 import {
 	TimelineBookmarksRow,
 	useBookmarkDrag,
-} from "@/timeline/bookmarks/index";
+} from "@/timeline/bookmarks/ui";
 import { useEdgeAutoScroll } from "@/timeline/hooks/use-edge-auto-scroll";
 import { useInitialScrollBottom } from "@/timeline/hooks/use-initial-scroll-bottom";
 import { useTimelineResize } from "@/timeline/hooks/use-timeline-resize";
