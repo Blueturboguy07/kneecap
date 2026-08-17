@@ -279,6 +279,11 @@ function buildDemoEdl(handles: MediaHandle[]): Edl {
 						effects: [],
 						masks: [],
 						animations: [],
+						// EDL v1 rev 1 (docs/EDL.md §changelog): `captionWords` is a
+						// REQUIRED field, `[]` on every clip whose kind isn't
+						// "caption". This demo EDL is hand-authored (not produced by
+						// `buildEdl`), so it has to state that explicitly.
+						captionWords: [],
 						params: {},
 					},
 					{
@@ -302,6 +307,11 @@ function buildDemoEdl(handles: MediaHandle[]): Edl {
 						effects: [],
 						masks: [],
 						animations: [],
+						// EDL v1 rev 1 (docs/EDL.md §changelog): `captionWords` is a
+						// REQUIRED field, `[]` on every clip whose kind isn't
+						// "caption". This demo EDL is hand-authored (not produced by
+						// `buildEdl`), so it has to state that explicitly.
+						captionWords: [],
 						params: {},
 					},
 				],
@@ -336,6 +346,11 @@ function buildDemoEdl(handles: MediaHandle[]): Edl {
 						effects: [],
 						masks: [],
 						animations: [],
+						// EDL v1 rev 1 (docs/EDL.md §changelog): `captionWords` is a
+						// REQUIRED field, `[]` on every clip whose kind isn't
+						// "caption". This demo EDL is hand-authored (not produced by
+						// `buildEdl`), so it has to state that explicitly.
+						captionWords: [],
 						params: { content: "kneecap", fontSize: 48, color: "#00CAE0" },
 					},
 				],
