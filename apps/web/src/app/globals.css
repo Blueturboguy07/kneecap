@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../fonts/local-fonts.css";
 
 /* Custom variant for dark mode */
 @custom-variant dark (&:where(.dark, .dark *));
@@ -149,8 +150,8 @@
   /* Responsive breakpoints */
   --breakpoint-xs: 30rem;
 
-  /* Typography */
-  --font-sans: var(--font-inter), sans-serif;
+  /* Typography — self-hosted Inter (see fonts/local-fonts.css), no remote font requests */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 
   /* Font sizes */
   --text-xs: 0.72rem;

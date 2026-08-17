@@ -24,7 +24,7 @@ import {
 	runStorageMigrations,
 	type MigrationProgress,
 } from "@/services/storage/migrations";
-import { loadFonts } from "@/fonts/google-fonts";
+import { loadFonts } from "@/fonts/local-fonts";
 import { DEFAULTS } from "@/timeline/defaults";
 import { getElementFontFamilies } from "@/timeline/element-utils";
 import { getRaisedProjectFpsForImportedMedia } from "@/fps/utils";

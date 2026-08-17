@@ -3,7 +3,7 @@ import {
 	getCachedFontAtlas,
 	loadFontAtlas,
 	clearFontAtlasCache,
-} from "@/fonts/google-fonts";
+} from "@/fonts/local-fonts";
 import type { FontAtlas } from "@/fonts/types";
 import { SYSTEM_FONTS } from "@/fonts/system-fonts";
 

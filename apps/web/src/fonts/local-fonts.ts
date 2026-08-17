@@ -1,7 +1,21 @@
 import type { FontAtlas } from "@/fonts/types";
 import { SYSTEM_FONTS } from "@/fonts/system-fonts";
 
-const GOOGLE_FONTS_CSS = "https://fonts.googleapis.com/css2";
+/**
+ * Fonts bundled locally (self-hosted @font-face in `local-fonts.css`,
+ * files under /public/fonts/local). Selecting one of these never touches
+ * the network.
+ *
+ * The picker's atlas (`/fonts/font-atlas.json`, same-origin static asset,
+ * also no network) still lists ~1900 families for browsing/preview, but
+ * only families in this set can actually be *applied* offline today.
+ * Anything else fails closed in `loadFullFont` below: it resolves without
+ * loading anything and the editor falls back to the system font. Curating
+ * a broader locally-bundled OFL set is scoped to a later milestone
+ * (plan M8, "Text" panel — "bundle a curated OFL font set locally").
+ */
+const LOCAL_FONTS = new Set<string>(["Inter"]);
+
 const FONT_ATLAS_PATH = "/fonts/font-atlas.json";
 const FONT_CHUNK_PATH_PREFIX = "/fonts/font-chunk-";
 
@@ -9,10 +23,6 @@ const fullLoaded = new Set<string>();
 
 let cachedAtlas: FontAtlas | null = null;
 let atlasFetchPromise: Promise<FontAtlas | null> | null = null;
-
-function encodeGoogleFontsFamily(family: string): string {
-	return family.replace(/ /g, "+");
-}
 
 export function getCachedFontAtlas(): FontAtlas | null {
 	return cachedAtlas;
@@ -24,6 +34,7 @@ export function clearFontAtlasCache(): void {
 	fullLoaded.clear();
 }
 
+/** Loads the (same-origin, static) font-picker preview atlas. No external network request. */
 export function loadFontAtlas(): Promise<FontAtlas | null> {
 	if (cachedAtlas) return Promise.resolve(cachedAtlas);
 	if (atlasFetchPromise) return atlasFetchPromise;
@@ -46,12 +57,18 @@ function preloadChunkImages({ atlas }: { atlas: FontAtlas }): void {
 		...Object.values(atlas.fonts).map((entry) => entry.ch),
 	);
 	for (let i = 0; i <= maxChunk; i++) {
-		// hint browser to preload chunk images without blocking
+		// hint browser to preload the (same-origin) chunk image without blocking
 		const img = new Image();
 		img.src = `${FONT_CHUNK_PATH_PREFIX}${i}.avif`;
 	}
 }
 
+/**
+ * Ensures `family` is ready to render. For a locally-bundled family this
+ * waits on the already-local @font-face; for anything else it resolves
+ * as a no-op (never fetched, nothing to wait for) and the caller falls
+ * back to the system font. Never makes a network request. Never rejects.
+ */
 export async function loadFullFont({
 	family,
 	weights = [400, 700],
@@ -60,19 +77,13 @@ export async function loadFullFont({
 	weights?: number[];
 }): Promise<void> {
 	if (fullLoaded.has(family)) return;
+	if (!LOCAL_FONTS.has(family)) return;
 
-	const url = `${GOOGLE_FONTS_CSS}?family=${encodeGoogleFontsFamily(family)}:wght@${weights.join(";")}&display=swap`;
-	const link = document.createElement("link");
-	link.rel = "stylesheet";
-	link.href = url;
-	document.head.appendChild(link);
-	await new Promise<void>((resolve) => {
-		link.addEventListener("load", () => resolve(), { once: true });
-		link.addEventListener("error", () => resolve(), { once: true });
-	});
 	await Promise.all(
 		weights.map((weight) =>
-			document.fonts.load(`${weight} 16px "${family.replace(/"/g, '\\"')}"`),
+			document.fonts
+				.load(`${weight} 16px "${family.replace(/"/g, '\\"')}"`)
+				.catch(() => undefined),
 		),
 	);
 	fullLoaded.add(family);
@@ -83,6 +94,8 @@ export async function loadFonts({
 }: {
 	families: string[];
 }): Promise<void> {
-	const googleFonts = families.filter((family) => !SYSTEM_FONTS.has(family));
-	await Promise.all(googleFonts.map((family) => loadFullFont({ family })));
+	const nonSystemFonts = families.filter(
+		(family) => !SYSTEM_FONTS.has(family),
+	);
+	await Promise.all(nonSystemFonts.map((family) => loadFullFont({ family })));
 }

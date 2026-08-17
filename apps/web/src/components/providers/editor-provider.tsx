@@ -9,7 +9,7 @@ import { useKeybindingsListener } from "@/actions/use-keybindings";
 import { useKeybindingsStore } from "@/actions/keybindings-store";
 import { useTimelineStore } from "@/timeline/timeline-store";
 import { useEditorActions } from "@/actions/use-editor-actions";
-import { loadFontAtlas } from "@/fonts/google-fonts";
+import { loadFontAtlas } from "@/fonts/local-fonts";
 import {
 	initializeGpuRenderer,
 	isGpuAvailable,
