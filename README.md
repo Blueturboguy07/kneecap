@@ -52,25 +52,41 @@ of what's been ratified and why.
 
 This repo is mid-fork: the inherited codebase is a Next.js 16 web app
 (`apps/web/`) with the original desktop shell (`apps/desktop/`, GPUI) and
-Rust/WASM compositor (`rust/`) still present. The mobile shell
-(`apps/mobile/`) and the headless `packages/editor-core` extraction are
-not built yet — see the plan's milestone list for sequencing. Treat
-anything under `apps/web/src` as inherited engine code being
-progressively adapted, not as the shipped mobile product.
+Rust/WASM compositor (`rust/`) still present.
+
+**M2 landed the headless engine extraction.** The editing engine now
+lives in `packages/editor-core` — `EditorCore` and its 12 managers,
+timeline/placement/ripple/retime, the command system, storage and its
+31 migrations, the renderer graph, and the frozen **EDL v1** bridge
+contract (`docs/EDL.md`). It contains no React, Next, or UI-library
+imports, enforced two ways: the package type-checks standalone with
+`@/*` mapped to its own `src` only, and `scripts/check-headless.mjs`
+scans every file. `apps/web` consumes it and keeps working.
+
+The mobile shell (`apps/mobile/`) does not exist yet — see the plan's
+milestone list for sequencing. Treat what remains under `apps/web/src`
+as inherited *UI* code being progressively adapted, not as the shipped
+mobile product.
 
 ## Project structure
 
-- `apps/web/` — inherited Next.js web application; source of the editing
-  engine (`core/`, `timeline/`, `services/`, etc.) this project builds
-  on top of.
+- `packages/editor-core/` — **the headless editing engine.** Framework-
+  agnostic TypeScript: no React, no DOM-desktop assumptions, no server.
+  Its `react/` subdirectory holds the one React-aware file, the
+  `useSyncExternalStore` bridge. `schema/edl-v1.json` is the frozen
+  native-export contract; see `docs/EDL.md`.
+- `apps/web/` — inherited Next.js web application. Now the *UI host* for
+  `packages/editor-core`, and the dev harness for engine work.
 - `apps/desktop/` — inherited native desktop shell (GPUI), not a build
   target for this project.
 - `rust/` — the Rust/wgpu compositor compiled to WASM (`rust/wasm`) and
   its supporting crates (`rust/crates/{gpu,compositor,effects,masks,time}`).
-- `docs/` — architecture notes, `DECISIONS.md` (ratified founder
-  decisions), and `THIRD_PARTY_NOTICES.md`.
+- `docs/` — architecture notes, `EDL.md` (the frozen EDL v1 bridge
+  contract — read this before writing a native exporter), `DECISIONS.md`
+  (ratified founder decisions), and `THIRD_PARTY_NOTICES.md`.
 - `scripts/` — `offline-audit.{sh,mjs}` (the CI gate that keeps the app
-  network-free), `invariants.sh` (the merge gate), and
+  network-free), `invariants.sh` (the merge gate), `check-headless.mjs`
+  (the `packages/editor-core` import gate), and
   `generate-third-party-notices.mjs`.
 
 ## Getting started
