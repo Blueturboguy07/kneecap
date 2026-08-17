@@ -8,6 +8,16 @@ import UIKit
 /// TS side throws NOT_IMPLEMENTED pending M4/M9/M10. This plugin's whole job
 /// is to prove the JS<->native round trip actually works.
 ///
+/// M10 STATUS: no `transcribe` method has been added to this class yet, on
+/// purpose — see `WhisperTranscriber.swift`'s header comment in this same
+/// directory for the real (unwired) transcription code and exactly why
+/// adding a method here first would break this file's CI-verified compile.
+/// The Android side of M10 differs here: Java's `native` method
+/// declarations compile without a `.so` present, so
+/// `NativeBridgePlugin.java` DOES have a real `transcribe` method already
+/// (see that file) — Swift + a missing xcframework has no equivalent safe
+/// half-step.
+///
 /// Registration: Capacitor discovers local (non-npm) plugins that conform to
 /// `CAPBridgedPlugin` via Objective-C runtime reflection — no explicit
 /// registration call needed here (unlike Android's `registerPlugin(...)` in
