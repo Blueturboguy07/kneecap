@@ -31,3 +31,19 @@ export {
 
 export { CC_ICON_STROKE, ccColor, CONTRAST_PAIRS, type CcColorToken } from "./tokens";
 export { cn } from "./lib/cn";
+
+// ============================== Timeline (M7) ==============================
+export { TimelineView, type TimelineViewHandle } from "./components/timeline/timeline-view";
+export {
+	generateStressProject,
+	STRESS_PROJECT_CLIP_COUNT,
+	STRESS_PROJECT_TRACK_COUNT,
+} from "./timeline/mock-data";
+export type {
+	TimelineProjectVM,
+	TimelineTrackVM,
+	TimelineClipVM,
+	TimelineTrackKind,
+	TimelineClipKind,
+	TimelineKeyframeVM,
+} from "./timeline/types";

@@ -176,6 +176,38 @@
 	--cc-motion-sheet-easing: cubic-bezier(0.32, 0.72, 0, 1);
 	--cc-motion-toolbar-crossfade: 150ms;
 
+	/* ============================ Timeline (M7) ============================ */
+	/* DESIGN DECISION — corpus 04 §2 confirms each track TYPE is "visually
+	   distinguished" but no screenshot gives clean per-track-type color
+	   swatches to measure (same marketing-composite limitation as radii
+	   above). These are a self-consistent palette built from the measured
+	   --cc-accent/--cc-badge-pro hues plus neutral tones, not CapCut pixel
+	   reads — flagged [NEEDS-CAPTURE] for the M6a session same as the rest
+	   of this file's un-measurable metrics. */
+	--cc-track-color-main: #3a3a3a;
+	--cc-track-color-overlay: #2f4a52;
+	--cc-track-color-text: #4a3f1f;
+	--cc-track-color-sticker: #4a2f4a;
+	--cc-track-color-audio: #1f3d33;
+	/* MEASURED medium-high confidence — corpus 05 §2a: "the selected clip
+	   has a white border around it," multiple independent CapCut-specific
+	   sources. Exact stroke width is [NEEDS-CAPTURE] (05 §2a: "Low
+	   confidence for exact stroke width/color token"); 2px is a readable,
+	   platform-reasonable placeholder pending the capture session. */
+	--cc-clip-selection-border: 2px solid #ffffff;
+	/* DESIGN DECISION — corpus 05 §2b confirms oversized trim-handle hit
+	   areas as a documented-good-practice pattern (img.ly teardown,
+	   "more than twice as wide as the visual appearance suggests"), not a
+	   CapCut pixel measurement. Applied as extra invisible hit padding
+	   beyond the visible handle width below. */
+	--cc-clip-handle-visible-width: 6px;
+	--cc-clip-handle-hit-width: 24px;
+	/* DESIGN DECISION — a 2px playhead line is a common cross-platform
+	   convention; corpus does not give a measured width. */
+	--cc-playhead-width: 2px;
+	--cc-snap-indicator-color: var(--cc-accent);
+	--cc-transition-square-size: 20px;
+
 	/* ================================ Spacing ================================ */
 	/* Not independently CapCut-measured; a standard 4px rhythm consistent
 	   with the icon/radius sizes that ARE measured above. */
