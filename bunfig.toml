@@ -1,0 +1,13 @@
+# kneecap — Bun configuration.
+#
+# `preload` installs a pure-TS stand-in for `opencut-wasm` before any test
+# module loads. The published wasm-bindgen glue throws
+# `wasm.__wbindgen_start is not a function` under Bun's test runtime, which
+# made every module that transitively imports `@/wasm` untestable (that is the
+# whole of the engine — `TICKS_PER_SECOND` is evaluated at import time).
+#
+# See packages/editor-core/src/test-support/wasm-stub.ts for the fidelity notes
+# and the caveat: this stub is for TESTS ONLY and never reaches a bundle. The
+# real fix is a local `wasm-pack` build (plan M1).
+[test]
+preload = ["./packages/editor-core/src/test-support/wasm-preload.ts"]

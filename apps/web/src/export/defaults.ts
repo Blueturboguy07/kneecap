@@ -1,4 +1,4 @@
-import type { ExportOptions } from "./index";
+import type { ExportOptions } from "@/export";
 
 export const DEFAULT_EXPORT_OPTIONS = {
 	format: "mp4",

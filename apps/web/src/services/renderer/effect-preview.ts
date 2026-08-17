@@ -1,4 +1,4 @@
-import { createCanvasSurface } from "./canvas-utils";
+import { createCanvasSurface } from "@/services/renderer/canvas-utils";
 import { effectsRegistry, resolveEffectPasses } from "@/effects";
 import { buildDefaultParamValues } from "@/params/registry";
 import type { ParamValues } from "@/params";

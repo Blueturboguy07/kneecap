@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # invariants.sh — THE merge gate for kneecap (plan M0 / §8.0).
 #
-# Runs, in order: build -> typecheck -> lint -> unit tests -> offline-audit
-# -> bridge-import gate -> mouse-event gate. Exits non-zero (and prints
+# Runs, in order: build -> typecheck (apps/web) -> typecheck+headless gate
+# (packages/editor-core) -> lint -> unit tests -> offline-audit ->
+# bridge-import gate -> mouse-event gate. Exits non-zero (and prints
 # exactly what regressed) the moment any of them fails.
 #
 #   bash scripts/invariants.sh
@@ -45,15 +46,12 @@ command -v bun >/dev/null 2>&1 || RUNNER="node"
 # of these, update the number AND the reason in the same commit.
 # ---------------------------------------------------------------------------
 
-# apps/web/src/timeline/__tests__/update-pipeline.test.ts and
-# apps/web/src/timeline/placement/__tests__/resolve.test.ts pass a raw
-# `number` where the branded `MediaTime` tick type (plan §2.2 — "Time
-# values crossing the EDL bridge are integer ticks... never float
-# seconds") is expected. Pre-existing in the inherited fork history
-# (introduced by upstream commit eea6d43c, already on origin/main before
-# this session's work started) — not introduced by any commit in this
-# invariants/CI pass.
-BASELINE_TYPECHECK_ERRORS=2
+# Was 2 (two test files passed a raw `number` where the branded
+# `MediaTime` tick type is expected). M2 fixed both while extracting them
+# into packages/editor-core, because the extracted package type-checks
+# standalone and those were the only two errors standing in the way. This
+# is now a hard zero for BOTH programs — do not raise it back.
+BASELINE_TYPECHECK_ERRORS=0
 
 # Pre-existing across ~40 largely-unexercised feature directories (see M0
 # part-2 handoff). Verified via `git checkout origin/main -- .` +
@@ -62,19 +60,40 @@ BASELINE_TYPECHECK_ERRORS=2
 # surface-removal commits (which deleted some of the offending files
 # incidentally), i.e. this is already an improvement over the pre-session
 # baseline, not a new regression being tolerated.
+#
+# M2 note: the lint scope below now covers apps/web/src AND
+# packages/editor-core, because ~365 engine files moved into the package.
+# Scanning only apps/web/src after the move would have shown a fake
+# "improvement" to 68 — the errors did not go away, they changed address.
+# Re-measured across both scopes post-move: 108 errors, exactly the
+# pre-move number, with the per-rule breakdown matching one-for-one
+# (no-unsafe-type-assertion 83 = 43 web + 40 core, etc.).
 BASELINE_LINT_ERRORS=108
 
-# `bun test` at repo root: verified identical to the pre-session baseline
-# via `git stash` by a previous agent in this session, then independently
-# re-verified here. The 8 failures are two unrelated pre-existing issues:
-# (a) `opencut-wasm`'s published bindgen glue throws
-# `wasm.__wbindgen_start is not a function` in Bun's test runtime (not a
-# rebuild-fixable issue — it's the npm-published artifact, not a local
-# wasm-pack build), and (b) a module-load-order `ReferenceError` in
-# `apps/web/src/timeline/placement/__tests__/resolve.test.ts` /
-# `masks/__tests__/snap.test.ts` unrelated to anything this task touched.
-BASELINE_TEST_PASS_MIN=191
-BASELINE_TEST_FAIL_MAX=8
+# `bun test` at repo root. Was 191 pass / 8 fail; M2 moved it to 215/3 and
+# these numbers are the new floor/ceiling.
+#
+# What changed: cause (a) of the old failures was `opencut-wasm`'s published
+# bindgen glue throwing `wasm.__wbindgen_start is not a function` under Bun,
+# which aborted whole test files at import time — because `TICKS_PER_SECOND`
+# is evaluated at module scope, that made most of the engine untestable.
+# bunfig.toml now preloads a faithful pure-TS stand-in
+# (packages/editor-core/src/test-support/wasm-stub.ts), so those files run:
+# 199 tests collected became 218.
+#
+# The 3 remaining failures are pre-existing defects in inherited code that
+# the abort had been HIDING, not regressions — all three are in
+# packages/editor-core/src/masks/__tests__/snap.test.ts:
+#   1. "snaps uniform scale handle for box masks" — snap returns an extra
+#      vertical line at -100 that the test does not expect.
+#   2. "snaps text mask movement using intrinsic text bounds" — needs a real
+#      2D canvas for text measurement; Bun has no DOM.
+#   3. "splits a segment into two segments at the insertion point" — bezier
+#      handles come back +-0.1 instead of 0.
+# None are time/tick related and none are in M2's scope. Fixing them is
+# tracked work for whoever next touches masks (post-v1 per plan §2.3 rule 4).
+BASELINE_TEST_PASS_MIN=215
+BASELINE_TEST_FAIL_MAX=3
 
 STRICT_MOUSE_EVENT_GATE="${STRICT_MOUSE_EVENT_GATE:-0}"
 
@@ -119,12 +138,53 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b. Headless engine gate (plan M2). TWO checks, both FULLY STRICT:
+#
+#   (a) `tsc --noEmit` inside packages/editor-core, whose tsconfig maps
+#       `@/*` to its OWN src only. This is the structural proof that the
+#       engine is self-contained: if any engine file still reaches back
+#       into apps/web, the specifier cannot resolve and this fails. It is
+#       not a heuristic and cannot be worked around by renaming an import.
+#   (b) scripts/check-headless.mjs — the readable per-file scan that names
+#       the offending line for react/next/zustand/sonner/icon/server
+#       imports, JSX under src/, and relative paths escaping the package.
+#
+# No grandfathering: the package was extracted clean and must stay clean.
+# ---------------------------------------------------------------------------
+CORE_DIR="$REPO_ROOT/packages/editor-core"
+if [ -d "$CORE_DIR" ]; then
+	step "typecheck (packages/editor-core, standalone)"
+	CORE_TSC_OUT="$(cd "$CORE_DIR" && bunx tsc --project tsconfig.json --noEmit 2>&1)"
+	CORE_TSC_ERRORS="$(printf '%s\n' "$CORE_TSC_OUT" | grep -c ': error TS' || true)"
+	if [ "$CORE_TSC_ERRORS" -eq 0 ]; then
+		pass "0 errors — engine resolves entirely within packages/editor-core"
+	else
+		fail "$CORE_TSC_ERRORS error(s) in the standalone engine type-check (must be 0)"
+		printf '%s\n' "$CORE_TSC_OUT" | head -n 40
+	fi
+
+	step "headless gate (no UI framework in packages/editor-core/src)"
+	if HEADLESS_OUT="$(bun "$REPO_ROOT/scripts/check-headless.mjs" 2>&1)"; then
+		pass "$HEADLESS_OUT"
+	else
+		fail "check-headless.mjs reported violation(s):"
+		printf '%s\n' "$HEADLESS_OUT"
+	fi
+else
+	step "headless gate"
+	info "packages/editor-core not found — skipped (pre-M2 tree?)"
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Lint. Regression-gated against BASELINE_LINT_ERRORS (warnings are
 #    reported but never block — matches plain `eslint`'s own default
 #    exit-code semantics of failing on errors, not warnings).
 # ---------------------------------------------------------------------------
-step "lint (eslint apps/web/src)"
-LINT_JSON="$(bunx eslint apps/web/src --ext .ts,.tsx -f json 2>/dev/null)"
+step "lint (eslint apps/web/src + packages/editor-core)"
+LINT_SCOPES=("$REPO_ROOT/apps/web/src")
+[ -d "$REPO_ROOT/packages/editor-core/src" ] && LINT_SCOPES+=("$REPO_ROOT/packages/editor-core/src")
+[ -d "$REPO_ROOT/packages/editor-core/react" ] && LINT_SCOPES+=("$REPO_ROOT/packages/editor-core/react")
+LINT_JSON="$(bunx eslint "${LINT_SCOPES[@]}" --ext .ts,.tsx -f json 2>/dev/null)"
 LINT_COUNTS="$("$RUNNER" -e '
 	let data = "";
 	process.stdin.on("data", (d) => { data += d; });

@@ -1,5 +1,5 @@
-import { clampDb } from "./audio-state";
-import { VOLUME_DB_MAX, VOLUME_DB_MIN } from "./audio-constants";
+import { clampDb } from "@/timeline/audio-state";
+import { VOLUME_DB_MAX, VOLUME_DB_MIN } from "@/timeline/audio-constants";
 
 const SLIDER_CURVE_EXPONENT = 2;
 const MIN_DISPLAY_DB = -40;

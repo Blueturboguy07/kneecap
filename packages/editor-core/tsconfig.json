@@ -1,0 +1,33 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		// `dom` is deliberate and NOT a violation of "headless". The engine runs
+		// inside a WebView on both mobile targets and legitimately uses Canvas,
+		// OffscreenCanvas, IndexedDB, WebCodecs, File/Blob and WebGL/WebGPU. What
+		// "headless" forbids here is a *UI framework* dependency (React, Next) and
+		// desktop-only layout assumptions — enforced by scripts/check-headless.mjs.
+		"lib": ["dom", "dom.iterable", "esnext"],
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"jsx": "react-jsx",
+		"forceConsistentCasingInFileNames": true,
+		// The single most important line in this file.
+		//
+		// `@/*` resolves ONLY inside this package. If any file under src/ still
+		// reaches back into apps/web (`@/components/...`, `@/actions/...`), a
+		// standalone `bun run check-types` here fails to resolve it. That is a
+		// stronger guarantee than any grep gate: the package type-checking on its
+		// own IS the proof that the engine is self-contained.
+		"paths": {
+			"@/*": ["./src/*"]
+		}
+	},
+	"include": ["src/**/*.ts", "src/**/*.d.ts", "react/**/*.ts", "src/**/*.json"],
+	"exclude": ["node_modules"]
+}

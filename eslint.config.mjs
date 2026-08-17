@@ -10,6 +10,15 @@ import preferObjectParams from "./eslint/rules/prefer-object-params.mjs";
 
 const webFiles = ["apps/web/src/**/*.{ts,tsx}"];
 
+// kneecap M2: the headless engine moved to packages/editor-core. Without this
+// scope those ~365 files would silently drop out of lint entirely and the
+// error count would "improve" for no reason. It gets the JS + TS rule sets and
+// this repo's own `prefer-object-params` rule, but NOT the React / JSX-a11y /
+// Next plugins — the whole point of the package is that none of those apply.
+// `react/` is the one exception inside the package and is linted as web code.
+const coreFiles = ["packages/editor-core/src/**/*.ts"];
+const coreReactFiles = ["packages/editor-core/react/**/*.ts"];
+
 const opencutEslintPlugin = {
 	meta: {
 		name: "eslint-plugin-opencut",
@@ -24,6 +33,13 @@ function scopeToWebFiles(config) {
 	return {
 		...config,
 		files: webFiles,
+	};
+}
+
+function scopeToCoreFiles(config) {
+	return {
+		...config,
+		files: [...coreFiles, ...coreReactFiles],
 	};
 }
 
@@ -93,4 +109,90 @@ export default [
 		},
 	},
 	scopeToWebFiles(eslintConfigPrettier),
+
+	// --- packages/editor-core ------------------------------------------------
+	{
+		files: [...coreFiles, ...coreReactFiles],
+		languageOptions: {
+			ecmaVersion: "latest",
+			sourceType: "module",
+			globals: {
+				// The engine targets a WebView, so browser globals are legitimate
+				// (Canvas, IndexedDB, WebCodecs, OffscreenCanvas). Node globals are
+				// here only for the migration/serializer code paths exercised by
+				// `bun test`.
+				...globals.browser,
+				...globals.node,
+			},
+			parserOptions: {
+				projectService: true,
+				tsconfigRootDir: import.meta.dirname,
+			},
+		},
+		linterOptions: {
+			reportUnusedDisableDirectives: "error",
+		},
+	},
+	scopeToCoreFiles(js.configs.recommended),
+	...tseslint.configs.recommended.map(scopeToCoreFiles),
+	{
+		files: [...coreFiles, ...coreReactFiles],
+		plugins: {
+			opencut: opencutEslintPlugin,
+		},
+		rules: {
+			"@typescript-eslint/no-empty-object-type": "warn",
+			"@typescript-eslint/no-unsafe-type-assertion": "error",
+			"@typescript-eslint/no-unused-vars": [
+				"warn",
+				{
+					argsIgnorePattern: "^_",
+					caughtErrorsIgnorePattern: "^_",
+					destructuredArrayIgnorePattern: "^_",
+					varsIgnorePattern: "^_",
+				},
+			],
+			"no-empty": "warn",
+			"opencut/prefer-object-params": "error",
+			// Belt-and-braces alongside scripts/check-headless.mjs: this one fires
+			// in the editor as you type, before CI ever runs.
+			"no-restricted-imports": [
+				"error",
+				{
+					paths: [
+						{
+							name: "react",
+							message:
+								"packages/editor-core/src is headless (plan M2). The only React-aware file is packages/editor-core/react/use-editor.ts.",
+						},
+						{
+							name: "sonner",
+							message:
+								"Use the notification port in @/core/notifications; the host installs a renderer.",
+						},
+						{
+							name: "zustand",
+							message:
+								"UI state belongs in the host. Engine state lives on EditorCore's managers.",
+						},
+					],
+					patterns: [
+						{
+							group: ["next", "next/*", "react-dom", "react-dom/*"],
+							message:
+								"packages/editor-core must not depend on a UI framework or its server renderer (plan M2 exit criterion).",
+						},
+					],
+				},
+			],
+		},
+	},
+	// The React bridge is the documented exception to the `react` ban above.
+	{
+		files: coreReactFiles,
+		rules: {
+			"no-restricted-imports": "off",
+		},
+	},
+	scopeToCoreFiles(eslintConfigPrettier),
 ];

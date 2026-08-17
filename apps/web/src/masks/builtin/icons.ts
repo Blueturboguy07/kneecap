@@ -9,8 +9,8 @@ import {
 	StarsIcon,
 	TextFontIcon,
 } from "@hugeicons/core-free-icons";
-import { masksRegistry, type MaskIconProps } from "../registry";
-import type { MaskType } from "../types";
+import { masksRegistry, type MaskIconProps } from "@/masks/registry";
+import type { MaskType } from "@/masks/types";
 
 /**
  * Host-side icon pack for the built-in masks.

@@ -4,7 +4,7 @@ import {
 	type PreviewOverlayDefinition,
 	type PreviewOverlaySourceResult,
 } from "@/preview/overlays";
-import { getBookmarksActiveAtTime } from "./utils";
+import { getBookmarksActiveAtTime } from "@/timeline/bookmarks/utils";
 import type { MediaTime } from "@/wasm";
 
 export const bookmarkNotesPreviewOverlay: PreviewOverlayDefinition = {

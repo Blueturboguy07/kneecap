@@ -575,8 +575,13 @@ describe("resolveTrackPlacement", () => {
 				tracks,
 				elementType: "audio",
 				timeSpans: [
-					buildTimeSpan({ startTime: 2.5, duration: 1 }),
-					buildTimeSpan({ startTime: 5.5, duration: 1 }),
+					// Integer ticks. These were 2.5 / 5.5 — fractional "ticks" left over
+					// from when times were seconds, which `mediaTime()` rejects outright.
+					// 3 and 6 preserve the test's intent exactly against the fixture's
+					// elements a=[0,2) and b=[5,7): the first span clears both, the
+					// second overlaps b, so the batch must land on a new track.
+					buildTimeSpan({ startTime: 3, duration: 1 }),
+					buildTimeSpan({ startTime: 6, duration: 1 }),
 				],
 				strategy: { type: "firstAvailable" },
 			}),
@@ -648,7 +653,7 @@ describe("resolveTrackPlacement", () => {
 			trackId: "video-main",
 			trackIndex: 0,
 			trackType: "video",
-			adjustedStartTime: 0,
+			adjustedStartTime: mediaTime({ ticks: 0 }),
 		});
 	});
 

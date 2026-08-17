@@ -1,0 +1,39 @@
+{
+	"name": "@kneecap/editor-core",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Headless, framework-agnostic editing engine for kneecap: EditorCore + managers, timeline/ripple/retime/placement, commands, storage, renderer graph, and the frozen EDL v1 bridge contract.",
+	"license": "MIT",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./react": "./react/index.ts",
+		"./*": "./src/*"
+	},
+	"scripts": {
+		"check-types": "tsc --project tsconfig.json --noEmit",
+		"check-headless": "bun ../../scripts/check-headless.mjs",
+		"test": "bun test src"
+	},
+	"dependencies": {
+		"culori": "^4.0.2",
+		"eventemitter3": "^5.0.1",
+		"mediabunny": "^1.29.1",
+		"opencut-wasm": "^0.2.10",
+		"soundtouchjs": "^0.3.0"
+	},
+	"peerDependencies": {
+		"react": "^19.0.0"
+	},
+	"peerDependenciesMeta": {
+		"react": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"@types/culori": "^4.0.1",
+		"@types/react": "^19",
+		"typescript": "^5.8.3"
+	}
+}

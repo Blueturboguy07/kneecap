@@ -60,34 +60,28 @@ export function resetNotifier(): void {
 	activeNotifier = consoleNotifier;
 }
 
-function emit({
-	level,
-	message,
-	options,
-}: {
-	level: NotificationLevel;
-	message: string;
-	options?: NotificationOptions;
-}): void {
-	activeNotifier({ level, message, ...options });
+function emit(notification: Notification): void {
+	activeNotifier(notification);
 }
 
 /**
- * Drop-in shape-compatible replacement for sonner's `toast`, so engine call
- * sites read the same as before. Only the four levels the engine actually uses
- * are exposed — rich/JSX toasts belong in the host.
+ * The engine's notification API. Object params throughout, per this repo's
+ * `opencut/prefer-object-params` lint rule — deliberately NOT sonner's
+ * positional `toast.error(msg, opts)` signature, so a stray `import { toast }
+ * from "sonner"` cannot silently keep type-checking. Only the four levels the
+ * engine actually uses are exposed; rich/JSX toasts belong in the host.
  */
 export const toast = {
-	error(message: string, options?: NotificationOptions): void {
-		emit({ level: "error", message, options });
+	error(args: { message: string } & NotificationOptions): void {
+		emit({ level: "error", ...args });
 	},
-	success(message: string, options?: NotificationOptions): void {
-		emit({ level: "success", message, options });
+	success(args: { message: string } & NotificationOptions): void {
+		emit({ level: "success", ...args });
 	},
-	info(message: string, options?: NotificationOptions): void {
-		emit({ level: "info", message, options });
+	info(args: { message: string } & NotificationOptions): void {
+		emit({ level: "info", ...args });
 	},
-	warning(message: string, options?: NotificationOptions): void {
-		emit({ level: "warning", message, options });
+	warning(args: { message: string } & NotificationOptions): void {
+		emit({ level: "warning", ...args });
 	},
 };

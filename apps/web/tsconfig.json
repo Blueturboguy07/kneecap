@@ -19,7 +19,17 @@
 			}
 		],
 		"paths": {
-			"@/*": ["./src/*"],
+			// kneecap M2: `@/*` now resolves in three passes — app source first,
+			// then the extracted headless engine, then its React bridge. Keeping
+			// the alias identical is what let ~365 engine files move into
+			// packages/editor-core with zero import rewrites, and it means an
+			// app-side file can shadow an engine module during a migration.
+			//
+			// The reverse direction is NOT symmetric and must not be made so:
+			// packages/editor-core/tsconfig.json maps `@/*` to its own src only,
+			// so the engine cannot reach back into the app.
+			"@/editor/use-editor": ["../../packages/editor-core/react/use-editor.ts"],
+			"@/*": ["./src/*", "../../packages/editor-core/src/*"],
 			"content-collections": ["./.content-collections/generated"]
 		},
 		"forceConsistentCasingInFileNames": true
@@ -31,6 +41,10 @@
 		"next-env.d.ts",
 		".next/types/**/*.ts",
 		"src/types/**/*.d.ts",
+		// The engine's ambient module declarations (e.g. the untyped
+		// `soundtouchjs`) moved with it in M2; apps/web still compiles the
+		// engine's sources through the `@/*` fallback, so it needs them too.
+		"../../packages/editor-core/src/types/**/*.d.ts",
 		"../../use-frame-cache.ts",
 		"src/stores/timeline-store.ts",
 		".next/dev/types/**/*.ts"

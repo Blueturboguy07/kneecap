@@ -15,7 +15,7 @@ import {
 	resolveTimelineSnap,
 	type SnapPoint,
 } from "@/timeline/snapping";
-import { getBookmarkSnapPoints } from "../snap-source";
+import { getBookmarkSnapPoints } from "@/timeline/bookmarks/snap-source";
 import { getElementEdgeSnapPoints } from "@/timeline/element-snap-source";
 import { getPlayheadSnapPoints } from "@/timeline/playhead-snap-source";
 import { getAnimationKeyframeSnapPointsForTimeline } from "@/timeline/animation-snap-points";

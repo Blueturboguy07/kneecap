@@ -66,7 +66,7 @@ describe("applyElementUpdate", () => {
 			},
 		});
 
-		expect(updatedElement.duration).toBe(7);
+		expect(updatedElement.duration).toBe(mediaTime({ ticks: 7 }));
 		expect(Number.isInteger(updatedElement.duration)).toBe(true);
 	});
 });
