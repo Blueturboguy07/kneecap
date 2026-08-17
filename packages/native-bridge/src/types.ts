@@ -95,6 +95,27 @@ export interface TranscribeOptions {
 	languageHint?: string;
 }
 
+/**
+ * One word-level caption unit within a `TranscriptSegment`, added in plan
+ * M10 (corpus `12`). Already run through the mandatory smoothing pass
+ * (`caption-smoothing.ts`) by the time it reaches this type — nothing
+ * downstream of `NativeBridge.transcribe()` ever sees raw, unsmoothed
+ * whisper.cpp DTW output. Trailing punctuation is glued onto the word that
+ * precedes it (see `caption-smoothing.ts`'s "snap punctuation to the
+ * preceding word's end" rule) rather than appearing as its own entry.
+ */
+export interface TranscriptWord {
+	/** May include a leading/trailing punctuation mark merged in during
+	 * smoothing (e.g. "Americans," or "country."), but never a bare
+	 * punctuation-only string on its own. */
+	text: string;
+	/** Integer microseconds, source-relative — same unit discipline as
+	 * MediaHandle. Caller (editor-core) converts to ticks. */
+	startMicros: number;
+	endMicros: number;
+	confidence: number | null;
+}
+
 export interface TranscriptSegment {
 	/** Integer microseconds, source-relative — same unit discipline as
 	 * MediaHandle. Caller (editor-core) converts to ticks. */
@@ -102,6 +123,13 @@ export interface TranscriptSegment {
 	endMicros: number;
 	text: string;
 	confidence: number | null;
+	/** Word-level timestamps for this segment (plan M10: "audio file in ->
+	 * segments with word-level timestamps out"). Always present and always
+	 * smoothed — see `TranscriptWord`'s own doc comment. Empty only if the
+	 * native side genuinely produced zero decodable words for this segment
+	 * span (e.g. a non-speech segment), never as a "not implemented" signal
+	 * — that case throws `NativeBridgeError` from `transcribe()` itself. */
+	words: TranscriptWord[];
 }
 
 export interface DeviceCapabilities {

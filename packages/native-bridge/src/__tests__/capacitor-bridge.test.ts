@@ -10,7 +10,7 @@
 // Test fixtures deliberately narrow-cast, same as web-fallback.test.ts.
 /* eslint-disable @typescript-eslint/no-unsafe-type-assertion */
 import { describe, expect, test } from "bun:test";
-import { createCapacitorBridge } from "../capacitor-bridge";
+import { createCapacitorBridge, mapNativeTranscribeResult } from "../capacitor-bridge";
 import { NativeBridgeError } from "../types";
 import type { MediaHandle, PickMediaOptions } from "../types";
 
@@ -43,10 +43,81 @@ describe("createCapacitorBridge", () => {
 		await expect(it.next()).rejects.toMatchObject({ code: "NOT_IMPLEMENTED" });
 	});
 
-	test("transcribe is stubbed pending M10", async () => {
-		const handle = { id: "x" } as MediaHandle;
+	test("transcribe rejects under bun test — no native NativeBridge.transcribe() registered (M10's native half; see capacitor-bridge.ts header)", async () => {
+		const handle = { id: "x", uri: "file:///tmp/clip.m4a" } as MediaHandle;
 		const it = bridge.transcribe({ handle, opts: { modelSize: "tiny" } });
 		await expect(it.next()).rejects.toMatchObject({ code: "NOT_IMPLEMENTED" });
+	});
+
+	describe("mapNativeTranscribeResult — the real, testable-without-native part of M10's transcribe()", () => {
+		test("runs each segment's raw tokens through the mandatory smoothing pass and produces word-level TranscriptSegments", () => {
+			const segments = mapNativeTranscribeResult({
+				segments: [
+					{
+						startMicros: 0,
+						endMicros: 1_000_000,
+						text: "hi there",
+						confidence: 0.9,
+						tokens: [
+							{
+								text: " hi",
+								coarseStartMicros: 0,
+								coarseEndMicros: 300_000,
+								dtwStartMicros: 0,
+								confidence: 0.95,
+							},
+							{
+								text: " there",
+								coarseStartMicros: 300_000,
+								coarseEndMicros: 700_000,
+								dtwStartMicros: 300_000,
+								confidence: 0.9,
+							},
+						],
+					},
+				],
+			});
+			expect(segments).toHaveLength(1);
+			expect(segments[0].words).toHaveLength(2);
+			expect(segments[0].words[0].text.trim()).toBe("hi");
+			expect(segments[0].words[1].text.trim()).toBe("there");
+			// Non-decreasing across the whole segment — the smoothing pass's
+			// own invariant, now proven to survive the wire-shape mapping too.
+			expect(segments[0].words[1].startMicros).toBeGreaterThanOrEqual(
+				segments[0].words[0].endMicros,
+			);
+		});
+
+		test("merges a raw punctuation token into its preceding word instead of yielding it standalone", () => {
+			const segments = mapNativeTranscribeResult({
+				segments: [
+					{
+						startMicros: 0,
+						endMicros: 1_000_000,
+						text: "hi,",
+						confidence: 0.9,
+						tokens: [
+							{
+								text: " hi",
+								coarseStartMicros: 0,
+								coarseEndMicros: 300_000,
+								dtwStartMicros: 0,
+								confidence: 0.95,
+							},
+							{
+								text: ",",
+								coarseStartMicros: 300_000,
+								coarseEndMicros: 400_000,
+								dtwStartMicros: 300_000,
+								confidence: 0.5,
+							},
+						],
+					},
+				],
+			});
+			expect(segments[0].words).toHaveLength(1);
+			expect(segments[0].words[0].text).toBe(" hi,");
+		});
 	});
 
 	test("capabilities() rejects when the native NativeBridge plugin isn't registered (expected under bun test — no native runtime)", async () => {
