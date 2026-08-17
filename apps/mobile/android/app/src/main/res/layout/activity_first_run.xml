@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  kneecap M3 — native first-run screen (plan M3 item 6). Real native UI,
+  shown once before MainActivity's Capacitor WebView ever loads. Mirrors
+  ios/App/App/FirstRunView.swift: an informational primer, no runtime
+  permission request (Photo Picker / SAF, plan M4 item 2, need none).
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/kneecapBg"
+    android:paddingStart="24dp"
+    android:paddingEnd="24dp"
+    android:paddingTop="32dp"
+    android:paddingBottom="24dp">
+
+    <Space
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:text="kneecap"
+        android:textColor="@color/kneecapTextPrimary"
+        android:textSize="30sp"
+        android:textStyle="bold" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:orientation="vertical"
+        android:background="@color/kneecapPanel"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Photos &amp; Videos"
+            android:textColor="@color/kneecapTextPrimary"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="To import clips from your library onto the timeline. Everything stays on this device."
+            android:textColor="@color/kneecapTextSecondary"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Offline by design"
+            android:textColor="@color/kneecapTextPrimary"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Editing, effects, and export all run locally — kneecap never uploads your media."
+            android:textColor="@color/kneecapTextSecondary"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <Space
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <Button
+        android:id="@+id/getStartedButton"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:text="Get Started"
+        android:textAllCaps="false"
+        android:textColor="@color/kneecapTextPrimary"
+        android:textSize="17sp"
+        android:textStyle="bold"
+        android:backgroundTint="@color/kneecapAccent" />
+
+</LinearLayout>

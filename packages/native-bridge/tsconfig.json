@@ -1,0 +1,27 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"lib": ["dom", "dom.iterable", "esnext"],
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"forceConsistentCasingInFileNames": true,
+		// Same two-candidate pattern apps/web/tsconfig.json uses: this package's
+		// own src first, then editor-core's src as a fallback — required so that
+		// `tsc --noEmit` here can resolve editor-core's internal `@/*` imports
+		// when it transitively type-checks files pulled in via the
+		// `@kneecap/editor-core/edl` package import below. Directional and safe:
+		// editor-core's OWN tsconfig still maps `@/*` to itself only, so the
+		// engine can never be made to resolve back out through this alias.
+		"paths": {
+			"@/*": ["./src/*", "../editor-core/src/*"]
+		}
+	},
+	"include": ["src/**/*.ts"],
+	"exclude": ["node_modules"]
+}

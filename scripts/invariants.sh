@@ -2,7 +2,8 @@
 # invariants.sh — THE merge gate for kneecap (plan M0 / §8.0).
 #
 # Runs, in order: build -> typecheck (apps/web) -> typecheck+headless gate
-# (packages/editor-core) -> lint -> unit tests -> offline-audit ->
+# (packages/editor-core) -> typecheck (packages/native-bridge,
+# apps/mobile — M3) -> lint -> unit tests -> offline-audit ->
 # bridge-import gate -> mouse-event gate. Exits non-zero (and prints
 # exactly what regressed) the moment any of them fails.
 #
@@ -20,10 +21,12 @@
 # either silently laundering it or blocking unrelated work on fixing it.
 #
 # Two gates are intentionally NOT strict yet and say so loudly every run:
-#   - bridge-import gate: fully strict already (0 hits today, and the
-#     plan's own M3 §2.4 rule is "no editor UI file imports a Capacitor or
-#     Tauri symbol" — nothing in this tree does that yet, so there is
-#     nothing to grandfather).
+#   - bridge-import gate: fully strict (plan §2.4: "no editor UI file
+#     imports a Capacitor or Tauri symbol"). Now genuinely exercised —
+#     apps/mobile and packages/native-bridge both exist as of M3, and
+#     packages/native-bridge/src/{capacitor-bridge,index}.ts DO import
+#     @capacitor/core, which is exactly why that one directory is excluded
+#     from the scan below rather than the gate being vacuously green.
 #   - mouse-event gate: NOT strict — apps/web/src/timeline's controllers
 #     are still mouse-only (pre-M5; see plan M5 "Rewrite six mouse-only
 #     controllers to Pointer Events"). It reports the current count as a
@@ -177,14 +180,51 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2c. Typecheck packages/native-bridge and apps/mobile standalone (plan M3).
+#    Same pattern as 2b: each package's own tsconfig.json two-candidate `@/*`
+#    path (own src first, editor-core src second — see the comment in
+#    packages/native-bridge/tsconfig.json) is what lets `tsc --noEmit` here
+#    resolve the transitive `@kneecap/editor-core/edl` import without
+#    depending on a built .d.ts anywhere. FULLY STRICT: both are new in M3,
+#    nothing to grandfather.
+# ---------------------------------------------------------------------------
+NATIVE_BRIDGE_DIR="$REPO_ROOT/packages/native-bridge"
+if [ -d "$NATIVE_BRIDGE_DIR" ]; then
+	step "typecheck (packages/native-bridge, standalone)"
+	NB_TSC_OUT="$(cd "$NATIVE_BRIDGE_DIR" && bunx tsc --project tsconfig.json --noEmit 2>&1)"
+	NB_TSC_ERRORS="$(printf '%s\n' "$NB_TSC_OUT" | grep -c ': error TS' || true)"
+	if [ "$NB_TSC_ERRORS" -eq 0 ]; then
+		pass "0 errors"
+	else
+		fail "$NB_TSC_ERRORS error(s) in packages/native-bridge (must be 0)"
+		printf '%s\n' "$NB_TSC_OUT" | head -n 40
+	fi
+fi
+
+MOBILE_DIR="$REPO_ROOT/apps/mobile"
+if [ -d "$MOBILE_DIR/src" ]; then
+	step "typecheck (apps/mobile, standalone — M3 shell harness)"
+	MOBILE_TSC_OUT="$(cd "$MOBILE_DIR" && bunx tsc --project tsconfig.json --noEmit 2>&1)"
+	MOBILE_TSC_ERRORS="$(printf '%s\n' "$MOBILE_TSC_OUT" | grep -c ': error TS' || true)"
+	if [ "$MOBILE_TSC_ERRORS" -eq 0 ]; then
+		pass "0 errors"
+	else
+		fail "$MOBILE_TSC_ERRORS error(s) in apps/mobile (must be 0)"
+		printf '%s\n' "$MOBILE_TSC_OUT" | head -n 40
+	fi
+fi
+
+# ---------------------------------------------------------------------------
 # 3. Lint. Regression-gated against BASELINE_LINT_ERRORS (warnings are
 #    reported but never block — matches plain `eslint`'s own default
 #    exit-code semantics of failing on errors, not warnings).
 # ---------------------------------------------------------------------------
-step "lint (eslint apps/web/src + packages/editor-core)"
+step "lint (eslint apps/web/src + packages/editor-core + packages/native-bridge + apps/mobile/src)"
 LINT_SCOPES=("$REPO_ROOT/apps/web/src")
 [ -d "$REPO_ROOT/packages/editor-core/src" ] && LINT_SCOPES+=("$REPO_ROOT/packages/editor-core/src")
 [ -d "$REPO_ROOT/packages/editor-core/react" ] && LINT_SCOPES+=("$REPO_ROOT/packages/editor-core/react")
+[ -d "$REPO_ROOT/packages/native-bridge/src" ] && LINT_SCOPES+=("$REPO_ROOT/packages/native-bridge/src")
+[ -d "$REPO_ROOT/apps/mobile/src" ] && LINT_SCOPES+=("$REPO_ROOT/apps/mobile/src")
 LINT_JSON="$(bunx eslint "${LINT_SCOPES[@]}" --ext .ts,.tsx -f json 2>/dev/null)"
 LINT_COUNTS="$("$RUNNER" -e '
 	let data = "";

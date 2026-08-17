@@ -9,6 +9,30 @@ import tseslint from "typescript-eslint";
 import preferObjectParams from "./eslint/rules/prefer-object-params.mjs";
 
 const webFiles = ["apps/web/src/**/*.{ts,tsx}"];
+// kneecap M3: apps/mobile's static-harness source (the M3 shell harness — see
+// apps/mobile/README.md; NOT the editor UI, which still lives under
+// apps/web/src pending M6-M8). Same bridge-import ban applies: this is host
+// code that calls `@kneecap/native-bridge`'s `getNativeBridge()`, never
+// `@capacitor/*` directly.
+const mobileHarnessFiles = ["apps/mobile/src/**/*.{ts,tsx}"];
+
+// Plan §2.4 / M3: "No editor UI file may import a Capacitor or Tauri symbol.
+// Enforced by an ESLint `no-restricted-imports` rule in CI from M3 onward."
+// `packages/native-bridge` is the ONE package exempted — it IS the seam.
+// This mirrors scripts/invariants.sh's bridge-import gate (a fast grep) as
+// belt-and-braces: this rule fires in the editor as you type.
+const noShellSdkImportsRule = [
+	"error",
+	{
+		patterns: [
+			{
+				group: ["@capacitor/*", "@tauri-apps/*"],
+				message:
+					"No editor UI file may import a Capacitor or Tauri symbol directly (plan §2.4). Use @kneecap/native-bridge's getNativeBridge() instead.",
+			},
+		],
+	},
+];
 
 // kneecap M2: the headless engine moved to packages/editor-core. Without this
 // scope those ~365 files would silently drop out of lint entirely and the
@@ -18,6 +42,10 @@ const webFiles = ["apps/web/src/**/*.{ts,tsx}"];
 // `react/` is the one exception inside the package and is linted as web code.
 const coreFiles = ["packages/editor-core/src/**/*.ts"];
 const coreReactFiles = ["packages/editor-core/react/**/*.ts"];
+// kneecap M3: the ONE package exempted from noShellSdkImportsRule — it IS the
+// seam (plan §2.4). Same JS/TS rule set as packages/editor-core, deliberately
+// WITHOUT the bridge-import ban.
+const nativeBridgeFiles = ["packages/native-bridge/src/**/*.ts"];
 
 const opencutEslintPlugin = {
 	meta: {
@@ -45,7 +73,17 @@ function scopeToCoreFiles(config) {
 
 export default [
 	{
-		ignores: ["**/.next/**", "**/node_modules/**", "**/dist/**", "**/build/**"],
+		ignores: [
+			"**/.next/**",
+			"**/node_modules/**",
+			"**/dist/**",
+			"**/build/**",
+			// Capacitor-generated native projects and their copied web assets —
+			// not source this repo authors as JS/TS.
+			"apps/mobile/www/**",
+			"apps/mobile/ios/**",
+			"apps/mobile/android/**",
+		],
 	},
 	{
 		files: webFiles,
@@ -99,7 +137,8 @@ export default [
 			],
 			"no-empty": "warn",
 			"opencut/prefer-object-params": "error",
-			
+			"no-restricted-imports": noShellSdkImportsRule,
+
 			// `react/prop-types` is for the JS-era React workflow where runtime
 			// `propTypes` declarations are the prop contract. In this TS-only
 			// scope the prop types already are the contract; the rule's only
@@ -182,6 +221,11 @@ export default [
 							message:
 								"packages/editor-core must not depend on a UI framework or its server renderer (plan M2 exit criterion).",
 						},
+						{
+							group: ["@capacitor/*", "@tauri-apps/*"],
+							message:
+								"No editor UI file may import a Capacitor or Tauri symbol directly (plan §2.4). Use @kneecap/native-bridge's getNativeBridge() instead.",
+						},
 					],
 				},
 			],
@@ -195,4 +239,90 @@ export default [
 		},
 	},
 	scopeToCoreFiles(eslintConfigPrettier),
+
+	// --- apps/mobile (M3 shell harness — NOT the editor UI) -------------------
+	// Plain TS + DOM, no React (the harness is a throwaway proof that the
+	// bundle loads and the NativeBridge seam round-trips; the real CapCut UI
+	// is M6-M8 and will live elsewhere). The bridge-import ban applies here
+	// exactly as it does to apps/web/src.
+	{
+		files: mobileHarnessFiles,
+		languageOptions: {
+			ecmaVersion: "latest",
+			sourceType: "module",
+			globals: {
+				...globals.browser,
+			},
+			parserOptions: {
+				projectService: true,
+				tsconfigRootDir: import.meta.dirname,
+			},
+		},
+		linterOptions: {
+			reportUnusedDisableDirectives: "error",
+		},
+	},
+	...tseslint.configs.recommended.map((config) => ({
+		...config,
+		files: mobileHarnessFiles,
+	})),
+	{
+		files: mobileHarnessFiles,
+		rules: {
+			"no-restricted-imports": noShellSdkImportsRule,
+		},
+	},
+	{
+		...eslintConfigPrettier,
+		files: mobileHarnessFiles,
+	},
+
+	// --- packages/native-bridge (the one package allowed to import Capacitor) -
+	{
+		files: nativeBridgeFiles,
+		languageOptions: {
+			ecmaVersion: "latest",
+			sourceType: "module",
+			globals: {
+				...globals.browser,
+				...globals.node,
+			},
+			parserOptions: {
+				projectService: true,
+				tsconfigRootDir: import.meta.dirname,
+			},
+		},
+		linterOptions: {
+			reportUnusedDisableDirectives: "error",
+		},
+	},
+	...tseslint.configs.recommended.map((config) => ({
+		...config,
+		files: nativeBridgeFiles,
+	})),
+	{
+		files: nativeBridgeFiles,
+		plugins: {
+			opencut: opencutEslintPlugin,
+		},
+		rules: {
+			"@typescript-eslint/no-empty-object-type": "warn",
+			"@typescript-eslint/no-unsafe-type-assertion": "error",
+			"@typescript-eslint/no-unused-vars": [
+				"warn",
+				{
+					argsIgnorePattern: "^_",
+					caughtErrorsIgnorePattern: "^_",
+					destructuredArrayIgnorePattern: "^_",
+					varsIgnorePattern: "^_",
+				},
+			],
+			"no-empty": "warn",
+			"opencut/prefer-object-params": "error",
+		},
+	},
+	{
+		...eslintConfigPrettier,
+		files: nativeBridgeFiles,
+	},
 ];

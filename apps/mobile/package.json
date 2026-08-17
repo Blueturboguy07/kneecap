@@ -1,0 +1,31 @@
+{
+	"name": "@kneecap/mobile",
+	"version": "0.1.0",
+	"private": true,
+	"description": "kneecap M3: Capacitor 8 shell — iOS + Android native projects loading a locally-bundled static harness. This is NOT the CapCut UI (that's M6-M8); it is the throwaway proof that the shell scaffold and the NativeBridge seam actually round-trip on device. See README.md.",
+	"license": "MIT",
+	"type": "module",
+	"scripts": {
+		"build": "vite build",
+		"dev": "vite",
+		"check-types": "tsc --project tsconfig.json --noEmit",
+		"cap:sync": "cap sync",
+		"cap:sync:ios": "cap sync ios",
+		"cap:sync:android": "cap sync android",
+		"cap:open:ios": "cap open ios",
+		"cap:open:android": "cap open android",
+		"ios:build:sim": "bash scripts/build-ios-simulator.sh",
+		"android:build:debug": "bash scripts/build-android-debug.sh"
+	},
+	"dependencies": {
+		"@capacitor/android": "^8.0.0",
+		"@capacitor/core": "^8.0.0",
+		"@capacitor/ios": "^8.0.0",
+		"@kneecap/native-bridge": "workspace:*"
+	},
+	"devDependencies": {
+		"@capacitor/cli": "^8.0.0",
+		"typescript": "^5.8.3",
+		"vite": "^7.0.0"
+	}
+}

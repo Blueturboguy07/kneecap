@@ -1,0 +1,25 @@
+{
+	"name": "@kneecap/native-bridge",
+	"version": "0.1.0",
+	"private": true,
+	"description": "The ONLY package that knows what shell kneecap is running on. Plan §2.4: one TypeScript interface (media custody/import, proxy transcode, export, speech-to-text) with a web-fallback implementation, so the editor still runs in a plain browser. No editor UI file may import a Capacitor or Tauri symbol directly.",
+	"license": "MIT",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./web-fallback": "./src/web-fallback.ts",
+		"./capacitor": "./src/capacitor-bridge.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --project tsconfig.json --noEmit",
+		"test": "bun test src"
+	},
+	"dependencies": {
+		"@capacitor/core": "^8.0.0",
+		"@kneecap/editor-core": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"typescript": "^5.8.3"
+	}
+}

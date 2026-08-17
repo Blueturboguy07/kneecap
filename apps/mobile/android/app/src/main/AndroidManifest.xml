@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <!-- kneecap M3 item 6: FirstRunActivity is the launcher now, not
+             MainActivity — see FirstRunActivity.java. It hands off to
+             MainActivity immediately (no visible flash) once first run is
+             marked complete. -->
+        <activity
+            android:name=".FirstRunActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+        </activity>
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="false">
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Forward-looking declarations for M4 (camera capture, plan M4 item 3
+         — Android WebView does not honor <input capture="camera"> so the
+         host builds the camera Intent itself) and M8 (voiceover recording).
+         Deliberately NOT declared here: READ_MEDIA_VIDEO / READ_MEDIA_IMAGES
+         / READ_EXTERNAL_STORAGE — plan M4 item 2's chosen import path
+         (Photo Picker + SAF fallback) needs neither; see
+         FirstRunActivity.java's doc comment. Declaring these is inert until
+         M4/M8 actually call the corresponding APIs — no runtime prompt fires
+         from a manifest declaration alone. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+</manifest>

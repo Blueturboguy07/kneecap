@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- kneecap token palette — plan §8.3's blue-violet accent
+         (oklch(0.488 0.243 264.376), same approximation used in
+         ios/App/App/FirstRunView.swift and apps/mobile/src/style.css),
+         deliberately NOT CapCut's cyan #00CAE0 anywhere below M6's product UI. -->
+    <color name="kneecapBg">#0A0A0A</color>
+    <color name="kneecapPanel">#1E1E1E</color>
+    <color name="kneecapTextPrimary">#F5F5F5</color>
+    <color name="kneecapTextSecondary">#8B8A90</color>
+    <color name="kneecapAccent">#4E4AFF</color>
+
+    <color name="colorPrimary">#4E4AFF</color>
+    <color name="colorPrimaryDark">#0A0A0A</color>
+    <color name="colorAccent">#4E4AFF</color>
+</resources>

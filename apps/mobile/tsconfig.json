@@ -1,0 +1,23 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"lib": ["dom", "dom.iterable", "esnext"],
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"forceConsistentCasingInFileNames": true,
+		// Same reason as packages/native-bridge/tsconfig.json: this harness
+		// transitively type-checks through @kneecap/native-bridge into
+		// @kneecap/editor-core/edl, whose files use `@/*` internally.
+		"paths": {
+			"@/*": ["../../packages/editor-core/src/*"]
+		}
+	},
+	"include": ["src/**/*.ts", "vite.config.ts", "capacitor.config.ts"],
+	"exclude": ["node_modules", "www", "ios", "android"]
+}
