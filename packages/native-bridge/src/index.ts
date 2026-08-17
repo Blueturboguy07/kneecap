@@ -14,6 +14,7 @@
  * gate and the `no-restricted-imports` ESLint rule.
  */
 export * from "./types";
+export * from "./dev-fixtures/sample-transcript";
 
 import type { NativeBridge } from "./types";
 
