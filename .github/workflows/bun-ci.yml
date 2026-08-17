@@ -15,7 +15,8 @@ on:
       - "*.md"
 
 jobs:
-  build:
+  invariants:
+    name: invariants (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -45,7 +46,7 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
 
-      - name: Build WASM
+      - name: Build WASM (rust/ workspace health check)
         run: wasm-pack build rust/wasm --target bundler --out-dir pkg
 
       - name: Install Bun
@@ -57,20 +58,19 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-1.2.18-${{ hashFiles('apps/web/bun.lock') }}
+          # bun.lock lives at the repo root (this is a Bun workspaces
+          # monorepo, not a per-app lockfile) — apps/web/bun.lock does not
+          # exist, so hashing it (the pre-fork key) always missed the cache.
+          key: ${{ runner.os }}-bun-1.2.18-${{ hashFiles('bun.lock') }}
 
       - name: Install dependencies
-        working-directory: apps/web
+        # Workspace-aware install: must run from the repo root (where the
+        # "workspaces" field lives), not apps/web — bun resolves the whole
+        # monorepo graph into root node_modules regardless of cwd, but
+        # scripts/invariants.sh explicitly checks for node_modules at the
+        # repo root and fails fast with a clear message if it's missing.
         run: bun install
 
-      - name: Build
-        working-directory: apps/web
-        run: bun run build
-
-      - name: Offline audit (no outbound network references)
-        run: bash scripts/offline-audit.sh
-
-      - name: Run tests
-        working-directory: apps/web
-        run: echo "No tests implemented yet"
-        continue-on-error: true
+      - name: "invariants.sh: build, typecheck, lint, unit tests, offline audit, bridge-import gate, mouse-event gate"
+        shell: bash
+        run: bash scripts/invariants.sh

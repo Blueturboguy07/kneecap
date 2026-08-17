@@ -1,0 +1,65 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": ["config:recommended"],
+	"description": "kneecap forked opencut-classic, which was archived 2026-05-16 — no upstream will ever send us a security or dependency patch again (plan risk register #6). This repo owns its dependency tree permanently, so Renovate runs unusually eagerly here rather than at a typical app's cadence.",
+	"timezone": "UTC",
+	"schedule": ["before 6am on monday"],
+	"labels": ["dependencies"],
+	"rangeStrategy": "bump",
+	"lockFileMaintenance": {
+		"enabled": true,
+		"schedule": ["before 6am on monday"]
+	},
+	"vulnerabilityAlerts": {
+		"enabled": true,
+		"schedule": ["at any time"],
+		"labels": ["dependencies", "security"]
+	},
+	"osvVulnerabilityAlerts": true,
+	"packageRules": [
+		{
+			"description": "Security/vulnerability fixes always go out immediately, any day, regardless of the weekly schedule above.",
+			"matchUpdateTypes": ["patch", "minor", "major"],
+			"vulnerabilityAlerts": true,
+			"schedule": ["at any time"],
+			"automerge": false
+		},
+		{
+			"description": "next / react / react-dom are the framework floor this whole app sits on (Next.js 16, React 19 per the inherited engine) — never auto-merge a major bump here without a manual look at the M2 engine-decoupling and M3 shell-scaffold assumptions.",
+			"matchPackageNames": ["next", "react", "react-dom", "typescript"],
+			"matchUpdateTypes": ["major"],
+			"labels": ["dependencies", "needs-manual-review"],
+			"automerge": false
+		},
+		{
+			"description": "opencut-wasm is the published artifact of THIS repo's own rust/wasm crate (see README's \"Local WASM development\") — Renovate bumping its npm version independently of a matching rust/ source change would desync the two. Flag, don't auto-bump.",
+			"matchPackageNames": ["opencut-wasm"],
+			"enabled": false
+		},
+		{
+			"description": "mediabunny and @huggingface/transformers are the two dependencies with the most direct bearing on the zero-cost/offline directive (media I/O and the on-device-but-not-yet-fully-offline transcription worker — see docs/DECISIONS.md's known exceptions). Keep them visible and reviewed, not silently auto-merged.",
+			"matchPackageNames": ["mediabunny", "@huggingface/transformers"],
+			"labels": ["dependencies", "needs-manual-review"],
+			"automerge": false
+		},
+		{
+			"description": "Everything else: patch/minor updates that pass CI (scripts/invariants.sh, run on every PR per .github/workflows/bun-ci.yml) can auto-merge — low-risk, and this is exactly the kind of routine upkeep a dead upstream will never do for us again.",
+			"matchUpdateTypes": ["patch", "minor"],
+			"automerge": true,
+			"platformAutomerge": true
+		},
+		{
+			"description": "Group the Rust/Cargo ecosystem separately from npm — different release cadence and blast radius (the wgpu/wasm compositor chain is load-bearing for the whole preview pipeline, plan §2.1).",
+			"matchManagers": ["cargo"],
+			"groupName": "rust dependencies",
+			"labels": ["dependencies", "rust"],
+			"automerge": false
+		},
+		{
+			"description": "GitHub Actions pins (setup-bun, wasm-pack-action, cache, checkout) — low risk, keep current.",
+			"matchManagers": ["github-actions"],
+			"groupName": "GitHub Actions",
+			"automerge": true
+		}
+	]
+}
