@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+		/>
+		<!--
+			Deliberately more permissive than index.html's CSP (M3's product
+			shell): this page loads a real wasm-bindgen module
+			('wasm-unsafe-eval' — required by WebKit/Blink to instantiate
+			WebAssembly under a strict CSP), fetches bundled MP4 test fixtures
+			(connect-src/media-src 'self'), and spins up a dedicated Worker for
+			the OPFS createSyncAccessHandle test (worker-src). This is the
+			throwaway spike harness's OWN page — it does not loosen index.html's
+			CSP, which stays exactly as M3 left it.
+		-->
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="default-src 'self' data: blob: https://appassets.androidplatform.net capacitor://localhost https://localhost; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'"
+		/>
+		<title>kneecap — M1 spike</title>
+		<link rel="stylesheet" href="/src/spike/style.css" />
+	</head>
+	<body>
+		<main id="app">
+			<p>Loading…</p>
+		</main>
+		<script type="module" src="/src/spike/main.ts"></script>
+	</body>
+</html>

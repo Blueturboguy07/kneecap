@@ -30,6 +30,22 @@
 	<string>kneecap uses the camera to record clips directly into your project.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>kneecap uses the microphone to record voiceovers and camera audio.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dev.kneecap.app.spike</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<!-- kneecap M1 spike — throwaway deep link that navigates the
+				     already-loaded WKWebView to spike.html (the hidden
+				     diagnostics screen). See SceneDelegate.swift and
+				     docs/SPIKE-GUIDE.md. Not a product feature; safe/expected
+				     to delete once M1 is read. -->
+				<string>kneecap-spike</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

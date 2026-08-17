@@ -8,7 +8,8 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./web-fallback": "./src/web-fallback.ts",
-		"./capacitor": "./src/capacitor-bridge.ts"
+		"./capacitor": "./src/capacitor-bridge.ts",
+		"./spike-diagnostics": "./src/spike-diagnostics.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --project tsconfig.json --noEmit",
