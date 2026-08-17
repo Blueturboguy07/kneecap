@@ -1,162 +1,142 @@
-# OpenCut (Legacy)
+# kneecap
 
-This is the original OpenCut codebase. It's archived and no longer maintained.
+A local-first, fully offline mobile video editor, built for CapCut-mobile
+feature and visual parity.
 
-The rewrite is happening at [opencut-app/opencut](https://github.com/opencut-app/opencut).
+**kneecap is an independent, community fork.** It is **not affiliated
+with, endorsed by, or sponsored by** OpenCut, OpenCut-app, CapCut,
+ByteDance, or TikTok Pte. Ltd. "CapCut" is referenced in this repo's
+planning docs only as a functional/visual parity target for the editor
+we're building — no CapCut trademarks, marks, or copyrighted assets are
+bundled, redistributed, or reproduced here. See `docs/DECISIONS.md` for
+the full attribution and naming posture.
 
-## Sponsors
+## Based on OpenCut-app/opencut-classic (MIT)
 
-Thanks to [Vercel](https://vercel.com?utm_source=github-opencut&utm_campaign=oss) and [fal.ai](https://fal.ai?utm_source=github-opencut&utm_campaign=oss) for their support of open-source software.
+kneecap is forked from
+[**`OpenCut-app/opencut-classic`**](https://github.com/OpenCut-app/opencut-classic)
+— the archived-but-complete Next.js/Rust engine behind the original
+OpenCut web editor — licensed under the **MIT License**. The original
+copyright notice and license are preserved verbatim in `LICENSE`; see
+`NOTICE` for the attribution statement and `docs/THIRD_PARTY_NOTICES.md`
+for a full inventory of bundled third-party assets and dependency
+licenses.
 
-<a href="https://vercel.com/oss">
-  <img alt="Vercel OSS Program" src="https://vercel.com/oss/program-badge.svg" />
-</a>
+`opencut-classic` was archived by its maintainers on 2026-05-16. This
+fork receives no upstream commits and owns its entire dependency and
+security surface going forward — see `docs/DECISIONS.md` for what that
+means in practice. It is **unrelated to and not a redistribution of**
+the separate, actively-developed `OpenCut-app/OpenCut` rewrite.
 
-<a href="https://fal.ai">
-  <img alt="Powered by fal.ai" src="https://img.shields.io/badge/Powered%20by-fal.ai-000000?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJMMTMuMDkgOC4yNkwyMCAxMEwxMy4wOSAxNS43NEwxMiAyMkwxMC45MSAxNS43NEw0IDEwTDEwLjkxIDguMjZMMTIgMloiIGZpbGw9IndoaXRlIi8+Cjwvc3ZnPgo=" />
-</a>
+## What this is
 
-## Why?
+kneecap strips the inherited engine down to its headless editing core —
+timeline, ripple/placement, effects, storage — and is being rebuilt as a
+touch-first, CapCut-mobile-shaped editor for iOS and Android, running
+fully on-device:
 
-- **Privacy**: Your videos stay on your device
-- **Free features**: Most basic CapCut features are now paywalled 
-- **Simple**: People want editors that are easy to use - CapCut proved that
+- **Zero cloud dependency.** No account, no server, no paid API of any
+  kind. The app is designed to work correctly with the network off.
+- **On-device auto-captions**, multi-track timeline editing, trim/split,
+  transitions, text/stickers, filters, speed ramping, and
+  hardware-accelerated export — all local.
+- **No app-store release.** kneecap is distributed directly (signed
+  builds via GitHub Releases + install guides), not through the Apple
+  App Store or Google Play. See `docs/DECISIONS.md` §8.5.
 
-## Project Structure
+The full architecture and milestone plan lives outside this repo in the
+project's planning documents; `docs/DECISIONS.md` is the in-repo record
+of what's been ratified and why.
 
-- `apps/web/`: Next.js web application
-- `apps/desktop/`: Native desktop app built with GPUI (in progress)
-- `rust/`: Platform-agnostic core: GPU compositor, effects, masks, and WASM bindings. We're actively migrating business logic here from TypeScript.
-- `docs/`: Architecture and subsystem documentation
+## Current status
 
-## Getting Started
+This repo is mid-fork: the inherited codebase is a Next.js 16 web app
+(`apps/web/`) with the original desktop shell (`apps/desktop/`, GPUI) and
+Rust/WASM compositor (`rust/`) still present. The mobile shell
+(`apps/mobile/`) and the headless `packages/editor-core` extraction are
+not built yet — see the plan's milestone list for sequencing. Treat
+anything under `apps/web/src` as inherited engine code being
+progressively adapted, not as the shipped mobile product.
 
-### Prerequisites
+## Project structure
 
-- [Bun](https://bun.sh/docs/installation)
-- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
+- `apps/web/` — inherited Next.js web application; source of the editing
+  engine (`core/`, `timeline/`, `services/`, etc.) this project builds
+  on top of.
+- `apps/desktop/` — inherited native desktop shell (GPUI), not a build
+  target for this project.
+- `rust/` — the Rust/wgpu compositor compiled to WASM (`rust/wasm`) and
+  its supporting crates (`rust/crates/{gpu,compositor,effects,masks,time}`).
+- `docs/` — architecture notes, `DECISIONS.md` (ratified founder
+  decisions), and `THIRD_PARTY_NOTICES.md`.
+- `scripts/` — `offline-audit.{sh,mjs}` (the CI gate that keeps the app
+  network-free), `invariants.sh` (the merge gate), and
+  `generate-third-party-notices.mjs`.
 
-> **Note:** Docker is optional but recommended for running the local database and Redis. If you only want to work on frontend features, you can skip it.
+## Getting started
 
-### Setup
+Prerequisite: [Bun](https://bun.sh/docs/installation) `1.2.18` (see
+`packageManager` in `package.json` — this repo does not use npm/pnpm/yarn).
 
-1. Fork and clone the repository
+```bash
+bun install
+bun run build:web   # builds apps/web via Turborepo
+bun run dev:web     # local dev server, http://localhost:3000
+```
 
-2. Copy the environment file:
+No database, no Docker, and no `.env` setup is required — the auth,
+Postgres/Drizzle, and CMS/blog surfaces this codebase inherited from
+upstream have been removed (see `docs/DECISIONS.md`'s "known, tracked
+exceptions" section for the one remaining non-offline code path and its
+tracking status).
 
-   ```bash
-   # Unix/Linux/Mac
-   cp apps/web/.env.example apps/web/.env.local
+### Verifying the offline guarantee
 
-   # Windows PowerShell
-   Copy-Item apps/web/.env.example apps/web/.env.local
-   ```
+```bash
+bash scripts/offline-audit.sh   # wants apps/web/.next to exist; run after a build
+```
 
-3. Start the database and Redis:
+This scans both source and the built bundle for outbound network
+references and fails on anything not explicitly allowlisted as a
+plain outbound link (e.g. a GitHub credit link) — see the script's own
+header comment for the full allowlist and rationale.
 
-   ```bash
-   docker compose up -d db redis serverless-redis-http
-   ```
+### Running the merge gate locally
 
-4. Install dependencies and start the dev server:
+```bash
+bash scripts/invariants.sh
+```
 
-   ```bash
-   bun install
-   bun dev:web
-   ```
-
-The application will be available at [http://localhost:3000](http://localhost:3000).
-
-The `.env.example` has sensible defaults that match the Docker Compose config — it should work out of the box.
-
-### Desktop setup
-
-Desktop is opt-in. If you're only working on the web app, skip this entirely.
-
-If you want to get ready for `apps/desktop`, see [`apps/desktop/README.md`](apps/desktop/README.md). It's a two-step setup: Rust toolchain first, then desktop native dependencies.
+Runs the same build → typecheck → lint → unit tests → offline-audit →
+architecture-gate sequence CI runs on every push/PR. See
+`scripts/invariants.sh`'s header comment for what's strict today versus
+what's a documented, non-blocking placeholder pending a later milestone.
 
 ### Local WASM development
 
-Only needed if you're editing `rust/wasm` and want the web app to use your local build instead of the published package.
-
-**Prerequisites** — install these once before anything else:
+Only needed if you're editing `rust/wasm` and want the web app to use
+your local build instead of the published `opencut-wasm` package.
 
 ```bash
-# Rust toolchain
+# once: Rust toolchain + wasm-pack + cargo-watch
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+cargo install wasm-pack cargo-watch
 
-# build the WASM package
-cargo install wasm-pack
+# build once from the repo root
+bun run build:wasm
 
-# reruns the build on file changes, used by bun dev:wasm
-cargo install cargo-watch
+# register + link the local build into apps/web
+cd rust/wasm/pkg && bun link
+cd ../../../apps/web && bun link opencut-wasm
+
+# rebuild on changes
+bun run dev:wasm
 ```
 
-1. Build the package once from the repo root:
-
-   ```bash
-   bun run build:wasm
-   ```
-
-2. Register the generated package for linking:
-
-   ```bash
-   cd rust/wasm/pkg
-   bun link
-   ```
-
-3. Link `apps/web` to the local package:
-
-   ```bash
-   cd apps/web
-   bun link opencut-wasm
-   ```
-
-4. Rebuild on changes while you work:
-
-   ```bash
-   bun dev:wasm
-   ```
-
-To switch `apps/web` back to the published package, run:
-
-```bash
-cd apps/web
-bun add opencut-wasm
-```
-
-### Self-Hosting with Docker
-
-To run everything (including a production build of the app) in Docker:
-
-```bash
-docker compose up -d
-```
-
-The app will be available at [http://localhost:3100](http://localhost:3100).
-
-## Contributing
-
-We welcome contributions! While we're actively developing and refactoring certain areas, there are plenty of opportunities to contribute effectively.
-
-**🎯 Focus areas:** Timeline functionality, project management, performance, bug fixes, and UI improvements outside the preview panel.
-
-**⚠️ Avoid for now:** Preview panel enhancements (fonts, stickers, effects) and export functionality - we're refactoring these with a new binary rendering approach.
-
-See our [Contributing Guide](.github/CONTRIBUTING.md) for detailed setup instructions, development guidelines, and complete focus area guidance.
-
-**Quick start for contributors:**
-
-- Fork the repo and clone locally
-- Follow the setup instructions in CONTRIBUTING.md
-- Working on `apps/desktop`? See [`apps/desktop/README.md`](apps/desktop/README.md) for setup
-- Create a feature branch and submit a PR
+Switch back to the published package with `cd apps/web && bun add opencut-wasm`.
 
 ## License
 
-[MIT LICENSE](LICENSE)
-
----
-
-![Star History Chart](https://api.star-history.com/svg?repos=opencut-app/opencut&type=Date)
-
+[MIT](LICENSE) — see `NOTICE` for the required upstream attribution and
+`docs/THIRD_PARTY_NOTICES.md` for third-party asset and dependency
+licenses.

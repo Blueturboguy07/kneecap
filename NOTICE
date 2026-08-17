@@ -1,0 +1,19 @@
+kneecap
+Copyright 2026 the kneecap contributors
+
+This product includes software originally developed as part of
+OpenCut-app/opencut-classic (https://github.com/OpenCut-app/opencut-classic),
+used and modified under the MIT License. See LICENSE at the root of this
+repository for the full license text, and docs/DECISIONS.md for the
+fork's naming and attribution posture.
+
+kneecap is an independent fork. It is not affiliated with, endorsed by,
+or sponsored by OpenCut-app, OpenCut, or CapCut/Bytedance/TikTok Pte.
+Ltd. "CapCut" is referenced in this project's internal design documents
+only to describe a functional/visual parity target for the on-device
+editor; no CapCut trademarks, marks, or copyrighted assets are bundled,
+redistributed, or reproduced by this project. See docs/DECISIONS.md
+§8.2/§8.3 for the full posture.
+
+For a full inventory of third-party dependencies and their licenses,
+see docs/THIRD_PARTY_NOTICES.md.
