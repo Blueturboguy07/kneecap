@@ -1,0 +1,313 @@
+{
+	"$schema": "https://kneecap.dev/schema/edl-v1.json",
+	"meta": {
+		"edlVersion": 1,
+		"generator": "kneecap/editor-core@0.1.0",
+		"ticksPerSecond": 120000,
+		"frameRate": {
+			"numerator": 30000,
+			"denominator": 1001
+		},
+		"canvas": {
+			"width": 1080,
+			"height": 1920
+		},
+		"background": {
+			"type": "color",
+			"color": "#000000"
+		},
+		"projectId": "proj-fixture-1",
+		"projectName": "EDL v1 golden fixture",
+		"sceneId": "scene-1",
+		"sceneName": "Scene 1",
+		"durationTicks": 480000
+	},
+	"assets": [
+		{
+			"assetId": "asset-audio-1",
+			"kind": "audio",
+			"name": "bed.m4a",
+			"sourceUri": "kneecap-media://sandbox/asset-audio-1",
+			"proxyUri": "kneecap-media://proxy/asset-audio-1",
+			"codec": "mp4a.40.2",
+			"width": null,
+			"height": null,
+			"durationTicks": 600000,
+			"rotationDegrees": 0,
+			"hasAudio": true
+		},
+		{
+			"assetId": "asset-video-1",
+			"kind": "video",
+			"name": "intro.mp4",
+			"sourceUri": "kneecap-media://sandbox/asset-video-1",
+			"proxyUri": "kneecap-media://proxy/asset-video-1",
+			"codec": "avc1.640028",
+			"width": 1080,
+			"height": 1920,
+			"durationTicks": 720000,
+			"rotationDegrees": 0,
+			"hasAudio": true
+		}
+	],
+	"tracks": [
+		{
+			"trackId": "track-main",
+			"kind": "main",
+			"trackType": "video",
+			"name": "Main",
+			"zIndex": 0,
+			"muted": false,
+			"hidden": false,
+			"clips": [
+				{
+					"clipId": "clip-a",
+					"kind": "video",
+					"assetId": "asset-video-1",
+					"name": "intro.mp4",
+					"startTicks": 0,
+					"durationTicks": 240000,
+					"sourceStartTicks": 60000,
+					"sourceEndTicks": 300000,
+					"trimEndTicks": 0,
+					"speed": {
+						"numerator": 1,
+						"denominator": 1
+					},
+					"maintainPitch": false,
+					"volumeDb": 0,
+					"muted": false,
+					"hidden": false,
+					"transform": {
+						"positionX": 0,
+						"positionY": 0,
+						"scaleX": 1,
+						"scaleY": 1,
+						"rotateDegrees": 0
+					},
+					"opacity": 1,
+					"blendMode": "normal",
+					"effects": [],
+					"masks": [],
+					"animations": [],
+					"params": {
+						"transform.positionX": 0,
+						"transform.positionY": 0,
+						"transform.scaleX": 1,
+						"transform.scaleY": 1,
+						"transform.rotate": 0,
+						"opacity": 1,
+						"blendMode": "normal",
+						"volume": 0,
+						"muted": false
+					}
+				},
+				{
+					"clipId": "clip-b",
+					"kind": "video",
+					"assetId": "asset-video-1",
+					"name": "action.mp4",
+					"startTicks": 240000,
+					"durationTicks": 240000,
+					"sourceStartTicks": 360000,
+					"sourceEndTicks": 720000,
+					"trimEndTicks": 0,
+					"speed": {
+						"numerator": 3,
+						"denominator": 2
+					},
+					"maintainPitch": true,
+					"volumeDb": -3,
+					"muted": false,
+					"hidden": false,
+					"transform": {
+						"positionX": 0,
+						"positionY": 0,
+						"scaleX": 1,
+						"scaleY": 1,
+						"rotateDegrees": 0
+					},
+					"opacity": 1,
+					"blendMode": "normal",
+					"effects": [
+						{
+							"effectId": "fx-1",
+							"type": "brightness",
+							"enabled": true,
+							"params": {
+								"amount": 0.2
+							}
+						}
+					],
+					"masks": [],
+					"animations": [],
+					"params": {
+						"transform.positionX": 0,
+						"transform.positionY": 0,
+						"transform.scaleX": 1,
+						"transform.scaleY": 1,
+						"transform.rotate": 0,
+						"opacity": 1,
+						"blendMode": "normal",
+						"volume": -3,
+						"muted": false
+					}
+				}
+			]
+		},
+		{
+			"trackId": "track-text",
+			"kind": "overlay",
+			"trackType": "text",
+			"name": "Text",
+			"zIndex": 1,
+			"muted": false,
+			"hidden": false,
+			"clips": [
+				{
+					"clipId": "clip-title",
+					"kind": "text",
+					"assetId": null,
+					"name": "Title",
+					"startTicks": 60000,
+					"durationTicks": 360000,
+					"sourceStartTicks": 0,
+					"sourceEndTicks": 360000,
+					"trimEndTicks": 0,
+					"speed": {
+						"numerator": 1,
+						"denominator": 1
+					},
+					"maintainPitch": false,
+					"volumeDb": 0,
+					"muted": false,
+					"hidden": false,
+					"transform": {
+						"positionX": 0,
+						"positionY": -200,
+						"scaleX": 1,
+						"scaleY": 1,
+						"rotateDegrees": 0
+					},
+					"opacity": 1,
+					"blendMode": "normal",
+					"effects": [],
+					"masks": [],
+					"animations": [
+						{
+							"propertyPath": "opacity",
+							"componentKey": null,
+							"extrapolationBefore": "hold",
+							"extrapolationAfter": "hold",
+							"keyframes": [
+								{
+									"keyframeId": "kf-1",
+									"timeTicks": 0,
+									"value": 0,
+									"interpolation": "linear",
+									"leftHandle": null,
+									"rightHandle": null
+								},
+								{
+									"keyframeId": "kf-2",
+									"timeTicks": 60000,
+									"value": 1,
+									"interpolation": "hold",
+									"leftHandle": null,
+									"rightHandle": null
+								}
+							]
+						}
+					],
+					"params": {
+						"content": "kneecap",
+						"fontFamily": "Inter",
+						"fontSize": 72,
+						"color": "#00CAE0",
+						"textAlign": "center",
+						"transform.positionX": 0,
+						"transform.positionY": -200,
+						"transform.scaleX": 1,
+						"transform.scaleY": 1,
+						"transform.rotate": 0,
+						"opacity": 1,
+						"blendMode": "normal"
+					}
+				}
+			]
+		},
+		{
+			"trackId": "track-audio",
+			"kind": "audio",
+			"trackType": "audio",
+			"name": "Audio",
+			"zIndex": null,
+			"muted": false,
+			"hidden": false,
+			"clips": [
+				{
+					"clipId": "clip-music",
+					"kind": "audio",
+					"assetId": "asset-audio-1",
+					"name": "bed.m4a",
+					"startTicks": 0,
+					"durationTicks": 480000,
+					"sourceStartTicks": 0,
+					"sourceEndTicks": 480000,
+					"trimEndTicks": 120000,
+					"speed": {
+						"numerator": 1,
+						"denominator": 1
+					},
+					"maintainPitch": false,
+					"volumeDb": -6,
+					"muted": false,
+					"hidden": false,
+					"transform": {
+						"positionX": 0,
+						"positionY": 0,
+						"scaleX": 1,
+						"scaleY": 1,
+						"rotateDegrees": 0
+					},
+					"opacity": 1,
+					"blendMode": "normal",
+					"effects": [],
+					"masks": [],
+					"animations": [],
+					"params": {
+						"volume": -6,
+						"muted": false
+					}
+				}
+			]
+		}
+	],
+	"transitions": [],
+	"overlays": [
+		{
+			"overlayId": "track-text:clip-title",
+			"kind": "text",
+			"trackId": "track-text",
+			"clipId": "clip-title",
+			"zIndex": 1,
+			"startTicks": 60000,
+			"durationTicks": 360000
+		}
+	],
+	"output": {
+		"container": "mp4",
+		"videoCodec": "h264",
+		"audioCodec": "aac",
+		"bitrate": 12000000,
+		"fps": {
+			"numerator": 30000,
+			"denominator": 1001
+		},
+		"resolution": {
+			"width": 1080,
+			"height": 1920
+		},
+		"includeAudio": true
+	}
+}

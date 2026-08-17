@@ -7,13 +7,15 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
+		"./edl": "./src/edl/index.ts",
 		"./react": "./react/index.ts",
 		"./*": "./src/*"
 	},
 	"scripts": {
 		"check-types": "tsc --project tsconfig.json --noEmit",
 		"check-headless": "bun ../../scripts/check-headless.mjs",
-		"test": "bun test src"
+		"test": "bun test src",
+		"generate:golden-edl": "bun --preload ./src/test-support/wasm-preload.ts scripts/generate-golden-edl.ts"
 	},
 	"dependencies": {
 		"culori": "^4.0.2",

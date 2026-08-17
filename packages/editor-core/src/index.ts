@@ -57,3 +57,6 @@ export type {
 	OverlayTrack,
 	Bookmark,
 } from "./timeline/types";
+
+// --- The EDL bridge contract (plan §2.3) — FROZEN at v1 --------------------
+export * from "./edl";

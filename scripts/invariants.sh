@@ -70,8 +70,9 @@ BASELINE_TYPECHECK_ERRORS=0
 # (no-unsafe-type-assertion 83 = 43 web + 40 core, etc.).
 BASELINE_LINT_ERRORS=108
 
-# `bun test` at repo root. Was 191 pass / 8 fail; M2 moved it to 215/3 and
-# these numbers are the new floor/ceiling.
+# `bun test` at repo root. Was 191 pass / 8 fail; M2 moved it to 250/3 and
+# these numbers are the new floor/ceiling. (215 -> 250 is the EDL v1 suite,
+# packages/editor-core/src/edl/__tests__/edl.test.ts, 35 tests.)
 #
 # What changed: cause (a) of the old failures was `opencut-wasm`'s published
 # bindgen glue throwing `wasm.__wbindgen_start is not a function` under Bun,
@@ -92,7 +93,7 @@ BASELINE_LINT_ERRORS=108
 #      handles come back +-0.1 instead of 0.
 # None are time/tick related and none are in M2's scope. Fixing them is
 # tracked work for whoever next touches masks (post-v1 per plan §2.3 rule 4).
-BASELINE_TEST_PASS_MIN=215
+BASELINE_TEST_PASS_MIN=250
 BASELINE_TEST_FAIL_MAX=3
 
 STRICT_MOUSE_EVENT_GATE="${STRICT_MOUSE_EVENT_GATE:-0}"
