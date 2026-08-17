@@ -7,15 +7,16 @@
  * `scripts/invariants.sh`'s bridge-import gate and the `no-restricted-imports`
  * ESLint rule that mirrors it.
  *
- * WHAT IS REAL AS OF M4: `capabilities()` (M3), `pickMedia()` and
- * `generateProxy()` (M4) — all three call the genuinely-registered native
- * `NativeBridge` plugin (`ios/App/App/NativeBridgePlugin.swift` +
- * `NativeBridgePlugin+Media.swift`; iOS only as of M4 — Android's
- * equivalent `NativeBridgePlugin.kt` implementation is a separate
- * milestone/track, see the M4 handoff for exactly what that means for the
- * Android path through this SAME file today).
+ * WHAT IS REAL AS OF M9: `capabilities()` (M3), `pickMedia()` and
+ * `generateProxy()` (M4), `exportProject()` (M9) — all four call the
+ * genuinely-registered native `NativeBridge` plugin
+ * (`ios/App/App/NativeBridgePlugin.swift` + `NativeBridgePlugin+Media.swift`
+ * + `NativeBridgePlugin+Export.swift`; iOS only — Android's equivalent
+ * `NativeBridgePlugin.kt` implementation is a separate milestone/track, see
+ * the M4/M9 handoffs for exactly what that means for the Android path
+ * through this SAME file today).
  *
- * WHAT IS STUBBED: `exportProject` (M9), `transcribe` (M10).
+ * WHAT IS STUBBED: `transcribe` (M10).
  */
 
 import { registerPlugin, Capacitor, type PluginListenerHandle } from "@capacitor/core";
@@ -65,6 +66,18 @@ interface RawProxyProgress {
 	error?: string;
 }
 
+/** What `exportProject`'s native side actually emits — additionally keyed
+ * by `exportId` (see `generateExportId`'s doc comment for why an export
+ * needs one and a proxy doesn't) but otherwise the same shape as the
+ * public `ExportProgress`. */
+interface RawExportProgress {
+	exportId: string;
+	stage: "preparing" | "encoding" | "muxing" | "done" | "error";
+	fraction: number;
+	outputUri?: string;
+	error?: string;
+}
+
 interface NativeBridgePluginSpec {
 	getDeviceInfo(): Promise<NativeDeviceInfo>;
 	pickMedia(opts: {
@@ -75,10 +88,29 @@ interface NativeBridgePluginSpec {
 		handle: { id: string; uri: string };
 		spec: { targetHeight: number; shortGop: boolean };
 	}): Promise<{ accepted: boolean }>;
+	exportProject(params: { exportId: string; edl: Edl }): Promise<{ accepted: boolean }>;
+	exportCancel(params: { exportId: string }): Promise<{ accepted: boolean }>;
 	addListener(
 		eventName: "proxyProgress",
 		listenerFunc: (data: RawProxyProgress) => void,
 	): Promise<PluginListenerHandle>;
+	addListener(
+		eventName: "exportProgress",
+		listenerFunc: (data: RawExportProgress) => void,
+	): Promise<PluginListenerHandle>;
+}
+
+/** `generateProxy` filters its event stream on `handle.id` — a domain
+ * identifier the caller already has. `exportProject` has no equivalent
+ * (an `Edl` carries a project/scene id, but nothing that uniquely
+ * identifies THIS export call — a user could plausibly kick off two
+ * concurrent exports of the same scene at different quality settings), so
+ * this generates one purely for event-routing, exactly the way M4's
+ * `pickMedia` mints a fresh `assetId` per imported item. `crypto.randomUUID`
+ * is available unconditionally at this project's iOS 17 / modern-WebView
+ * floor (plan §2.5) — no fallback needed. */
+function generateExportId(): string {
+	return crypto.randomUUID();
 }
 
 const NativeBridgePlugin = registerPlugin<NativeBridgePluginSpec>(
@@ -174,8 +206,56 @@ export function createCapacitorBridge(): NativeBridge {
 			}
 		},
 
-		async *exportProject(_params: { edl: Edl }): AsyncGenerator<ExportProgress> {
-			return notImplemented({ method: "exportProject", milestone: "M9" });
+		async *exportProject({ edl }: { edl: Edl }): AsyncGenerator<ExportProgress> {
+			const exportId = generateExportId();
+			// Subscribe BEFORE triggering the native call — same race
+			// avoided as `generateProxy` above (see `subscribeToEvents`'s
+			// doc comment): a very short/trivial export could otherwise
+			// emit "done" before this file started listening for it.
+			const events = await subscribeToEvents<RawExportProgress>({
+				source: NativeBridgePlugin,
+				eventName: "exportProgress",
+				filter: (e) => e.exportId === exportId,
+				isTerminal: (e) => e.stage === "done" || e.stage === "error",
+			});
+
+			await NativeBridgePlugin.exportProject({ exportId, edl });
+
+			// A `try/finally` here, not just in `events`'s own generator
+			// (`subscribeToEvents`'s `drain()`, which only tears down the
+			// event LISTENER): `AsyncGenerator.return()` propagates through
+			// a `for await` exactly like a `break` would, running this
+			// `finally` before the inner one — a caller that walks away
+			// mid-export (e.g. the user backs out of the export sheet)
+			// calls `.return()` on the generator THIS function returns,
+			// which reaches here and tells native to actually stop
+			// encoding (plan M9 exit criterion: "Cancel mid-export leaves
+			// no partial file and no leaked encoder" —
+			// `EdlExporter.export`'s `EdlExportHandle` is what makes that
+			// true on the native side; this is what wires a JS-level
+			// cancel to it without adding a second public bridge method
+			// beyond the one the `NativeBridge` interface already
+			// declares).
+			let reachedTerminalStage = false;
+			try {
+				for await (const event of events) {
+					reachedTerminalStage =
+						event.stage === "done" || event.stage === "error";
+					yield {
+						stage: event.stage,
+						fraction: event.fraction,
+						outputUri:
+							event.outputUri !== undefined
+								? toPlaybackUri(event.outputUri)
+								: undefined,
+						error: event.error,
+					};
+				}
+			} finally {
+				if (!reachedTerminalStage) {
+					await NativeBridgePlugin.exportCancel({ exportId });
+				}
+			}
 		},
 
 		async *transcribe(_params: {
@@ -198,7 +278,16 @@ export function createCapacitorBridge(): NativeBridge {
 				gpuBackend,
 				ramTierMb: deviceInfo.ramTierMb,
 				codecs,
-				supportsNativeExport: false, // flips true when M9 lands.
+				// M9 landed the real `exportProject()` implementation
+				// (`NativeBridgePlugin+Export.swift`) — but iOS only,
+				// exactly like `pickMedia`/`generateProxy` before it
+				// (Android's `NativeBridgePlugin.kt` equivalent is a
+				// separate, not-yet-landed track through this same file —
+				// see the file header). A per-platform value here, not a
+				// blanket `true`, so a caller on Android gets an honest
+				// answer instead of discovering the gap only when
+				// `exportProject()` itself throws.
+				supportsNativeExport: platform === "ios",
 				supportsOnDeviceStt: false, // flips true when M10 lands.
 			};
 		},

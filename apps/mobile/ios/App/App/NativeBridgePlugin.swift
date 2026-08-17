@@ -33,6 +33,14 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         // promise.
         CAPPluginMethod(name: "pickMedia", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "generateProxy", returnType: CAPPluginReturnPromise),
+        // kneecap M9 — see NativeBridgePlugin+Export.swift. Same
+        // resolve-immediately-then-stream-events shape as `generateProxy`
+        // above (`exportProgress` events keyed by a client-generated
+        // `exportId`, since — unlike `generateProxy`'s `assetId` — an
+        // export has no other natural per-call domain identifier to filter
+        // events on).
+        CAPPluginMethod(name: "exportProject", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "exportCancel", returnType: CAPPluginReturnPromise),
     ]
 
     /// Retains the `PHPickerViewControllerDelegate` for the duration of an
@@ -40,6 +48,13 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
     /// `weak`, so nothing else holds this. See
     /// `NativeBridgePlugin+Media.swift`.
     var activePickerCoordinator: AnyObject?
+
+    /// kneecap M9 — one `EdlExportHandle` per in-flight `exportProject`
+    /// call, keyed by the client-generated `exportId`, so a later
+    /// `exportCancel(exportId)` call can find and cancel the right one.
+    /// Removed from the dictionary once that export reaches a terminal
+    /// stage (done/error/cancelled) — see `NativeBridgePlugin+Export.swift`.
+    var activeExportHandles: [String: EdlExportHandle] = [:]
 
     /// The classic `uname()` trick for a real device identifier
     /// ("iPhone15,2") instead of `UIDevice.current.model`'s generic "iPhone".

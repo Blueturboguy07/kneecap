@@ -80,4 +80,18 @@ public enum MediaSandbox {
 	public static func proxyURL(assetId: String) throws -> URL {
 		try proxyDirectory().appendingPathComponent("\(assetId).mp4")
 	}
+
+	/// kneecap M9. Finished exports, unlike proxies/thumbnails, are NOT
+	/// re-derivable garbage — they're the user's deliverable — so
+	/// deliberately NOT excluded from backup (contrast
+	/// `copyIntoMediaCustody`'s `excludeFromBackup` call): losing a
+	/// finished export to a restore gap would be a real loss, not a
+	/// re-transcode inconvenience.
+	public static func exportsDirectory() throws -> URL {
+		try subdirectory("Exports")
+	}
+
+	public static func exportURL(exportId: String) throws -> URL {
+		try exportsDirectory().appendingPathComponent("\(exportId).mp4")
+	}
 }

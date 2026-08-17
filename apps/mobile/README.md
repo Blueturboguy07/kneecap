@@ -80,10 +80,12 @@ fallback), blended with a real native call
 (`NativeBridgePlugin.getDeviceInfo()`, implemented on both platforms) for
 OS version / device model / RAM tier.
 
-`pickMedia`, `generateProxy`, `exportProject`, and `transcribe` are stubbed
-on the Capacitor implementation — each throws a typed `NativeBridgeError`
-naming the milestone that implements it (M4, M4, M9, M10 respectively). This
-matches plan M3's task list: "Define + **stub** `packages/native-bridge`."
+`pickMedia`, `generateProxy`, and `exportProject` are no longer stubbed on
+iOS as of M4/M9 (see below). `transcribe` is still stubbed on the Capacitor
+implementation — it throws a typed `NativeBridgeError` naming the milestone
+that implements it (M10). This matches plan M3's task list: "Define +
+**stub** `packages/native-bridge`," with each stub retired as its milestone
+actually lands.
 
 ## M4 (iOS track): native media custody + import + proxy pipeline
 
@@ -160,3 +162,153 @@ Capacitor/UIKit-free — Foundation/AVFoundation/CoreImage only).
   passthrough** are reasonable-but-unbenchmarked — no comparison against
   the plan M1 scrub-latency targets was run (M1's own harness is a separate,
   throwaway spike this session didn't touch).
+
+## M9 (iOS track): the EDL → AVFoundation export bridge
+
+**What's REAL, and how it was verified.** `NativeBridge.exportProject()` is
+no longer stubbed on iOS. `apps/mobile/ios/App/App/NativeExport/*.swift`
+(Foundation/AVFoundation/CoreImage/CoreText only — Capacitor/UIKit-free,
+same discipline as `NativeMedia/*.swift`) implements the full plan M9
+pipeline:
+
+- `EdlModel.swift` — a `Decodable` mirror of `edl/types.ts`, field-for-field.
+- `MainTrackPlacement.swift` — **pure `Int64` tick math, no AVFoundation** —
+  the transition-placement algorithm (a transition "eats into" both
+  neighboring clips' existing footage rather than requiring extra source
+  frames; see its header comment for the full reasoning, since — like the
+  Android side per plan §5 risk #4 — no existing precedent covers this
+  exact bridge shape) plus the nominal→output tick remap that keeps
+  overlay/secondary-audio timing in sync once a transition has compressed
+  the main track.
+- `CompositionBuilder.swift` — EDL → `AVMutableComposition`: multi-track,
+  trim/split via `CMTimeRange` inserts, speed via `scaleTimeRange`,
+  cross-fading the AUDIO under a transition too (not just the video).
+- `TransitionCompositor.swift` — a real custom `AVVideoCompositing`
+  implementation (Apple's `AVCustomEdit`-pattern extension point), built
+  FIRST per plan §5 risk #4. Cross-fade via Core Image's own
+  `CIDissolveTransition` filter; a minimal effect pass (`"brightness"` via
+  `CIColorControls`, the one effect type in the frozen EDL v1 golden
+  fixture) proves the extension point without over-building v1's effect
+  surface.
+- `OverlayLayerBuilder.swift` — text/sticker overlays via `CATextLayer`,
+  composited through `AVVideoCompositionCoreAnimationTool`, including a
+  keyframed opacity animation channel.
+- `VideoCompositionBuilder.swift` — assembles the sorted, contiguous
+  `AVMutableVideoComposition` instruction list from placements + transition
+  windows.
+- `EdlExporter.swift` — `AVAssetReader` (reading already-composited frames
+  via `AVAssetReaderVideoCompositionOutput`) → `AVAssetWriter`
+  (VideoToolbox hardware encode), streamed to disk, with progress,
+  cooperative cancellation (`EdlExportHandle`), and a post-export integrity
+  re-probe (via the SAME `MediaProbe.probe()` M4's harness verified).
+
+**`apps/mobile/ios/verify-export-pipeline/`** compiles those same files
+into a standalone macOS executable (same pattern as
+`verify-media-pipeline`) and runs a REAL export against the bundled
+fixture, using a hand-authored EDL v1 fixture (the in-repo `buildEdl` can't
+populate `transitions[]` yet — see `EdlTransition`'s doc comment in
+`edl/types.ts`, "v1 PRODUCER STATUS: always `[]`" — so this harness
+constructs one directly, exercising fields `buildEdl` doesn't produce yet).
+All checks passed, including — not just "did it not crash":
+
+- The transition placement math (pure, step 2) matches hand-derived
+  expected ticks exactly.
+- The real export produced a 960×540 MP4 with audio, whose duration
+  (3.171s) matches the transition-compressed expectation (3.133s ± 0.35s
+  slack for GOP/encoder rounding) — i.e. the transition genuinely
+  shortened the export, not just claimed to.
+- **Golden-frame numeric proof the cross-fade is a real blend, not a
+  disguised hard cut**: frames extracted at a pure-clip-A instant, a
+  pure-clip-B instant, and mid-transition were pixel-diffed. `diff(A,B) =
+  76.6` (genuinely different content — the fixture is time-varying),
+  `diff(A,mid) = 56.5`, `diff(mid,B) = 23.7`, and `diff(A,mid) +
+  diff(mid,B)` lands within 5% of `diff(A,B)` — exactly the additive
+  relationship a linear dissolve produces, and NOT what either a hard cut
+  or an unrelated third frame would produce.
+- **The text overlay genuinely renders in the exact plan-mandated cyan**
+  (`#00CAE0`) — 16.9% of sampled pixels in an overlay-visible frame land
+  within tolerance of that color.
+- Cancellation (`handle.cancel()` before `export()` starts) throws
+  `.cancelled` and leaves **no partial file** on disk.
+
+One real bug this harness caught and fixed before any of the above passed:
+the first version deadlocked (confirmed via `sample` — every CoreMedia
+thread parked on `pthread_cond_wait`, zero CPU activity) because video and
+audio `AVAssetReaderOutput`s on the same `AVAssetReader` were drained
+SEQUENTIALLY, which `ProxyTranscoder.swift`'s plain track-output pattern
+tolerates but `AVAssetReaderVideoCompositionOutput`'s internal composition
+pipeline does not — fixed by draining both concurrently via a
+`withThrowingTaskGroup`. See `EdlExporter.swift`'s doc comment on
+`runPhase`.
+
+**The full Capacitor iOS app** (with `NativeExport/*.swift` +
+`NativeBridgePlugin+Export.swift` wired into
+`App.xcodeproj/project.pbxproj`) built clean for the simulator
+(`CODE_SIGNING_ALLOWED=NO`, `BUILD SUCCEEDED`). `nm` on the built
+`App.debug.dylib` confirms real symbol hits for `EdlExporter.export`,
+`OverlayLayerBuilder`, and the `@objc` `exportProject`/`exportCancel`
+Objective-C thunks Capacitor's runtime-reflection plugin discovery needs —
+genuinely compiled and linked, not just present on disk. Installed onto the
+same "kneecap M4 QA" simulator and launched without crashing (screenshotted
+— the M3 first-run screen renders; no crash in the system log).
+
+**TS side**: `packages/native-bridge/src/capacitor-bridge.ts`'s
+`exportProject()` calls through to the native plugin exactly like
+`generateProxy` (subscribe-before-trigger event routing, this time keyed by
+a freshly minted `exportId` rather than an existing domain id, since an
+export has none). Cancellation is wired to the STANDARD
+`AsyncGenerator.return()` protocol — a caller that walks away from the
+`for await` loop before a terminal stage triggers a `finally` block that
+calls the native `exportCancel`, so no second public method was added to
+the `NativeBridge` interface. `capabilities().supportsNativeExport` now
+reports `platform === "ios"` (was unconditionally `false`). Full repo
+`scripts/invariants.sh` reran green after these changes (287 pass / 3
+pre-existing fail, same baseline as before this session).
+
+**What is NOT verified — real gaps, not hidden ones.**
+- **No UI trigger exists yet.** Same gap as M4: M6-M8's mobile-ui host
+  doesn't exist, so nothing in the shipped app actually calls
+  `exportProject()` from a real "Export" button yet — it's wired and
+  independently verified, but has no caller.
+- **The golden-frame harness compares native-export frames against each
+  other, not against a web-preview-rendered frame of the same EDL.** Plan
+  M9 asks for both halves. The native half is real (see above). The
+  web-preview half requires a browser-automation tool actually connected to
+  a running instance — checked in this session
+  (`mcp__kapture__list_tabs` returned zero connected tabs; this is a
+  headless agent session with no GUI browser to drive) and confirmed
+  unavailable. Closing this requires either running this track from a
+  session with a real Chrome/Safari connection, or building a headless
+  (non-browser) renderer for `services/renderer`'s scene-builder→WASM
+  compositor pipeline — the latter is a nontrivial undertaking (the
+  compositor is WebGPU/WebGL2, not something Node can run without a real
+  browser context) outside this session's scope.
+- **Only cross-fade is implemented as a transition kind.** Plan M9 item 2
+  scopes "the v1 wipe/slide set" in addition; `TransitionCompositor.blend()`
+  currently falls back to a dissolve for any `kind` it doesn't specifically
+  recognize (documented in its own comment) rather than aborting the
+  export, but no wipe/slide shader was written.
+- **Filters beyond one hardcoded case (`"brightness"`) are not applied.**
+  `EdlClip.effects` entries of any other `type` are silently no-op'd by the
+  compositor (by design — see `EdlVideoCompositionInstruction`'s doc
+  comment — but still a real scope gap against plan M9's "custom
+  `AVVideoCompositing` implementation for filters").
+- **Sticker rendering is text/emoji-glyph only.** There is no bundled
+  sticker-art asset pipeline yet (that's M7/M8's job); a `"sticker"`/`
+  "graphic"` clip renders via the same `CATextLayer` path as text, using
+  `params.content` as a glyph string, or is skipped if that's absent.
+- **No 12-clip/3-track stress fixture, no 4K export, no 60s-backgrounding
+  test, no 10-minute audio-drift test.** Plan M9's exit criteria list all
+  four; this session verified the mechanism (multi-track, transitions,
+  speed, text, cancellation) on a small, fast fixture, not at the scale or
+  duration the exit criteria specify.
+- **Android has no equivalent.** This session's scope was the iOS track
+  only; `exportProject` on Android still has no native implementation to
+  call through to.
+- **The Photos-library save (plan M9 item 8) is implemented
+  (`NativeBridgePlugin+Export.swift`'s `saveToPhotosLibraryBestEffort`) but
+  unverified** — no interactive on-device run granted the Photos permission
+  and confirmed the asset actually lands in the library (same
+  "PHPickerViewController-adjacent system UI has no automation harness
+  here" limitation as M4). The system share sheet itself was not built at
+  all (a UI-layer concern, M6-M8).

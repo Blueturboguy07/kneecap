@@ -31,16 +31,18 @@ describe("createCapacitorBridge", () => {
 		);
 	});
 
-	// kneecap M4: pickMedia/generateProxy now call through to the real
-	// native `NativeBridge` plugin (iOS: NativeBridgePlugin+Media.swift).
+	// kneecap M4/M9: pickMedia/generateProxy/exportProject now all call
+	// through to the real native `NativeBridge` plugin (iOS:
+	// NativeBridgePlugin+Media.swift / NativeBridgePlugin+Export.swift).
 	// Under `bun test` there's no native runtime to answer them, so — same
 	// as the `capabilities()` test below — these exercise Capacitor's OWN
 	// "plugin not implemented on web" rejection, not this module's stub
-	// behavior (that behavior moved to `exportProject`/`transcribe`, still
-	// genuinely stubbed pending M9/M10). A real pickMedia/generateProxy
+	// behavior (that behavior is now `transcribe`-only, still genuinely
+	// stubbed pending M10). A real pickMedia/generateProxy/exportProject
 	// round trip requires the app running in a simulator/emulator or on
-	// device — see the M4 handoff for what WAS exercised that way
-	// (`apps/mobile/ios/verify-media-pipeline` against the native Swift
+	// device — see the M4/M9 handoffs for what WAS exercised that way
+	// (`apps/mobile/ios/verify-media-pipeline` /
+	// `apps/mobile/ios/verify-export-pipeline` against the native Swift
 	// logic directly, plus a real Xcode build+launch).
 	test("pickMedia calls through to the native plugin (rejects under bun test — no native runtime)", async () => {
 		const opts: PickMediaOptions = { kinds: ["video"], allowMultiple: false };
@@ -56,9 +58,9 @@ describe("createCapacitorBridge", () => {
 		await expect(it.next()).rejects.toBeTruthy();
 	});
 
-	test("exportProject is stubbed pending M9", async () => {
+	test("exportProject calls through to the native plugin (rejects under bun test — no native runtime)", async () => {
 		const it = bridge.exportProject({ edl: {} as never });
-		await expect(it.next()).rejects.toMatchObject({ code: "NOT_IMPLEMENTED" });
+		await expect(it.next()).rejects.toBeTruthy();
 	});
 
 	test("transcribe is stubbed pending M10", async () => {
