@@ -13,6 +13,11 @@ on:
     branches: [main]
     paths-ignore:
       - "*.md"
+  # kneecap M12 — lets .github/workflows/release.yml call this exact
+  # matrix as its pre-release gate (`uses: ./.github/workflows/bun-ci.yml`)
+  # instead of duplicating the invariants job. Adding this trigger changes
+  # nothing about how push/pull_request runs behave.
+  workflow_call: {}
 
 jobs:
   invariants:

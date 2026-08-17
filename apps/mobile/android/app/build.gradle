@@ -1,5 +1,25 @@
 apply plugin: 'com.android.application'
 
+// kneecap M12/M13 — direct-distribution release signing (plan M13
+// operative section: "signed APK (own keystore, held in CI secrets...)
+// attached to GitHub Releases"). No secret material lives in this repo
+// or this file: the keystore itself and its passwords come from four
+// environment variables that only exist inside the CI job that runs
+// `.github/workflows/release.yml` (populated from repo/environment
+// secrets — see docs/RELEASING.md for the one-time setup a human does
+// once, outside of any agent session, with `keytool`).
+//
+// If those env vars are absent (every local dev build, and any CI run
+// that isn't the release workflow), `signingConfigs.release` is simply
+// never created and the `release` build type falls back to Android's
+// default unsigned release output — `assembleRelease` still succeeds,
+// it just doesn't produce an installable-without-resigning APK. This is
+// deliberate: it keeps `./gradlew assembleRelease` safe to run from any
+// machine (including this worktree) without ever needing the secrets.
+def releaseKeystorePath = System.getenv("KNEECAP_RELEASE_KEYSTORE")
+def releaseKeystoreFile = releaseKeystorePath ? file(releaseKeystorePath) : null
+def hasReleaseSigning = releaseKeystoreFile != null && releaseKeystoreFile.exists()
+
 android {
     namespace = "dev.kneecap.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,10 +36,23 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile releaseKeystoreFile
+                storePassword System.getenv("KNEECAP_RELEASE_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KNEECAP_RELEASE_KEY_ALIAS")
+                keyPassword System.getenv("KNEECAP_RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }

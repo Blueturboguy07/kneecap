@@ -26,3 +26,8 @@ target/
 .cargo-tools/
 
 rust-migration-notes.md
+
+# kneecap M12/M13 — release-artifact staging dirs used by
+# .github/workflows/release.yml and its build scripts. Never committed;
+# the real copies are GitHub Release assets.
+release-artifacts/

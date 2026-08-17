@@ -83,7 +83,11 @@ mobile product.
   its supporting crates (`rust/crates/{gpu,compositor,effects,masks,time}`).
 - `docs/` — architecture notes, `EDL.md` (the frozen EDL v1 bridge
   contract — read this before writing a native exporter), `DECISIONS.md`
-  (ratified founder decisions), and `THIRD_PARTY_NOTICES.md`.
+  (ratified founder decisions), `THIRD_PARTY_NOTICES.md`,
+  `RELEASING.md` (how signed direct-distribution releases are cut —
+  plan M13's no-app-store section), and `guides/` + `publik-listing.md`
+  (draft install guides and listing copy; repo docs only, not yet
+  published anywhere).
 - `scripts/` — `offline-audit.{sh,mjs}` (the CI gate that keeps the app
   network-free), `invariants.sh` (the merge gate), `check-headless.mjs`
   (the `packages/editor-core` import gate), and
