@@ -37,6 +37,7 @@
       },
       "devDependencies": {
         "@capacitor/cli": "^8.0.0",
+        "@kneecap/editor-core": "workspace:*",
         "typescript": "^5.8.3",
         "vite": "^7.0.0",
       },

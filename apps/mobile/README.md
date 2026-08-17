@@ -127,6 +127,81 @@ real hardware, does a camera-permission prompt actually appear — are
 UNVERIFIED. Run `cd android && ./gradlew connectedDebugAndroidTest` on a
 real device or a working emulator to close that gap.
 
-`exportProject` and `transcribe` remain stubbed on the Capacitor
-implementation — each throws a typed `NativeBridgeError` naming the
-milestone that implements it (M9, M10 respectively).
+**M9 (Android only — see the M9 handoff for iOS status)** implemented
+`exportProject` for real on the Android side — EDL v1 in, a hardware- (or,
+on `ExportException`, software-) encoded MP4 out, driven through Media3:
+
+- `android/.../edl/{Edl,EdlParser}.kt` — a Kotlin mirror of the frozen EDL v1
+  contract (`packages/editor-core/src/edl/types.ts`) and a strict JSON
+  parser (`getLong` on every `*Ticks` field — no floats cross the tick
+  boundary, matching plan §2.2/§2.3 rule 1).
+- `android/.../export/{TransitionAlphaMath,CrossfadeCompositorSettings}.kt`
+  — THE cross-fade compositor (plan M9 risk #4, built first): a base
+  hard-cut `EditedMediaItemSequence` plus one short alpha-ramped overlay
+  sequence per crossfade transition, driven by a custom
+  `VideoCompositorSettings` — Media3's own documented extension point for
+  exactly this ("no built-in cross-clip transitions... must currently be
+  hand-built using the overlay/compositor primitives," corpus `08` §8),
+  not a hand-rolled GLSL blend pass. The alpha-ramp math itself
+  (`TransitionAlphaMath`) is framework-free and runs as a plain JVM unit
+  test.
+- `android/.../export/EdlToComposition.kt` — the full EDL -> Media3
+  `Composition` mapper: multi-track (main + overlay video/graphic + audio),
+  trim/speed (`MediaItem.ClippingConfiguration` + `SpeedParameters`), text
+  overlays (`TextOverlay`, time-gated), transform/opacity
+  (`MatrixTransformation`/`AlphaScale`). Refuses (rather than silently
+  drops) masks, keyframe animations, and generic filter effects — plan §2.3
+  rule 3's "cut, don't ship inconsistent."
+- `android/.../export/Media3Exporter.kt` — `Transformer.start(Composition,
+  String)`, progress polling, a hardware->software encoder retry on
+  `ExportException`, an output-integrity re-probe (reusing M4's
+  `MediaProbe`) before declaring success, and `cancel()`.
+- `NativeBridgePlugin.kt`'s `exportProject`/`cancelExport` +
+  `capacitor-bridge.ts`'s real `exportProject` implementation (an
+  `exportProgress` event-to-`AsyncGenerator` adapter, same shape as M4's
+  `proxyProgress` one, plus native `cancelExport()` wired into the
+  generator's cleanup so breaking a `for await` loop actually stops the
+  encoder). `capabilities().supportsNativeExport` now reports `true` on
+  Android.
+- `src/main.ts` — an "Export project" card builds a hand-authored 2-clip
+  crossfade + text-overlay EDL (M1's spike shape) from whatever the M4
+  import card actually imported, and drives it through `exportProject`.
+
+**What is verified vs. not, honestly:** `EdlToComposition`/`Media3Exporter`
+compile against the real Media3 1.11.0 API (confirmed by inspecting the
+actual cached `.jar`s with `javap`, not by guessing signatures) —
+`./gradlew :app:compileDebugKotlin`, `:app:assembleDebug`, and
+`:app:assembleDebugAndroidTest` are all `BUILD SUCCESSFUL`, and a dex
+decompile confirms `EdlToComposition`/`Media3Exporter`/
+`CrossfadeCompositorSettings`/`TransitionAlphaMath` are genuinely present
+in the packaged APK. `TransitionAlphaMath` (12 tests) and `EdlParser` (8
+tests) are plain-JVM-unit-tested — 34/34 `testDebugUnitTest` green. The
+TS-side adapter (`exportProgressGenerator`, cancellation-on-early-return,
+error mapping) is unit-tested against an injected fake plugin — 6 new
+tests in `__tests__/capacitor-bridge.test.ts`.
+
+`ExportGoldenFrameInstrumentedTest.kt` (`android/app/src/androidTest`)
+builds a real 2-clip-crossfade-plus-text-overlay EDL, runs it through the
+actual `Media3Exporter`/`Transformer`, and asserts on the resulting file —
+but like M4's instrumentation tests, it has **not been run**: no
+emulator with a working system image was available in this session. It
+compiles and packages (`assembleDebugAndroidTest`) but needs
+`./gradlew connectedDebugAndroidTest` on a real device or working emulator
+to actually execute. Two things it explicitly does NOT verify even once it
+runs: (1) whether the cross-fade actually looks right — the alpha-ramp
+*math* is unit-tested, but Media3's real-time GL compositing of it has
+never rendered a single frame in this session; (2) true golden-frame
+*parity* against a webview-rendered reference PNG — that reference doesn't
+exist yet (needs M6-M8's preview UI or `apps/web-dev`'s reference
+renderer, a different track's deliverable), so this harness checks output
+*integrity* (valid, right-ish duration, decodable frames), not pixel
+*parity*, despite the file's name. The `EdlTransformEffect`/
+`EdlTextOverlay` pixel-position mapping (EDL pixel space -> Media3
+NDC/anchor space) is a best-effort, explicitly-documented-as-unverified
+convention — see that class's own doc comment — pending exactly this kind
+of real-device comparison.
+
+`transcribe` remains stubbed on the Capacitor implementation — throws a
+typed `NativeBridgeError` naming M10, the milestone that implements it.
+iOS's `exportProject`/`transcribe` status is whatever the `ios` track's own
+M9/M10 passes left it as; this session did not touch `apps/mobile/ios`.

@@ -16,7 +16,20 @@
 import { describe, expect, mock, test } from "bun:test";
 import { createCapacitorBridge } from "../capacitor-bridge";
 import { NativeBridgeError } from "../types";
-import type { MediaHandle, PickMediaOptions, ProxyProgress } from "../types";
+import type {
+	ExportProgress,
+	MediaHandle,
+	PickMediaOptions,
+	ProxyProgress,
+} from "../types";
+import type { Edl } from "@kneecap/editor-core/edl";
+
+/** Opaque to every test below — `exportProject`'s JS-side orchestration
+ * (kickoff, event-stream adapting, cancellation) never inspects `edl`'s
+ * contents, only passes it through to the native plugin call. Real EDL shape
+ * validation is `packages/editor-core/src/edl/__tests__/edl.test.ts`'s job
+ * (producer side) and `EdlParserTest.kt`'s job (Android native consumer). */
+const FIXTURE_EDL = {} as unknown as Edl;
 
 const FIXTURE_HANDLE: MediaHandle = {
 	id: "asset-1",
@@ -50,6 +63,8 @@ function fakePlugin(overrides: Record<string, unknown> = {}) {
 			uris: [],
 			timestampsMicros: [],
 		})),
+		exportProject: mock(async () => ({ started: true })),
+		cancelExport: mock(async () => undefined),
 		addListener: mock(async () => ({ remove: mock(async () => undefined) })),
 		...overrides,
 	};
@@ -86,9 +101,19 @@ describe("createCapacitorBridge (production path, real @capacitor/core, no nativ
 		await expect(it.next()).rejects.toBeInstanceOf(NativeBridgeError);
 	});
 
-	test("exportProject is stubbed pending M9", async () => {
-		const it = bridge.exportProject({ edl: {} as never });
-		await expect(it.next()).rejects.toMatchObject({ code: "NOT_IMPLEMENTED" });
+	test("exportProject's kickoff call surfaces the same mapped error before yielding anything (M9 — implemented, but no native runtime under bun test)", async () => {
+		const it = bridge.exportProject({ edl: FIXTURE_EDL });
+		let caught: unknown;
+		try {
+			await it.next();
+		} catch (e) {
+			caught = e;
+		}
+		expect(caught).toBeInstanceOf(NativeBridgeError);
+		// Not NOT_IMPLEMENTED (that stub is gone as of M9) — same "no native
+		// plugin registered under bun test" IO_ERROR as pickMedia/generateProxy
+		// above.
+		expect((caught as NativeBridgeError).code).toBe("IO_ERROR");
 	});
 
 	test("transcribe is stubbed pending M10", async () => {
@@ -342,5 +367,133 @@ describe("createCapacitorBridge (injected fake plugin — DI seam for full orche
 		}
 		expect(caught).toBeInstanceOf(NativeBridgeError);
 		expect((caught as NativeBridgeError).code).toBe("IO_ERROR");
+	});
+
+	test("exportProject streams exportProgress events in order and terminates on 'done'", async () => {
+		let capturedCallback: ((data: ExportProgress) => void) | null = null;
+		const removeMock = mock(async () => undefined);
+		const plugin = fakePlugin({
+			addListener: mock(
+				async (_event: string, cb: (data: ExportProgress) => void) => {
+					capturedCallback = cb;
+					return { remove: removeMock };
+				},
+			),
+		});
+		const bridge = createCapacitorBridge({ plugin: plugin as never });
+		const it = bridge.exportProject({ edl: FIXTURE_EDL });
+
+		const collected: ExportProgress[] = [];
+		const drive = (async () => {
+			for await (const progress of it) collected.push(progress);
+		})();
+
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(capturedCallback).not.toBeNull();
+
+		const emit = capturedCallback as unknown as (data: ExportProgress) => void;
+		emit({ stage: "encoding", fraction: 0.3 });
+		emit({ stage: "encoding", fraction: 0.9 });
+		emit({ stage: "done", fraction: 1, outputUri: "file:///export.mp4" });
+
+		await drive;
+
+		expect(collected).toEqual([
+			{ stage: "encoding", fraction: 0.3 },
+			{ stage: "encoding", fraction: 0.9 },
+			{ stage: "done", fraction: 1, outputUri: "file:///export.mp4" },
+		]);
+		expect(removeMock).toHaveBeenCalledTimes(1);
+		// Reached a terminal stage on its own — cancelExport is NOT called,
+		// same "don't cancel what already finished" contract Media3Exporter.kt
+		// documents on the native side.
+		expect(plugin.cancelExport).not.toHaveBeenCalled();
+	});
+
+	test("exportProject's stream terminates on 'error' the same way it terminates on 'done'", async () => {
+		let capturedCallback: ((data: ExportProgress) => void) | null = null;
+		const plugin = fakePlugin({
+			addListener: mock(
+				async (_event: string, cb: (data: ExportProgress) => void) => {
+					capturedCallback = cb;
+					return { remove: mock(async () => undefined) };
+				},
+			),
+		});
+		const bridge = createCapacitorBridge({ plugin: plugin as never });
+		const it = bridge.exportProject({ edl: FIXTURE_EDL });
+
+		const collected: ExportProgress[] = [];
+		const drive = (async () => {
+			for await (const progress of it) collected.push(progress);
+		})();
+
+		await Promise.resolve();
+		await Promise.resolve();
+		const emit = capturedCallback as unknown as (data: ExportProgress) => void;
+		emit({ stage: "error", fraction: 1, error: "hardware encoder unavailable" });
+
+		await drive;
+
+		expect(collected).toEqual([
+			{ stage: "error", fraction: 1, error: "hardware encoder unavailable" },
+		]);
+		expect(plugin.cancelExport).not.toHaveBeenCalled();
+	});
+
+	test("exportProject calls the native cancelExport() when the consumer stops iterating before a terminal stage", async () => {
+		let capturedCallback: ((data: ExportProgress) => void) | null = null;
+		const removeMock = mock(async () => undefined);
+		const plugin = fakePlugin({
+			addListener: mock(
+				async (_event: string, cb: (data: ExportProgress) => void) => {
+					capturedCallback = cb;
+					return { remove: removeMock };
+				},
+			),
+		});
+		const bridge = createCapacitorBridge({ plugin: plugin as never });
+		const it = bridge.exportProject({ edl: FIXTURE_EDL });
+
+		// Get the generator to a genuine `yield` suspension point (one
+		// non-terminal progress event, received) before walking away — exactly
+		// what a user backing out of the export sheet mid-encode does. `.return()`
+		// while parked on the generator's internal backpressure `await` (nothing
+		// queued yet) is a separate, pre-existing limitation this adapter shares
+		// with `proxyProgressGenerator` (see M9 handoff) and is not exercised
+		// here.
+		const first = it.next();
+		await Promise.resolve();
+		await Promise.resolve();
+		(capturedCallback as unknown as (data: ExportProgress) => void)({
+			stage: "encoding",
+			fraction: 0.1,
+		});
+		await first;
+
+		await it.return(undefined);
+
+		expect(removeMock).toHaveBeenCalledTimes(1);
+		expect(plugin.cancelExport).toHaveBeenCalledTimes(1);
+	});
+
+	test("exportProject propagates a kickoff-call failure before any progress event, and does not call cancelExport for a run that never started", async () => {
+		const plugin = fakePlugin({
+			exportProject: mock(async () => {
+				throw { code: "UNSUPPORTED", message: "EDL has an unsupported construct for native export" };
+			}),
+		});
+		const bridge = createCapacitorBridge({ plugin: plugin as never });
+		const it = bridge.exportProject({ edl: FIXTURE_EDL });
+		let caught: unknown;
+		try {
+			await it.next();
+		} catch (e) {
+			caught = e;
+		}
+		expect(caught).toBeInstanceOf(NativeBridgeError);
+		expect((caught as NativeBridgeError).code).toBe("UNSUPPORTED");
+		expect(plugin.cancelExport).not.toHaveBeenCalled();
 	});
 });

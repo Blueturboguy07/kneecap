@@ -18,6 +18,9 @@ import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
 import org.json.JSONObject
+import dev.kneecap.app.edl.EdlParseException
+import dev.kneecap.app.edl.EdlParser
+import dev.kneecap.app.export.Media3Exporter
 import dev.kneecap.app.media.MediaImporter
 import dev.kneecap.app.media.MediaPickerIntents
 import dev.kneecap.app.media.MediaProbe
@@ -28,7 +31,8 @@ import java.util.UUID
 
 /**
  * kneecap M3 (`getDeviceInfo`) + M4 (`pickMedia`/`generateProxy`/
- * `generateThumbnails`) — the native half of `NativeBridge`
+ * `generateThumbnails`) + M9 (`exportProject`/`cancelExport`) — the native
+ * half of `NativeBridge`
  * (`packages/native-bridge/src/{types,capacitor-bridge}.ts`). Ported from
  * Java to Kotlin in M4 (see `apps/mobile/android/build.gradle`'s Kotlin
  * toolchain addition) — the media pipeline is materially easier to express
@@ -337,6 +341,88 @@ class NativeBridgePlugin : Plugin() {
 				call.reject(e.message ?: "thumbnail generation failed", "IO_ERROR")
 			}
 		}.start()
+	}
+
+	// -- exportProject --------------------------------------------------------
+
+	/**
+	 * M9 (plan §M9, corpus `08` §8, `10` §2.1/§2.2): `edl` -> a Media3
+	 * `Composition` (`EdlToComposition`) -> `Transformer.start`
+	 * (`Media3Exporter`). Same "resolve on kickoff, stream the rest as
+	 * events" shape as `generateProxy` above — see that method's doc
+	 * comment — because `ExportProgress` (like `ProxyProgress`) is
+	 * inherently a stream, not a single return value.
+	 *
+	 * The JS-side `Edl` object is already all-JSON-safe (plan §2.2: "nothing
+	 * crosses the bridge except JSON control messages") and, unlike
+	 * `MediaHandle`, is producer-generated and `validateEdl()`-checked
+	 * before it ever reaches here — `EdlParser` still re-validates every
+	 * field's shape (never trusts a cross-language JSON payload blindly),
+	 * but there is no separate "wire type" the way `capacitor-bridge.ts`
+	 * needed for `MediaHandle`.
+	 */
+	@PluginMethod
+	fun exportProject(call: PluginCall) {
+		val edlObj = call.getObject("edl")
+		if (edlObj == null) {
+			call.reject("exportProject requires {edl}", "IO_ERROR")
+			return
+		}
+		val edl = try {
+			EdlParser.parse(edlObj)
+		} catch (e: EdlParseException) {
+			call.reject(e.message ?: "invalid EDL", "IO_ERROR")
+			return
+		}
+
+		val outputDir = File(context.noBackupFilesDir, "exports")
+		if (!outputDir.exists()) outputDir.mkdirs()
+		val extension = if (edl.output.container == "webm") "webm" else "mp4"
+		val outputFile = File(outputDir, "export-${UUID.randomUUID()}.$extension")
+
+		val ack = JSObject()
+		ack.put("started", true)
+		call.resolve(ack)
+
+		Media3Exporter.start(context = context, edl = edl, outputFile = outputFile) { event ->
+			notifyListeners("exportProgress", exportEventToJson(event))
+		}
+	}
+
+	/** Not part of the `NativeBridge` TS interface (that abstraction expresses
+	 * cancellation as the JS caller simply stopping iteration of the
+	 * `AsyncGenerator<ExportProgress>` `exportProject` returns) — this is the
+	 * plugin-private method `capacitor-bridge.ts`'s generator adapter calls
+	 * from its `finally` block so stopping iteration actually stops the
+	 * native encoder too, not just the JS-side listener. Same pattern as
+	 * `proxyProgressGenerator`'s `handle.remove()` cleanup, one layer deeper
+	 * (that one only tears down a listener; this one tears down a running
+	 * `Transformer`). */
+	@PluginMethod
+	fun cancelExport(call: PluginCall) {
+		Media3Exporter.cancel()
+		call.resolve()
+	}
+
+	private fun exportEventToJson(event: Media3Exporter.Event): JSObject {
+		val payload = JSObject()
+		when (event) {
+			is Media3Exporter.Event.Progress -> {
+				payload.put("stage", "encoding")
+				payload.put("fraction", event.fraction.toDouble())
+			}
+			is Media3Exporter.Event.Done -> {
+				payload.put("stage", "done")
+				payload.put("fraction", 1.0)
+				payload.put("outputUri", Uri.fromFile(event.outputFile).toString())
+			}
+			is Media3Exporter.Event.Error -> {
+				payload.put("stage", "error")
+				payload.put("fraction", 1.0)
+				payload.put("error", event.message)
+			}
+		}
+		return payload
 	}
 
 	// -- shared -----------------------------------------------------------

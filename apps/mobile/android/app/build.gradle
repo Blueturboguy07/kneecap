@@ -58,6 +58,8 @@ dependencies {
     implementation "androidx.media3:media3-common:$media3Version"
     implementation "androidx.media3:media3-effect:$media3Version"
     testImplementation "junit:junit:$junitVersion"
+    // kneecap M9 — see variables.gradle's orgJsonVersion doc comment.
+    testImplementation "org.json:json:$orgJsonVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')

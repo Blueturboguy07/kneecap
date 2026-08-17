@@ -125,20 +125,38 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('apps/mobile/android/**/*.gradle*') }}
 
       - name: gradlew testDebugUnitTest
-        # kneecap M4: the Android-framework-free helpers in
-        # app/src/main/java/dev/kneecap/app/media/MediaMath.kt (rotation
-        # normalization, frame-rate rationalization, GOP/mime helpers) run as
-        # plain JVM unit tests — no emulator needed. The rest of M4's media
-        # pipeline (MediaProbe/ThumbnailStripGenerator/MediaImporter/
-        # MediaPickerIntents) is instrumentation-only (app/src/androidTest)
-        # and is NOT run here — ubuntu-latest runners have no Android
-        # emulator; see the M4 handoff for why that verification is still
-        # open.
+        # kneecap M4/M9: the Android-framework-free helpers
+        # (media/MediaMath.kt; edl/EdlParser.kt + export/TransitionAlphaMath.kt
+        # + export/EdlTicks.kt as of M9) run as plain JVM unit tests — no
+        # emulator needed. The rest of M4/M9's native pipeline
+        # (MediaProbe/ThumbnailStripGenerator/MediaImporter/MediaPickerIntents;
+        # EdlToComposition/Media3Exporter's golden-frame harness) is
+        # instrumentation-only (app/src/androidTest) and is NOT run here —
+        # ubuntu-latest runners have no Android emulator; see the M4/M9
+        # handoffs for why that verification is still open.
         run: ./gradlew testDebugUnitTest --console=plain
         working-directory: apps/mobile/android
 
       - name: gradlew assembleDebug
         run: ./gradlew assembleDebug --console=plain
+        working-directory: apps/mobile/android
+
+      - name: gradlew :app:assembleDebugAndroidTest
+        # kneecap M9: compiles + packages the instrumentation tests
+        # (including ExportGoldenFrameInstrumentedTest.kt) against the real
+        # Android SDK/Media3 API surface on every push — catches a signature
+        # regression immediately even though the tests themselves still need
+        # a device/emulator to actually run (see the M9 handoff).
+        #
+        # Scoped to `:app:` deliberately, NOT the bare `assembleDebugAndroidTest`
+        # (which also builds every OTHER subproject's androidTest variant):
+        # `capacitor-cordova-android-plugins`'s androidTest variant hits a
+        # pre-existing `checkDebugAndroidTestDuplicateClasses` kotlin-stdlib
+        # version conflict (1.8.22 vs. a cordova-bundled 1.6.21) that has
+        # nothing to do with this app module or M9 — confirmed by reproducing
+        # it locally with the bare task and NOT with this scoped one. Fixing
+        # that pre-existing cross-module conflict is out of scope here.
+        run: ./gradlew :app:assembleDebugAndroidTest --console=plain
         working-directory: apps/mobile/android
 
       - name: Upload debug APK

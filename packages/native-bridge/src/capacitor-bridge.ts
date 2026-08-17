@@ -6,19 +6,27 @@
  * the tree may — see `scripts/invariants.sh`'s bridge-import gate and the
  * `no-restricted-imports` ESLint rule that mirrors it.
  *
- * WHAT IS REAL: `capabilities()` (M3) and, as of M4, `pickMedia()`,
- * `generateProxy()`, and `generateThumbnails()` — each calls a genuinely
- * registered native plugin method
+ * WHAT IS REAL: `capabilities()` (M3); `pickMedia()`, `generateProxy()`, and
+ * `generateThumbnails()` (M4); and, as of M9, `exportProject()` — each calls
+ * a genuinely registered native plugin method
  * (`apps/mobile/android/.../NativeBridgePlugin.kt`,
  * `apps/mobile/ios/App/App/NativeBridgePlugin.swift`). "Real" here means
  * "correctly wired and unit-tested against an injected fake plugin" — see
  * `__tests__/capacitor-bridge.test.ts`. It does NOT mean "verified against a
  * running native app on device/emulator"; that verification is out of reach
- * of `bun test` and is called out as such in the M4 handoff.
+ * of `bun test` and is called out as such in the M4/M9 handoffs.
  *
- * WHAT IS STILL STUBBED: `exportProject` (M9 — hardware export), `transcribe`
- * (M10 — on-device STT). Each throws a typed `NativeBridgeError` naming the
- * owning milestone.
+ * `exportProject()`'s ANDROID native half (`EdlToComposition` -> Media3
+ * `Composition`, `Media3Exporter`) is genuinely implemented and compiles
+ * against real Media3 1.11.0 APIs — see the M9 handoff for exactly what is
+ * (crossfade compositor math, unit-tested) and isn't (anything that needs a
+ * GPU/MediaCodec to actually render a frame) verified without a device. The
+ * IOS native half is whatever the `ios` track's own M9 pass left it as —
+ * this file doesn't know or care which platform it's running on beyond
+ * `Capacitor.getPlatform()`.
+ *
+ * WHAT IS STILL STUBBED: `transcribe` (M10 — on-device STT). Throws a typed
+ * `NativeBridgeError` naming the owning milestone.
  */
 
 import { registerPlugin, Capacitor } from "@capacitor/core";
@@ -82,9 +90,22 @@ interface NativeBridgePluginSpec {
 		handle: WireMediaHandle;
 		spec: ThumbnailStripSpec;
 	}): Promise<ThumbnailStrip>;
+	/** `edl` is passed through as plain JSON — no wire-format coercion the
+	 * way `MediaHandle` needs (see this file's top doc comment). Resolves
+	 * once the native export has STARTED; progress/completion arrive as
+	 * `exportProgress` events, same shape as `generateProxy`/
+	 * `proxyProgress`. */
+	exportProject(params: { edl: Edl }): Promise<{ started: boolean }>;
+	/** Plugin-private — not part of the `NativeBridge` TS interface (see
+	 * `exportProgressGenerator`'s doc comment for why). */
+	cancelExport(): Promise<void>;
 	addListener(
 		eventName: "proxyProgress",
 		listenerFunc: (data: ProxyProgress) => void,
+	): Promise<PluginListenerHandle>;
+	addListener(
+		eventName: "exportProgress",
+		listenerFunc: (data: ExportProgress) => void,
 	): Promise<PluginListenerHandle>;
 }
 
@@ -228,6 +249,64 @@ async function* proxyProgressGenerator({
 }
 
 /**
+ * Same adapter shape as `proxyProgressGenerator` above, with two
+ * differences forced by `ExportProgress` itself (`types.ts`): there is no
+ * `assetId` to filter by — plan M9 / `Media3Exporter`'s doc comment: single
+ * export at a time, by design, matching the type — so every
+ * `"exportProgress"` event belongs to THIS export; and cancellation needs an
+ * explicit native round trip. `AsyncGenerator.return()` (what a `for await`
+ * loop's `break`, or a consumer bailing early, triggers) runs this
+ * function's `finally` block, which is exactly where `plugin.cancelExport()`
+ * belongs — same "clean up in `finally`" shape as `handle.remove()` above,
+ * one layer deeper (that one only tears down a JS listener; this one also
+ * tears down a running native `Transformer`). Calling `cancelExport()` after
+ * a terminal `"done"`/`"error"` already fired is a deliberate no-op on the
+ * native side (`Media3Exporter.cancel()`'s doc comment) — this generator
+ * does not try to distinguish "the consumer walked away" from "we already
+ * returned".
+ */
+async function* exportProgressGenerator({
+	plugin,
+}: {
+	plugin: Pick<NativeBridgePluginSpec, "addListener" | "cancelExport">;
+}): AsyncGenerator<ExportProgress> {
+	const queue: ExportProgress[] = [];
+	let wake: (() => void) | null = null;
+	let terminal = false;
+
+	const handle = await plugin.addListener("exportProgress", (data) => {
+		queue.push(data);
+		if (data.stage === "done" || data.stage === "error") terminal = true;
+		wake?.();
+		wake = null;
+	});
+
+	try {
+		while (true) {
+			if (queue.length === 0) {
+				if (terminal) return;
+				await new Promise<void>((resolve) => {
+					wake = resolve;
+				});
+				continue;
+			}
+			// biome-ignore lint: queue.length checked non-empty above.
+			const next = queue.shift()!;
+			yield next;
+			if (next.stage === "done" || next.stage === "error") return;
+		}
+	} finally {
+		await handle.remove();
+		if (!terminal) {
+			await plugin.cancelExport().catch(() => {
+				// Best-effort — the export may already have finished between
+				// the last queue check and this cleanup running.
+			});
+		}
+	}
+}
+
+/**
  * @param plugin Injected only by tests (`__tests__/capacitor-bridge.test.ts`)
  *   to exercise `pickMedia`/`generateProxy`/`generateThumbnails`'s
  *   orchestration logic — error mapping, the event-to-generator adapter,
@@ -277,8 +356,17 @@ export function createCapacitorBridge({
 			yield* proxyProgressGenerator({ plugin, assetId: handle.id });
 		},
 
-		async *exportProject(_params: { edl: Edl }): AsyncGenerator<ExportProgress> {
-			return notImplemented({ method: "exportProject", milestone: "M9" });
+		async *exportProject({ edl }: { edl: Edl }): AsyncGenerator<ExportProgress> {
+			try {
+				// Kicks off the native export; resolves once it has STARTED
+				// (same "ack now, stream the rest" shape as generateProxy
+				// above) — see NativeBridgePlugin.kt's exportProject doc
+				// comment.
+				await plugin.exportProject({ edl });
+			} catch (err) {
+				throw toNativeBridgeError({ err, method: "exportProject" });
+			}
+			yield* exportProgressGenerator({ plugin });
 		},
 
 		async *transcribe(_params: {
@@ -315,7 +403,11 @@ export function createCapacitorBridge({
 				gpuBackend,
 				ramTierMb: deviceInfo.ramTierMb,
 				codecs,
-				supportsNativeExport: false, // flips true when M9 lands.
+				// M9 landed on Android (this file's exportProject() above);
+				// the ios track's own M9 pass governs this on iOS — false
+				// here reflects that this session did not touch
+				// apps/mobile/ios, not a claim that iOS export is broken.
+				supportsNativeExport: platform === "android",
 				supportsOnDeviceStt: false, // flips true when M10 lands.
 			};
 		},
