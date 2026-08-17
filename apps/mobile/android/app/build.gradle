@@ -1,4 +1,6 @@
 apply plugin: 'com.android.application'
+// kneecap M4: Kotlin toolchain for NativeBridgePlugin's M4 additions.
+apply plugin: 'org.jetbrains.kotlin.android'
 
 android {
     namespace = "dev.kneecap.app"
@@ -22,6 +24,16 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    compileOptions {
+        // Matches capacitor-android's own compileOptions (javac target 21) —
+        // Kotlin's jvmTarget must match or compileDebugKotlin fails with
+        // "Inconsistent JVM-target compatibility".
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    kotlinOptions {
+        jvmTarget = "21"
+    }
 }
 
 repositories {
@@ -35,7 +47,16 @@ dependencies {
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation "androidx.activity:activity:$androidxActivityVersion"
     implementation project(':capacitor-android')
+    // kneecap M4 (corpus 08 §8): Media3 Transformer drives the native
+    // short-GOP preview-proxy transcode on import. media3-effect brings
+    // `Presentation` (downscale-to-height). No media3-exoplayer dependency —
+    // metadata probing uses the standard SDK's MediaMetadataRetriever/
+    // MediaExtractor, not ExoPlayer.
+    implementation "androidx.media3:media3-transformer:$media3Version"
+    implementation "androidx.media3:media3-common:$media3Version"
+    implementation "androidx.media3:media3-effect:$media3Version"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

@@ -1,7 +1,14 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
 buildscript {
-    
+    // kneecap M4: Kotlin toolchain, added for NativeBridgePlugin's M4
+    // additions (pickMedia/generateProxy — corpus 08 §6/§8). M3's plugin was
+    // plain Java; M4 is the first Kotlin code in this module. Declared here
+    // (not in variables.gradle) because `buildscript{}` evaluates before
+    // `apply from: "variables.gradle"` runs, so a var defined there isn't
+    // visible yet when this block's own `dependencies{}` closure resolves.
+    ext.kotlinVersion = '2.1.0'
+
     repositories {
         google()
         mavenCentral()
@@ -9,6 +16,7 @@ buildscript {
     dependencies {
         classpath 'com.android.tools.build:gradle:8.13.0'
         classpath 'com.google.gms:google-services:4.4.4'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion"
 
         // NOTE: Do not place your application dependencies here; they belong
         // in the individual module build.gradle files

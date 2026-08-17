@@ -124,6 +124,19 @@ jobs:
             ~/.gradle/wrapper
           key: ${{ runner.os }}-gradle-${{ hashFiles('apps/mobile/android/**/*.gradle*') }}
 
+      - name: gradlew testDebugUnitTest
+        # kneecap M4: the Android-framework-free helpers in
+        # app/src/main/java/dev/kneecap/app/media/MediaMath.kt (rotation
+        # normalization, frame-rate rationalization, GOP/mime helpers) run as
+        # plain JVM unit tests — no emulator needed. The rest of M4's media
+        # pipeline (MediaProbe/ThumbnailStripGenerator/MediaImporter/
+        # MediaPickerIntents) is instrumentation-only (app/src/androidTest)
+        # and is NOT run here — ubuntu-latest runners have no Android
+        # emulator; see the M4 handoff for why that verification is still
+        # open.
+        run: ./gradlew testDebugUnitTest --console=plain
+        working-directory: apps/mobile/android
+
       - name: gradlew assembleDebug
         run: ./gradlew assembleDebug --console=plain
         working-directory: apps/mobile/android

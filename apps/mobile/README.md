@@ -72,7 +72,7 @@ nor the Android `NativeBridgePlugin.getDeviceInfo()` JS↔native round trip on
 a live app has been exercised interactively yet — see the M3 handoff for the
 full list of what is and isn't verified.
 
-## NativeBridge: what's real vs. stubbed in M3
+## NativeBridge: what's real vs. stubbed (M3 + M4)
 
 `@kneecap/native-bridge`'s `capabilities()` is genuinely wired end-to-end:
 GPU/codec feature detection runs in the WebView's JS (shared with the web
@@ -80,7 +80,53 @@ fallback), blended with a real native call
 (`NativeBridgePlugin.getDeviceInfo()`, implemented on both platforms) for
 OS version / device model / RAM tier.
 
-`pickMedia`, `generateProxy`, `exportProject`, and `transcribe` are stubbed
-on the Capacitor implementation — each throws a typed `NativeBridgeError`
-naming the milestone that implements it (M4, M4, M9, M10 respectively). This
-matches plan M3's task list: "Define + **stub** `packages/native-bridge`."
+**M4 (Android only — see the M4 handoff for iOS status)** implemented
+`pickMedia`, `generateProxy`, and `generateThumbnails` for real on the
+Android side:
+
+- `android/.../NativeBridgePlugin.kt` + `android/.../media/*.kt`
+  (`MediaPickerIntents`, `MediaImporter`, `MediaProbe`,
+  `ThumbnailStripGenerator`, `ProxyTranscoder`) — Photo Picker (with SAF
+  fallback) + camera capture import, copy into
+  `noBackupFilesDir` (Android's analog to "exclude from iCloud backup"),
+  `MediaMetadataRetriever`/`MediaExtractor` probing, a Media3
+  Transformer-driven short-GOP downscale proxy transcode with progress
+  streamed via `notifyListeners("proxyProgress", ...)`, and a
+  `MediaMetadataRetriever.getFrameAtTime` thumbnail strip.
+- `packages/native-bridge/src/capacitor-bridge.ts` — real `pickMedia`/
+  `generateProxy`/`generateThumbnails`, including the event-to-
+  `AsyncGenerator` adapter that turns native `proxyProgress` events back
+  into pulled `ProxyProgress` values, wire-format coercion (defensive
+  `rotationDegrees` clamping + `durationMicros` rounding), and
+  native-error-code-preserving mapping to `NativeBridgeError`. Unit-tested
+  against an injected fake plugin (`__tests__/capacitor-bridge.test.ts`) —
+  32/32 `bun test` green, including the full progress-stream/termination/
+  listener-cleanup path.
+- `src/main.ts` — an "Import media" card drives the real
+  `pickMedia -> generateProxy -> generateThumbnails` sequence from a
+  button tap (still harness UI, not the M6-M8 CapCut timeline's own
+  import flow, but the same `NativeBridge` calls that flow will make).
+
+**What is verified vs. not, honestly:** the Kotlin plugin genuinely
+compiles (`./gradlew :app:assembleDebug` — `BUILD SUCCESSFUL`, and the
+resulting `app-debug.apk`'s dex was decompiled to confirm every new class,
+including `androidx.media3.transformer.Transformer` and
+`androidx.media3.effect.Presentation`, is actually present in the built
+APK, not just resolved-but-unused). `./gradlew :app:testDebugUnitTest`
+passes 12/12 plain-JVM tests for the Android-framework-free helpers in
+`media/MediaMath.kt`. `./gradlew :app:assembleDebugAndroidTest` packages a
+full instrumentation-test APK covering `MediaProbe`/
+`ThumbnailStripGenerator`/`MediaImporter`/`MediaPickerIntents` against a
+bundled 32KB synthetic fixture clip (`androidTest/res/raw/test_clip.mp4`)
+— but **none of those instrumentation tests have actually run**: no
+emulator with a working system image was available in this session (both
+local AVDs' system images are missing on disk). The real device-level
+behaviors — does the Photo Picker actually launch and return a usable
+URI, does the Media3 Transformer actually produce a playable proxy file on
+real hardware, does a camera-permission prompt actually appear — are
+UNVERIFIED. Run `cd android && ./gradlew connectedDebugAndroidTest` on a
+real device or a working emulator to close that gap.
+
+`exportProject` and `transcribe` remain stubbed on the Capacitor
+implementation — each throws a typed `NativeBridgeError` naming the
+milestone that implements it (M9, M10 respectively).

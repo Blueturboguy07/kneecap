@@ -82,6 +82,23 @@ describe("createWebFallbackBridge", () => {
 		);
 	});
 
+	test("generateThumbnails throws UNSUPPORTED (plan M4 item 5: never decode filmstrip frames in JS, even as a fallback)", async () => {
+		const handle = { id: "x" } as MediaHandle;
+		let caught: unknown;
+		try {
+			await bridge.generateThumbnails({
+				handle,
+				spec: { count: 5, maxEdgePx: 200 },
+			});
+		} catch (e) {
+			caught = e;
+		}
+		expect(caught).toBeInstanceOf(NativeBridgeError);
+		expect((caught as InstanceType<typeof NativeBridgeError>).code).toBe(
+			"UNSUPPORTED",
+		);
+	});
+
 	test("capabilities() resolves in a DOM-less environment (bun test) with conservative defaults", async () => {
 		const caps = await bridge.capabilities();
 		expect(caps.platform).toBe("web");

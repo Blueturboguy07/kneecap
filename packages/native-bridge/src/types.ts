@@ -90,6 +90,36 @@ export interface ExportProgress {
 	error?: string;
 }
 
+/**
+ * Plan M4 item 5: "Thumbnail strip generation natively ... do NOT decode
+ * filmstrip frames in JS." Added in M4 — not part of M3's original
+ * four-bridge sketch (plan §2.4), because M3 only knew about the four
+ * bridges named in the brief. The filmstrip is genuinely a fifth native
+ * capability, not an extension of `generateProxy`: a proxy is consumed by
+ * `<video>`/`CanvasSink` during scrub/playback, while a thumbnail strip is
+ * consumed by M7's timeline as static `<img>`-equivalent sources at
+ * zoom-dependent density — two different consumers of two different native
+ * outputs, both derived from the same source asset.
+ */
+export interface ThumbnailStripSpec {
+	/** How many frames to extract, evenly spaced across the clip. */
+	count: number;
+	/** Max long edge of each thumbnail, px — a filmstrip thumbnail, not a
+	 * full frame (plan M4 item 5). */
+	maxEdgePx: number;
+}
+
+export interface ThumbnailStrip {
+	assetId: string;
+	/** Ordered, same length as `timestampsMicros`. Native handles — never
+	 * `blob:` URLs, same discipline as `MediaHandle.uri`/`ProxyProgress
+	 * .proxyUri`. */
+	uris: string[];
+	/** Integer microseconds, source-relative — same unit discipline as
+	 * `MediaHandle.durationMicros`. */
+	timestampsMicros: number[];
+}
+
 export interface TranscribeOptions {
 	modelSize: "tiny" | "base";
 	languageHint?: string;
@@ -170,5 +200,13 @@ export interface NativeBridge {
 		handle: MediaHandle;
 		opts: TranscribeOptions;
 	}): AsyncGenerator<TranscriptSegment>;
+	/** M4 addition (see `ThumbnailStripSpec`'s doc comment) — a single
+	 * resolve-when-done call, not a progress generator like `generateProxy`:
+	 * a handful of JPEGs is fast enough that streaming progress isn't worth
+	 * the complexity. */
+	generateThumbnails(params: {
+		handle: MediaHandle;
+		spec: ThumbnailStripSpec;
+	}): Promise<ThumbnailStrip>;
 	capabilities(): Promise<DeviceCapabilities>;
 }
