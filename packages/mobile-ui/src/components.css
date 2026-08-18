@@ -420,6 +420,23 @@
 	cursor: default;
 }
 
+/* Transient chrome-level error strip (tap to dismiss). */
+.cc-chrome-error {
+	position: fixed;
+	left: 12px;
+	right: 12px;
+	bottom: calc(var(--cc-toolbar-height) + 12px);
+	background: #3a1414;
+	color: #ff9c9c;
+	border: 1px solid #6b2424;
+	border-radius: 8px;
+	padding: 10px 12px;
+	font-family: inherit;
+	font-size: 12px;
+	text-align: left;
+	z-index: 40;
+}
+
 /* ----------------- Aspect-ratio / Background sheets (capture) -------------- */
 .cc-sheet-title {
 	font-size: var(--cc-text-body);

@@ -2,6 +2,22 @@ import UIKit
 import SwiftUI
 import Capacitor
 
+/// Capacitor does NOT auto-discover app-local plugin classes on iOS — a
+/// plugin that lives in the app target (not an SPM/pod plugin package) must
+/// be handed to the bridge in `capacitorDidLoad`. Nothing did this, so on a
+/// real device every `NativeBridge.*` call failed with
+/// `"NativeBridge" plugin is not implemented on ios` the moment the first
+/// tap reached the bridge (found live on the founder's iPhone, 2026-08-18;
+/// Android has always done the equivalent `registerPlugin(...)` in
+/// MainActivity.onCreate). Defined here in SceneDelegate.swift so no
+/// project.pbxproj file-list surgery is needed.
+class KneecapBridgeViewController: CAPBridgeViewController {
+    override open func capacitorDidLoad() {
+        bridge?.registerPluginInstance(NativeBridgePlugin())
+        bridge?.registerPluginInstance(SpikeDiagnosticsPlugin())
+    }
+}
+
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
 
@@ -14,11 +30,11 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // once, before the WebView ever loads. See FirstRunView.swift.
         let hasCompletedFirstRun = UserDefaults.standard.bool(forKey: FirstRunView.completedDefaultsKey)
         if hasCompletedFirstRun {
-            window?.rootViewController = CAPBridgeViewController()
+            window?.rootViewController = KneecapBridgeViewController()
         } else {
             window?.rootViewController = UIHostingController(
                 rootView: FirstRunView(onFinish: { [weak self] in
-                    self?.window?.rootViewController = CAPBridgeViewController()
+                    self?.window?.rootViewController = KneecapBridgeViewController()
                 })
             )
         }

@@ -21,7 +21,10 @@ async function boot() {
 		const { mountApp } = await import("./app/app-root");
 		mountApp();
 	}
+	appMounted = true;
 }
+
+let appMounted = false;
 
 /** A boot failure must never strand the user on index.html's static
  *  "Loading…" placeholder (exactly what a silent dynamic-import rejection
@@ -39,6 +42,16 @@ function showBootError(err: unknown) {
 }
 
 window.addEventListener("unhandledrejection", (event) => {
+	// Pre-mount, a rejection means boot itself died — take over the screen.
+	// POST-mount it's a runtime error inside a running app; replacing the
+	// entire UI with a death screen for those was a real bug (a failed
+	// pickMedia call on the founder's iPhone nuked the whole editor,
+	// 2026-08-18). Running-app errors log instead; user-facing feedback is
+	// each feature's own responsibility.
+	if (appMounted) {
+		console.error("kneecap unhandled rejection:", event.reason);
+		return;
+	}
 	showBootError(event.reason);
 });
 

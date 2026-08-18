@@ -18,12 +18,15 @@ import UIKit
 /// (see that file) — Swift + a missing xcframework has no equivalent safe
 /// half-step.
 ///
-/// Registration: Capacitor discovers local (non-npm) plugins that conform to
-/// `CAPBridgedPlugin` via Objective-C runtime reflection — no explicit
-/// registration call needed here (unlike Android's `registerPlugin(...)` in
-/// MainActivity). `jsName` below ("NativeBridge") must match the string
-/// `registerPlugin<NativeBridgePluginSpec>("NativeBridge")` uses on the TS
-/// side (packages/native-bridge/src/capacitor-bridge.ts).
+/// Registration: the previous claim here — that Capacitor discovers local
+/// plugins "via Objective-C runtime reflection, no explicit registration
+/// needed" — was FALSE for app-target plugins and produced the on-device
+/// `"NativeBridge" plugin is not implemented on ios` failure (founder's
+/// iPhone, 2026-08-18). App-local plugins must be registered in
+/// `capacitorDidLoad` — see `KneecapBridgeViewController` in
+/// SceneDelegate.swift. `jsName` below ("NativeBridge") must match the
+/// string `registerPlugin<NativeBridgePluginSpec>("NativeBridge")` uses on
+/// the TS side (packages/native-bridge/src/capacitor-bridge.ts).
 @objc(NativeBridgePlugin)
 public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "NativeBridgePlugin"

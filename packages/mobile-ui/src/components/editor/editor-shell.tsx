@@ -147,7 +147,18 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	const editor = useLiveEditor();
 	const [ready, setReady] = useState(false);
 	const [activeSheet, setActiveSheet] = useState<SheetId | null>(null);
+	/** Transient error strip for chrome-level actions that have no panel of
+	 *  their own to show failure in (the timeline's "+" import button —
+	 *  panels like Export/Captions render their own error states). A failed
+	 *  bridge call must degrade to a message, never an unhandled rejection:
+	 *  on the founder's iPhone a dead pickMedia call surfaced as a
+	 *  whole-app death screen (2026-08-18). */
+	const [chromeError, setChromeError] = useState<string | null>(null);
 	const timelineProject = useTimelineProjectVM();
+
+	const reportChromeError = (error: unknown) => {
+		setChromeError(error instanceof Error ? error.message : String(error));
+	};
 
 	useEffect(() => {
 		(bootstrap ?? bootstrapDemoProject)().then(() => setReady(true));
@@ -233,7 +244,10 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 							selectElement({ editor, ref: { trackId, elementId: clipId } })
 						}
 						currentTimeLabel={`${formatTimecode(currentTimeSeconds)} / ${formatTimecode(durationSeconds)}`}
-						onAddClip={() => void importAndPlaceMedia({ editor })}
+						onAddClip={() => {
+							setChromeError(null);
+							importAndPlaceMedia({ editor }).catch(reportChromeError);
+						}}
 						showAddAudio={!timelineProject.tracks.some((t) => t.kind === "audio")}
 						onAddAudio={() => setActiveSheet("audio")}
 						onQuickAddAudio={() => setActiveSheet("audio")}
@@ -265,6 +279,12 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 						}
 					/>
 				</div>
+			)}
+
+			{chromeError && (
+				<button type="button" className="cc-chrome-error" onClick={() => setChromeError(null)}>
+					{chromeError}
+				</button>
 			)}
 
 			{selectedRef && selectedElement && (
