@@ -14,14 +14,61 @@
  *   3. a rAF loop renders the frame under the playhead, skipping when
  *      neither the frame index nor the tree changed (same guard as web).
  */
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TICKS_PER_SECOND } from "@kneecap/editor-core";
 import { useEditor } from "@kneecap/editor-core/react";
 import { CanvasRenderer } from "@kneecap/editor-core/services/renderer/canvas-renderer";
 import { buildScene } from "@kneecap/editor-core/services/renderer/scene-builder";
 import type { RootNode } from "@kneecap/editor-core/services/renderer/nodes/root-node";
+import { initializeGpu } from "opencut-wasm";
+
+/** Same contract as apps/web's `initializeGpuRenderer()`: init once per
+ *  process, NEVER reject — a GPU-less environment degrades (the compositor
+ *  falls back off the wgpu path) instead of crashing. Constructing
+ *  `CanvasRenderer` before this resolves was CRITICAL finding #1 of the
+ *  2026-08-18 test sweep: `initializeGpu()` had never been called on the
+ *  mobile shell, the first render threw "GPU context not initialized"
+ *  inside React render, and the entire app unmounted to a black screen. */
+let gpuInitPromise: Promise<boolean> | null = null;
+export function ensurePreviewGpu(): Promise<boolean> {
+	return ensureGpu();
+}
+function ensureGpu(): Promise<boolean> {
+	if (!gpuInitPromise) {
+		gpuInitPromise = initializeGpu()
+			.then(() => true)
+			.catch((error: unknown) => {
+				console.warn(
+					`GPU renderer unavailable: ${error instanceof Error ? error.message : String(error)}`,
+				);
+				return false;
+			});
+	}
+	return gpuInitPromise;
+}
 
 export function PreviewRenderer() {
+	const editor = useEditor();
+	const [gpuReady, setGpuReady] = useState(false);
+
+	useEffect(() => {
+		let cancelled = false;
+		void ensureGpu().then((ok) => {
+			if (cancelled) return;
+			editor.renderer.setDegraded(!ok);
+			setGpuReady(true);
+		});
+		return () => {
+			cancelled = true;
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- editor is the process singleton.
+	}, []);
+
+	if (!gpuReady) return null;
+	return <PreviewRendererInner />;
+}
+
+function PreviewRendererInner() {
 	const editor = useEditor();
 	const activeProject = useEditor((e) => e.project.getActive());
 	const tracks = useEditor(

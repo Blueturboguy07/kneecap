@@ -28,6 +28,10 @@ Until the final pass, `apps/mobile` booted the old M3/M4 raw-JSON debug harness 
 - The audit's "every NativeBridge method has a real registered implementation on BOTH platforms" was **wrong for iOS**: the plugins compiled and linked but were never registered with the Capacitor bridge (no `capacitorDidLoad` registration), so every native call died with `plugin is not implemented on ios` on first real tap. Fixed via `KneecapBridgeViewController`. Lesson for future audits: *compiled ≠ registered* — plugin availability must be verified by invoking a method at runtime, not by reading `pluginMethods` lists.
 - The webview CSP blocked WASM compilation (`wasm-unsafe-eval` missing) — the app hung on "Loading…" forever. Both found only because a human tapped the real app.
 
+## Test sweep (2026-08-18, Fable fork agent) — see docs/TEST-REPORT.md
+
+All three CRITICALs found by the sweep are fixed and re-verified live in the browser harness: (C1) GPU init now gates the preview renderer (plus boot-time `ensurePreviewGpu` + font atlas bundled into apps/mobile, so text renders with real fonts); (C2) the home project list re-renders via a selector subscription — the engine always had the data, the UI never re-subscribed (verified: engine 1 / DOM 0 before, 1/1 after; reopen-after-reload rehydrates); (C3) a CrashBoundary paints any React render crash on screen instead of silent black. HIGHs still open, in priority order: Android's EDL parser missing ~12 field families that TS emits and iOS parses (must parse-or-reject, never silently drop); split-at-boundary silently no-ops; audio waveforms never populated (mock-only).
+
 ## Known residual defects / debt
 
 - Trim-commit wiring in the timeline (disclosed in `timeline-view.tsx`).

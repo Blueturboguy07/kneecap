@@ -18,13 +18,59 @@
 import "@kneecap/mobile-ui/tokens.css";
 import "@kneecap/mobile-ui/components.css";
 import "./app-root.css";
-import { StrictMode, useEffect, useState } from "react";
+import { Component, StrictMode, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { EditorCore } from "@kneecap/editor-core";
+import { loadFontAtlas } from "@kneecap/editor-core/fonts/local-fonts";
 import { useEditor } from "@kneecap/editor-core/react";
-import { EditorShell } from "@kneecap/mobile-ui";
+import { EditorShell, ensurePreviewGpu } from "@kneecap/mobile-ui";
 
 const NOOP_BOOTSTRAP = async () => {};
+
+/** CRITICAL finding #3 of the 2026-08-18 test sweep: a throw during React
+ *  render unmounted the entire root with ZERO console output and no visible
+ *  surface — the app just went black (third instance of the silent-death
+ *  class). Every crash must be loud: this boundary paints the error +
+ *  component stack on screen and logs it. */
+class CrashBoundary extends Component<
+	{ children: ReactNode },
+	{ error: unknown; stack: string | null }
+> {
+	state: { error: unknown; stack: string | null } = { error: null, stack: null };
+
+	static getDerivedStateFromError(error: unknown) {
+		return { error };
+	}
+
+	componentDidCatch(error: unknown, info: { componentStack?: string | null }) {
+		console.error("kneecap crashed:", error, info.componentStack);
+		this.setState({ stack: info.componentStack ?? null });
+	}
+
+	render() {
+		if (this.state.error !== null) {
+			const err = this.state.error;
+			const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+			return (
+				<div className="kc-crash">
+					<p className="kc-crash__title">kneecap crashed</p>
+					<pre className="kc-crash__detail">
+						{detail}
+						{this.state.stack ? `\n${this.state.stack}` : ""}
+					</pre>
+					<button
+						type="button"
+						className="kc-home__new"
+						onClick={() => this.setState({ error: null, stack: null })}
+					>
+						Try again
+					</button>
+				</div>
+			);
+		}
+		return this.props.children;
+	}
+}
 
 type Screen = { name: "home" } | { name: "editor" };
 
@@ -52,6 +98,15 @@ function App() {
 
 function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 	const editor = useEditor();
+	// CRITICAL finding #2 of the 2026-08-18 test sweep ("saved projects never
+	// appear"): this originally read `editor.project.getSavedProjects()`
+	// during render off the BARE `useEditor()` above — whose snapshot is the
+	// singleton itself, identical forever, so React never re-rendered when
+	// `loadAllProjects` resolved and the list stayed on its mount-time empty
+	// value while the engine genuinely held the projects (verified live:
+	// engine 1 / DOM 0). A SELECTOR subscription re-renders on the manager's
+	// array-replace notify.
+	const projects = useEditor((e) => e.project.getSavedProjects());
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -62,8 +117,6 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 		// comment instead of a rule disable).
 		void editor.project.loadAllProjects();
 	}, []);
-
-	const projects = editor.project.getSavedProjects();
 
 	const run = async (task: () => Promise<unknown>) => {
 		if (busy) return;
@@ -134,10 +187,24 @@ function nextProjectName(existing: string[]): string {
 export function mountApp() {
 	const container = document.getElementById("app");
 	if (!container) throw new Error("app-root: #app container missing from index.html");
+	// Debug handle for remote/Web-Inspector diagnosis (finding C2 of the
+	// 2026-08-18 test sweep was undiagnosable without engine access from the
+	// console). Read-only convenience; nothing in the app depends on it.
+	(window as unknown as Record<string, unknown>).__kneecap = {
+		editor: EditorCore.getInstance(),
+	};
+	// Boot-time runtime prep, mirroring apps/web's editor-provider ordering:
+	// GPU first (the project-thumbnail snapshot path throws "GPU context not
+	// initialized" if anything renders before this), font atlas alongside
+	// (text renders with a fallback face without it). Both are cached
+	// one-shot promises; PreviewRenderer awaits the same GPU promise.
+	void ensurePreviewGpu().then(() => loadFontAtlas());
 	container.innerHTML = "";
 	createRoot(container).render(
 		<StrictMode>
-			<App />
+			<CrashBoundary>
+				<App />
+			</CrashBoundary>
 		</StrictMode>,
 	);
 }

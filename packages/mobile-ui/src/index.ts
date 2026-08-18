@@ -50,6 +50,7 @@ export type {
 
 // ======================== Panels/toolbars/export (M8) ========================
 export { EditorShell } from "./components/editor/editor-shell";
+export { PreviewRenderer, ensurePreviewGpu } from "./components/editor/preview-renderer";
 export { TopBar } from "./components/editor/top-bar";
 export { PlaybackBar } from "./components/editor/playback-bar";
 export { PreviewStage } from "./components/editor/preview-stage";

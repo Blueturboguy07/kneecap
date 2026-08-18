@@ -22,6 +22,32 @@ body {
 	-webkit-text-size-adjust: 100%;
 }
 
+.kc-crash {
+	min-height: 100dvh;
+	background: #000;
+	color: #ff9c9c;
+	padding: calc(env(safe-area-inset-top, 0px) + 24px) 16px 24px;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	align-items: flex-start;
+}
+
+.kc-crash__title {
+	font-size: 17px;
+	font-weight: 700;
+	margin: 0;
+}
+
+.kc-crash__detail {
+	white-space: pre-wrap;
+	word-break: break-word;
+	font: 11px/1.5 ui-monospace, monospace;
+	margin: 0;
+	max-height: 60dvh;
+	overflow-y: auto;
+}
+
 .kc-home {
 	min-height: 100vh;
 	min-height: 100dvh;
