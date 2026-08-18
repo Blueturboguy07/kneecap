@@ -1,60 +1,80 @@
-import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import { Copy, Maximize2, Pause, Play, Redo2, Undo2 } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 import { cn } from "../../lib/cn";
 
 interface PlaybackBarProps {
 	isPlaying: boolean;
-	currentTimeSeconds: number;
-	durationSeconds: number;
 	onPlayPause: () => void;
-	onSkipToStart: () => void;
-	onSkipToEnd: () => void;
+	onUndo?: () => void;
+	onRedo?: () => void;
+	canUndo?: boolean;
+	canRedo?: boolean;
 	className?: string;
 }
 
-function formatTimecode({ seconds }: { seconds: number }): string {
-	const clamped = Math.max(0, seconds);
-	const mm = Math.floor(clamped / 60);
-	const ss = Math.floor(clamped % 60);
-	return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-}
-
 /**
- * Plan M8 item 1 editor chrome: "playback controls." Corpus 04 §2:
- * "⏮ ⏸/▶ ⏭   00:00 / 00:32" — desktop-screenshotted icon row
- * (SCREENSHOT-Desktop shot_2/3.png), mobile-specific pixel spacing itself
- * [NEEDS-CAPTURE] per 04 §2's own note, so this reuses the measured
- * tabular-figure timecode token (`--cc-tabular-nums`) and standard Lucide
- * transport icons rather than inventing unmeasured spacing.
+ * CapCut-parity playback row, MEASURED from the founder capture
+ * (docs/capcut-reference/capture-editor-toolbar-start.png): fullscreen
+ * expand on the left, the play/pause triangle centered, and on the right
+ * the compare-with-original toggle (icon + tiny "OFF" tag) then undo/redo.
+ * The timecode readout ("00:00 / 00:34") is NOT here — CapCut renders it
+ * pinned top-left of the timeline area (see TimelineView's timecode
+ * overlay), which is where this kit moved it in the same pass.
+ *
+ * Fullscreen and compare are parity chrome: the real bar has them, but
+ * fullscreen-preview and view-original need features outside v1 scope —
+ * tracked in docs/STATUS.md, deliberately inert rather than fake-wired.
  */
 export function PlaybackBar({
 	isPlaying,
-	currentTimeSeconds,
-	durationSeconds,
 	onPlayPause,
-	onSkipToStart,
-	onSkipToEnd,
+	onUndo,
+	onRedo,
+	canUndo,
+	canRedo,
 	className,
 }: PlaybackBarProps) {
 	return (
 		<div className={cn("cc-playbackbar", className)}>
-			<button type="button" className="cc-topbar__icon-btn" onClick={onSkipToStart} aria-label="Skip to start">
-				<SkipBack size={18} strokeWidth={CC_ICON_STROKE} />
-			</button>
+			<span className="cc-topbar__icon-btn cc-topbar__icon-btn--chrome" aria-hidden="true">
+				<Maximize2 size={19} strokeWidth={CC_ICON_STROKE} />
+			</span>
 			<button
 				type="button"
-				className="cc-topbar__icon-btn"
+				className="cc-playbackbar__play"
 				onClick={onPlayPause}
 				aria-label={isPlaying ? "Pause" : "Play"}
 			>
-				{isPlaying ? <Pause size={20} strokeWidth={CC_ICON_STROKE} /> : <Play size={20} strokeWidth={CC_ICON_STROKE} />}
+				{isPlaying ? (
+					<Pause size={26} strokeWidth={CC_ICON_STROKE} />
+				) : (
+					<Play size={26} strokeWidth={CC_ICON_STROKE} />
+				)}
 			</button>
-			<button type="button" className="cc-topbar__icon-btn" onClick={onSkipToEnd} aria-label="Skip to end">
-				<SkipForward size={18} strokeWidth={CC_ICON_STROKE} />
-			</button>
-			<span className="cc-playbackbar__time">
-				{formatTimecode({ seconds: currentTimeSeconds })} / {formatTimecode({ seconds: durationSeconds })}
-			</span>
+			<div className="cc-playbackbar__right">
+				<span className="cc-topbar__icon-btn cc-topbar__icon-btn--chrome cc-playbackbar__compare" aria-hidden="true">
+					<Copy size={18} strokeWidth={CC_ICON_STROKE} />
+					<span className="cc-playbackbar__compare-tag">OFF</span>
+				</span>
+				<button
+					type="button"
+					className="cc-topbar__icon-btn"
+					onClick={onUndo}
+					disabled={!canUndo}
+					aria-label="Undo"
+				>
+					<Undo2 size={20} strokeWidth={CC_ICON_STROKE} />
+				</button>
+				<button
+					type="button"
+					className="cc-topbar__icon-btn"
+					onClick={onRedo}
+					disabled={!canRedo}
+					aria-label="Redo"
+				>
+					<Redo2 size={20} strokeWidth={CC_ICON_STROKE} />
+				</button>
+			</div>
 		</div>
 	);
 }

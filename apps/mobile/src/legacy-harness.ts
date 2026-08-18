@@ -434,6 +434,10 @@ function formatCapabilities(caps: DeviceCapabilities): string {
 }
 
 export async function mountLegacyHarness() {
+	// The harness's stylesheet rides in this dynamic chunk (index.html no
+	// longer links it globally — its `button`/`pre` element selectors bled
+	// into the editor UI and broke icon-button sizing).
+	await import("./style.css");
 	const bridge = await getNativeBridge();
 	try {
 		const caps = await bridge.capabilities();

@@ -68,7 +68,39 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	 *  what makes tapping a clip here select the same element the Edit
 	 *  panel/preview/other panels already read from `useSelectedElement()`. */
 	onSelectClip?: (params: { clipId: string; trackId: string }) => void;
-}>(function TimelineView({ project, onTimeChange, onZoomChange, onSelectClip }, ref) {
+	/** CapCut-parity chrome (founder capture 2026-08-18,
+	 *  docs/capcut-reference/capture-editor-toolbar-start.png). All optional
+	 *  so the M7 dev harness renders the bare surface unchanged. */
+	/** "00:00 / 00:34" readout pinned top-left over the ruler. */
+	currentTimeLabel?: string;
+	/** The white "+" square after the main track's last clip (add media). */
+	onAddClip?: () => void;
+	/** The "+ Add audio" strip below the main track; hidden when the project
+	 *  already has an audio track. */
+	onAddAudio?: () => void;
+	showAddAudio?: boolean;
+	/** The small ♪ / T quick-add squares left of time 0. */
+	onQuickAddAudio?: () => void;
+	onQuickAddText?: () => void;
+	/** Helper chips left of the main track's first clip (Mute clip audio /
+	 *  AI clipper / Cover in CapCut). */
+	leadingChips?: React.ReactNode;
+}>(function TimelineView(
+	{
+		project,
+		onTimeChange,
+		onZoomChange,
+		onSelectClip,
+		currentTimeLabel,
+		onAddClip,
+		onAddAudio,
+		showAddAudio,
+		onQuickAddAudio,
+		onQuickAddText,
+		leadingChips,
+	},
+	ref,
+) {
 	const { ref: scrollRef, width: viewportWidthPx } = useElementSize<HTMLDivElement>();
 	const [zoom, setZoom] = useState(1);
 	const [currentTimeSec, setCurrentTimeSec] = useState(0);
@@ -233,6 +265,15 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	}, []);
 
 	const mainTrack = project.tracks.find((t) => t.kind === "main");
+	const mainTrackEndPx = mainTrack
+		? timeToPixels({
+				timeSec: mainTrack.clips.reduce(
+					(end, clip) => Math.max(end, clip.startSec + clip.durationSec),
+					0,
+				),
+				pixelsPerSecond,
+			})
+		: 0;
 	const openTransitionNeighbors = useMemo(() => {
 		if (!openTransitionAfterClipId || !mainTrack) return null;
 		const index = mainTrack.clips.findIndex((c) => c.id === openTransitionAfterClipId);
@@ -270,6 +311,55 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 					onPointerDown={() => setSelectedClipId(null)}
 				>
 					<TimelineRuler durationSec={project.durationSec} pixelsPerSecond={pixelsPerSecond} />
+					{leadingChips && (
+						<div
+							className="cc-timeline__leading-chips"
+							style={{ width: Math.max(0, edgePaddingPx - 8) }}
+						>
+							{leadingChips}
+						</div>
+					)}
+					{onAddClip && (
+						<button
+							type="button"
+							className="cc-timeline__add-clip"
+							style={{ left: edgePaddingPx + mainTrackEndPx + 8 }}
+							onPointerDown={(event) => event.stopPropagation()}
+							onClick={onAddClip}
+							aria-label="Add clip"
+						>
+							+
+						</button>
+					)}
+					{(onQuickAddAudio || onQuickAddText) && (
+						<div
+							className="cc-timeline__quick-add"
+							style={{ width: Math.max(0, edgePaddingPx - 8) }}
+						>
+							{onQuickAddAudio && (
+								<button
+									type="button"
+									className="cc-timeline__quick-add-btn"
+									onPointerDown={(event) => event.stopPropagation()}
+									onClick={onQuickAddAudio}
+									aria-label="Add audio"
+								>
+									♪
+								</button>
+							)}
+							{onQuickAddText && (
+								<button
+									type="button"
+									className="cc-timeline__quick-add-btn"
+									onPointerDown={(event) => event.stopPropagation()}
+									onClick={onQuickAddText}
+									aria-label="Add text"
+								>
+									T
+								</button>
+							)}
+						</div>
+					)}
 					{project.tracks.map((track) => (
 						<TimelineTrackRow
 							key={track.id}
@@ -300,6 +390,17 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 							}
 						/>
 					))}
+					{showAddAudio && onAddAudio && (
+						<button
+							type="button"
+							className="cc-timeline__add-audio"
+							style={{ width: Math.max(mainTrackEndPx, (viewportWidthPx || 320) * 0.88) }}
+							onPointerDown={(event) => event.stopPropagation()}
+							onClick={onAddAudio}
+						>
+							<span className="cc-timeline__add-audio-plus">+</span> Add audio
+						</button>
+					)}
 					{snapIndicatorSec !== null && (
 						<div
 							className="cc-timeline__snap-indicator"
@@ -312,7 +413,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 				</div>
 			</div>
 			<TimelinePlayhead />
-			<div className="cc-timeline__zoom-readout">{Math.round(zoom * 100)}%</div>
+			{currentTimeLabel && <div className="cc-timeline__timecode">{currentTimeLabel}</div>}
 
 			{openTransitionNeighbors && openTransitionAfterClipId && (
 				<TransitionSheet

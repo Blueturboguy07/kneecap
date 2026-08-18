@@ -31,3 +31,4 @@ rust-migration-notes.md
 # .github/workflows/release.yml and its build scripts. Never committed;
 # the real copies are GitHub Release assets.
 release-artifacts/
+.gstack/

@@ -170,7 +170,7 @@ export function TimelineClip({
 
 	return (
 		<div
-			className={`cc-timeline__clip${isSelected ? " cc-timeline__clip--selected" : ""}`}
+			className={`cc-timeline__clip cc-timeline__clip--${clip.kind}${isSelected ? " cc-timeline__clip--selected" : ""}`}
 			style={{ left: leftPx, width: widthPx }}
 			onPointerDown={handleClipPointerDown}
 			role="button"

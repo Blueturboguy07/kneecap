@@ -32,7 +32,14 @@ import {
 	isVisualElement,
 } from "@kneecap/editor-core/timeline";
 import { registerDefaultGraphics } from "@kneecap/editor-core/graphics";
-import { mediaTimeFromSeconds, ZERO_MEDIA_TIME, type MediaTime } from "@kneecap/editor-core";
+import { buildElementFromMedia } from "@kneecap/editor-core/timeline";
+import { getNativeBridge } from "@kneecap/native-bridge";
+import {
+	importMediaFromNative,
+	mediaTimeFromSeconds,
+	ZERO_MEDIA_TIME,
+	type MediaTime,
+} from "@kneecap/editor-core";
 import type { FrameRate } from "opencut-wasm";
 
 // --------------------------------- reads -----------------------------------
@@ -236,6 +243,42 @@ export function insertTextElement({
 	return trackId ? { trackId, elementId: command.getElementId() } : null;
 }
 
+// ----------------------------- Media import ---------------------------------
+
+const IMAGE_DEFAULT_DURATION_SEC = 3;
+
+/**
+ * The timeline's "+" add-clip button (capture-verified CapCut chrome,
+ * 2026-08-18): native picker -> proxy -> asset registration via the real M4
+ * import pipeline, then each imported asset is placed on the main track at
+ * the playhead through the same InsertElementCommand path every other
+ * insert action here uses. Returns how many clips landed.
+ */
+export async function importAndPlaceMedia({ editor }: { editor: EditorCore }): Promise<number> {
+	const bridge = await getNativeBridge();
+	const projectId = editor.project.getActive().metadata.id;
+	const { imported } = await importMediaFromNative({
+		editor,
+		projectId,
+		source: bridge,
+		kinds: ["video", "image"],
+		allowMultiple: true,
+	});
+	for (const asset of imported) {
+		const create = buildElementFromMedia({
+			mediaId: asset.id,
+			mediaType: asset.type,
+			name: asset.name,
+			duration: mediaTimeFromSeconds({ seconds: asset.duration ?? IMAGE_DEFAULT_DURATION_SEC }),
+			startTime: editor.playback.getCurrentTime(),
+		});
+		editor.command.execute({
+			command: new InsertElementCommand({ element: create, placement: { mode: "auto", trackType: "video" } }),
+		});
+	}
+	return imported.length;
+}
+
 // --------------------------------- Audio ------------------------------------
 
 export function insertLocalSound({
@@ -380,6 +423,15 @@ export function setProjectResolution({
 
 export function setProjectFps({ editor, fps }: { editor: EditorCore; fps: FrameRate }): void {
 	editor.command.execute({ command: new UpdateProjectSettingsCommand({ fps }) });
+}
+
+/** Background panel (capture-verified toolbar item, 2026-08-18): a solid
+ *  canvas background color through the same settings command the export
+ *  sheet's resolution control uses. */
+export function setProjectBackground({ editor, color }: { editor: EditorCore; color: string }): void {
+	editor.command.execute({
+		command: new UpdateProjectSettingsCommand({ background: { type: "color", color } }),
+	});
 }
 
 // -------------------------------- Playback ----------------------------------

@@ -97,9 +97,9 @@ function clipKindForElement(element: TimelineElement): TimelineClipKind {
 			// `TimelineClipVM` has no dedicated "graphic" kind.
 			return "sticker";
 		case "caption":
-			// Rendered as a text-shaped clip until captions get their own
-			// timeline chrome; see this file's header re: what's still open.
-			return "text";
+			// Founder capture 2026-08-18: captions are orange blocks in CapCut,
+			// not text-styled clips — dedicated kind + CSS class.
+			return "caption";
 		default:
 			return "text";
 	}
@@ -119,7 +119,7 @@ function trackKindFor({ track, isMain }: { track: TimelineTrack; isMain: boolean
 		case "effect":
 			return "overlay";
 		case "caption":
-			return "text";
+			return "caption";
 		default:
 			return "overlay";
 	}

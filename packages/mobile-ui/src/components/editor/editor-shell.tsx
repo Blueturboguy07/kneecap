@@ -38,11 +38,15 @@ import {
 	insertTextElement,
 	insertOverlayShape,
 	togglePlayback,
-	seekToStart,
-	seekToEnd,
 	seekToSeconds,
+	importAndPlaceMedia,
+	setProjectResolution,
+	setProjectBackground,
 } from "../../editor/actions";
-import { Scissors } from "lucide-react";
+import { Scissors, VolumeX, WandSparkles, ImagePlus } from "lucide-react";
+import { CC_ICON_STROKE } from "../../tokens";
+import { PanelSheet } from "../panel-sheet";
+import { SheetHeader } from "../sheet-header";
 
 type SheetId = PrimaryToolId | "export";
 
@@ -85,6 +89,35 @@ function toMixBlendMode(value: unknown): CSSProperties["mixBlendMode"] {
 }
 
 const VISUAL_ONLY_SHEETS = new Set<SheetId>(["effects", "filters", "adjust"]);
+
+function formatTimecode(seconds: number): string {
+	const clamped = Math.max(0, seconds);
+	const mm = Math.floor(clamped / 60);
+	const ss = Math.floor(clamped % 60);
+	return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
+/** CapCut's top-bar pill reads "AI UHD" when AI-upscaled export is armed;
+ *  kneecap has no upscaler, so the pill honestly shows the project's real
+ *  export resolution class and opens the export sheet where it's changed. */
+function resolutionLabelFor({ width, height }: { width: number; height: number }): string {
+	const shortEdge = Math.min(width, height);
+	if (shortEdge >= 2160) return "4K";
+	if (shortEdge >= 1440) return "2K";
+	if (shortEdge >= 1080) return "1080p";
+	if (shortEdge >= 720) return "720p";
+	return `${shortEdge}p`;
+}
+
+const RATIO_PRESETS: { label: string; width: number; height: number }[] = [
+	{ label: "9:16", width: 1080, height: 1920 },
+	{ label: "16:9", width: 1920, height: 1080 },
+	{ label: "1:1", width: 1080, height: 1080 },
+	{ label: "4:5", width: 1080, height: 1350 },
+	{ label: "3:4", width: 1080, height: 1440 },
+];
+
+const BACKGROUND_PRESETS = ["#000000", "#FFFFFF", "#101010", "#1E3A5F", "#4A1942", "#0F3D2E", "#5C1A1A"];
 
 /**
  * M8 editor chrome — composes the top bar, preview placeholder, playback
@@ -145,12 +178,9 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	return (
 		<div className={cn("cc-editor-shell", className)} data-kneecap-theme="capcut-mobile">
 			<TopBar
-				title={project.metadata.name}
-				onBack={onBack}
-				onUndo={() => editor.command.undo()}
-				onRedo={() => editor.command.redo()}
-				canUndo={editor.command.canUndo()}
-				canRedo={editor.command.canRedo()}
+				onClose={onBack}
+				resolutionLabel={resolutionLabelFor(project.settings.canvasSize)}
+				onOpenExportSettings={() => setActiveSheet("export")}
 				onExport={() => setActiveSheet("export")}
 			/>
 			<PreviewStage
@@ -187,11 +217,11 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 			</PreviewStage>
 			<PlaybackBar
 				isPlaying={isPlaying}
-				currentTimeSeconds={currentTimeSeconds}
-				durationSeconds={durationSeconds}
 				onPlayPause={() => togglePlayback({ editor })}
-				onSkipToStart={() => seekToStart({ editor })}
-				onSkipToEnd={() => seekToEnd({ editor })}
+				onUndo={() => editor.command.undo()}
+				onRedo={() => editor.command.redo()}
+				canUndo={editor.command.canUndo()}
+				canRedo={editor.command.canRedo()}
 			/>
 
 			{timelineProject && (
@@ -201,6 +231,37 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 						onTimeChange={({ timeSec }) => seekToSeconds({ editor, seconds: timeSec })}
 						onSelectClip={({ clipId, trackId }) =>
 							selectElement({ editor, ref: { trackId, elementId: clipId } })
+						}
+						currentTimeLabel={`${formatTimecode(currentTimeSeconds)} / ${formatTimecode(durationSeconds)}`}
+						onAddClip={() => void importAndPlaceMedia({ editor })}
+						showAddAudio={!timelineProject.tracks.some((t) => t.kind === "audio")}
+						onAddAudio={() => setActiveSheet("audio")}
+						onQuickAddAudio={() => setActiveSheet("audio")}
+						onQuickAddText={() => setActiveSheet("text")}
+						leadingChips={
+							<>
+								{/* CapCut's main-track helper chips (capture 2026-08-18).
+								    Mute-clip-audio and AI-clipper/Cover need per-clip audio
+								    state and features outside v1 — parity chrome, tracked in
+								    docs/STATUS.md, inert rather than fake-wired. */}
+								<span className="cc-timeline__helper-chip" aria-hidden="true">
+									<VolumeX size={18} strokeWidth={CC_ICON_STROKE} />
+									<span>
+										Mute clip
+										<br />
+										audio
+									</span>
+								</span>
+								<span className="cc-timeline__helper-chip cc-timeline__helper-chip--card" aria-hidden="true">
+									<span className="cc-timeline__helper-badge">New</span>
+									<WandSparkles size={18} strokeWidth={CC_ICON_STROKE} />
+									<span>AI clipper</span>
+								</span>
+								<span className="cc-timeline__helper-chip cc-timeline__helper-chip--card" aria-hidden="true">
+									<ImagePlus size={18} strokeWidth={CC_ICON_STROKE} />
+									<span>Cover</span>
+								</span>
+							</>
 						}
 					/>
 				</div>
@@ -294,6 +355,65 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 
 			{activeSheet === "captions" && (
 				<CaptionsPanel editor={editor} onClose={closeSheet} onInserted={(ref) => selectElement({ editor, ref })} />
+			)}
+
+			{activeSheet === "ratio" && (
+				<PanelSheet onScrimClick={closeSheet} header={<SheetHeader onClose={closeSheet} />}>
+					<p className="cc-sheet-title">Aspect ratio</p>
+					<div className="cc-ratio-grid">
+						{RATIO_PRESETS.map((preset) => {
+							const active =
+								project.settings.canvasSize.width === preset.width &&
+								project.settings.canvasSize.height === preset.height;
+							return (
+								<button
+									key={preset.label}
+									type="button"
+									className={cn("cc-ratio-grid__item", active && "cc-ratio-grid__item--active")}
+									onClick={() => setProjectResolution({ editor, canvasSize: { width: preset.width, height: preset.height } })}
+								>
+									<span
+										className="cc-ratio-grid__shape"
+										style={{ aspectRatio: `${preset.width} / ${preset.height}` }}
+									/>
+									{preset.label}
+								</button>
+							);
+						})}
+					</div>
+				</PanelSheet>
+			)}
+
+			{activeSheet === "background" && (
+				<PanelSheet onScrimClick={closeSheet} header={<SheetHeader onClose={closeSheet} />}>
+					<p className="cc-sheet-title">Background</p>
+					<div className="cc-ratio-grid">
+						{BACKGROUND_PRESETS.map((color) => (
+							<button
+								key={color}
+								type="button"
+								className={cn(
+									"cc-swatch",
+									backgroundColor.toLowerCase() === color.toLowerCase() && "cc-swatch--active",
+								)}
+								style={{ background: color }}
+								onClick={() => setProjectBackground({ editor, color })}
+								aria-label={`Background ${color}`}
+							/>
+						))}
+					</div>
+				</PanelSheet>
+			)}
+
+			{(activeSheet === "transcript" || activeSheet === "template") && (
+				<PanelSheet onScrimClick={closeSheet} header={<SheetHeader onClose={closeSheet} />}>
+					<p className="cc-sheet-title">{activeSheet === "transcript" ? "Transcript" : "Template"}</p>
+					<p className="cc-panel-note">
+						{activeSheet === "transcript"
+							? "Transcript editing isn't in kneecap yet — use Captions for on-device auto-captions."
+							: "Templates aren't in kneecap yet."}
+					</p>
+				</PanelSheet>
 			)}
 
 			{activeSheet === "export" && <ExportSheet editor={editor} onClose={closeSheet} />}
