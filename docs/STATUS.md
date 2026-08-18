@@ -23,6 +23,11 @@
 
 Until the final pass, `apps/mobile` booted the old M3/M4 raw-JSON debug harness — the CapCut UI existed only in a web dev route. Now: `apps/mobile` boots a **project list → real `EditorShell`** (`src/app/app-root.tsx`), with the legacy harness kept behind `#/diagnostics`. Verified by: vite build, tsc, eslint, invariants green, and both native builds compiling the new bundle. **Not yet verified: a human actually tapping through the home→editor flow on a device/simulator screen.** That is deliberately listed in the runbook rather than claimed here.
 
+## Corrections from real-device testing (2026-08-18, founder's iPhone)
+
+- The audit's "every NativeBridge method has a real registered implementation on BOTH platforms" was **wrong for iOS**: the plugins compiled and linked but were never registered with the Capacitor bridge (no `capacitorDidLoad` registration), so every native call died with `plugin is not implemented on ios` on first real tap. Fixed via `KneecapBridgeViewController`. Lesson for future audits: *compiled ≠ registered* — plugin availability must be verified by invoking a method at runtime, not by reading `pluginMethods` lists.
+- The webview CSP blocked WASM compilation (`wasm-unsafe-eval` missing) — the app hung on "Loading…" forever. Both found only because a human tapped the real app.
+
 ## Known residual defects / debt
 
 - Trim-commit wiring in the timeline (disclosed in `timeline-view.tsx`).
