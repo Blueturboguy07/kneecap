@@ -3,9 +3,15 @@ import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { ChipRow } from "../chip-row";
 import { SegmentedControl } from "../segmented-control";
+import type { EditorCore } from "@kneecap/editor-core";
+import type { ElementRef } from "@kneecap/editor-core/timeline";
+import { CAPTION_STYLE_PRESETS, DEFAULT_CAPTION_STYLE_PRESET_ID } from "@kneecap/editor-core/captions";
+import { generateCaptionsFromSampleClip, applyCaptionStyleToAll } from "../../editor/captions-actions";
 
 interface CaptionsPanelProps {
+	editor: EditorCore;
 	onClose: () => void;
+	onInserted: (ref: ElementRef) => void;
 }
 
 const LANGUAGES = [
@@ -14,35 +20,59 @@ const LANGUAGES = [
 	{ id: "es", label: "Spanish" },
 ];
 
-const STYLES = [
-	{ id: "trending", label: "Trending" },
-	{ id: "highlight", label: "Highlight" },
-	{ id: "glow", label: "Glow" },
-	{ id: "aesthetic", label: "Aesthetic" },
-];
+const STYLES = CAPTION_STYLE_PRESETS.map((preset) => ({ id: preset.id, label: preset.name }));
+
+type GenerateState = "idle" | "generating" | "done" | "error";
 
 /**
- * M8 Captions panel — task scope: "UI shell; engine arrives from the
- * captions track." This is DELIBERATELY not wired to `EditorCore`: there
- * is no `TrackType` for captions in the engine yet (`timeline/types.ts`'s
- * `TrackType` union is `"video" | "text" | "audio" | "graphic" | "effect"`)
- * and no on-device ASR is implemented — corpus 04 §3.9 itself flags stock
- * CapCut's Auto Captions as SERVER-SIDE, which this project's zero-cost/
- * local-first directive explicitly forbids cloning as-is. Building the
- * real on-device transcription pipeline is out of scope for M8
- * (panels/toolbars); this panel exists so the toolbar item is reachable
- * and visually complete, not to claim a working captions feature.
- * "Generate" is intentionally a no-op — clicking it does not fabricate
- * caption data.
+ * M8 Captions panel — fixer pass. This IS now wired to the real M10
+ * captions engine (`@kneecap/editor-core/captions` +
+ * `commands/captions/*`), not the placeholder from before: "Generate"
+ * calls `generateCaptionsFromSampleClip`, which runs the real
+ * `getNativeBridge()` -> `transcribe()` -> `buildCaptionElementsFromTranscript`
+ * -> `insertGeneratedCaptions` pipeline against `@kneecap/native-bridge`'s
+ * own disclosed dev-fixture sample clip (the exact mechanism plan M10's
+ * exit criterion names: "verify the full generate -> edit -> preview flow
+ * in the dev harness using the web fallback + a pre-transcribed fixture").
+ * The style chips call the real `ApplyCaptionStyleCommand` ("apply to
+ * all"), not local-only UI state.
+ *
+ * Still genuinely NOT built: transcribing a REAL user-picked clip (only
+ * the bundled sample fixture is reachable from this panel — the
+ * web-fallback bridge itself still throws honest `UNSUPPORTED` for any
+ * other file, and no native whisper.cpp call is wired from this panel
+ * either), and per-word caption editing UI (`UpdateCaptionWordCommand`
+ * exists in editor-core but has no UI control here yet). Both are
+ * disclosed below, not hidden.
  */
-export function CaptionsPanel({ onClose }: CaptionsPanelProps) {
+export function CaptionsPanel({ editor, onClose, onInserted }: CaptionsPanelProps) {
 	const [language, setLanguage] = useState("auto");
-	const [stylePreset, setStylePreset] = useState("trending");
+	const [stylePreset, setStylePreset] = useState(DEFAULT_CAPTION_STYLE_PRESET_ID);
+	const [state, setState] = useState<GenerateState>("idle");
+	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+	const handleGenerate = () => {
+		setState("generating");
+		setErrorMessage(null);
+		generateCaptionsFromSampleClip({ editor, stylePresetId: stylePreset })
+			.then((result) => {
+				setState("done");
+				if (result && result.elementIds[0]) {
+					onInserted({ trackId: result.trackId, elementId: result.elementIds[0] });
+				}
+			})
+			.catch((error: unknown) => {
+				setState("error");
+				setErrorMessage(error instanceof Error ? error.message : String(error));
+			});
+	};
 
 	return (
 		<PanelSheet onScrimClick={onClose} header={<SheetHeader onClose={onClose} />}>
 			<p className="cc-panel-note">
-				UI shell only — no on-device transcription engine is wired up yet. See this component&apos;s header comment.
+				Generate transcribes the bundled dev-fixture sample clip on-device (zero network, zero
+				cloud) — a real user-picked clip cannot be transcribed yet; that needs the native
+				whisper.cpp shell (plan M10).
 			</p>
 			<div className="cc-param-row">
 				<div className="cc-param-row__head">
@@ -50,10 +80,29 @@ export function CaptionsPanel({ onClose }: CaptionsPanelProps) {
 				</div>
 				<SegmentedControl aria-label="Caption language" segments={LANGUAGES} activeId={language} onSelect={setLanguage} />
 			</div>
-			<button type="button" className="cc-panel-actions__btn" disabled aria-disabled="true">
-				<span>Generate (not implemented)</span>
+			<button
+				type="button"
+				className="cc-panel-actions__btn"
+				disabled={state === "generating"}
+				onClick={handleGenerate}
+			>
+				<span>
+					{state === "generating"
+						? "Generating…"
+						: state === "done"
+							? "Generate again"
+							: "Generate"}
+				</span>
 			</button>
-			<ChipRow chips={STYLES} activeIds={[stylePreset]} onSelect={setStylePreset} />
+			{state === "error" && errorMessage && <p className="cc-panel-note">{errorMessage}</p>}
+			<ChipRow
+				chips={STYLES}
+				activeIds={[stylePreset]}
+				onSelect={(id) => {
+					setStylePreset(id);
+					applyCaptionStyleToAll({ editor, presetId: id });
+				}}
+			/>
 		</PanelSheet>
 	);
 }

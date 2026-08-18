@@ -159,8 +159,29 @@
 	   top/left/etc. offsets — this element keeps flowing normally) plus
 	   an explicit `z-index` above the scrim's is what actually fixes it.
 	   Confirmed after this fix: `elementFromPoint` at a sheet button's
-	   center returns the button. */
-	position: relative;
+	   center returns the button.
+
+	   FIXER PASS: `position: relative` was a no-op for LAYOUT (it only
+	   affected paint/stacking order), so `.cc-sheet` was still a normal
+	   flex-flow SIBLING of `.cc-preview-stage` inside the single flex
+	   column `.cc-editor-shell`. `.cc-preview-stage` has `flex: 1;
+	   min-height: 0` with no floor, so the moment `.cc-sheet` demanded
+	   height inside that fixed-height column, the preview was squeezed
+	   to 0x0 -- reproduced live: `.cc-preview-stage__canvas` measured
+	   {w:0,h:0} with any sheet open, non-zero once closed. Real CapCut
+	   keeps the preview visible above an open sheet, so the sheet must
+	   not participate in that flex flow at all -- it needs to overlay
+	   the shell the same way `.cc-sheet-scrim` already does.
+	   `position: fixed`, anchored to the bottom of the viewport, takes
+	   it out of flex layout entirely (so `.cc-preview-stage` never
+	   shrinks) while preserving the hit-testing fix above (still
+	   positioned, still stacked above the scrim via z-index). This
+	   mirrors the scrim's own already-accepted viewport-not-harness-box
+	   tradeoff documented in panel-sheet.tsx. */
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
 	z-index: 1;
 }
 .cc-sheet__body {
@@ -755,7 +776,53 @@
 	cursor: default;
 }
 
-/* ----------------------------- Preview stage ------------------------------- */
+/* ----------------------------- Preview stage -------------------------------
+ * Fixer pass — TWO separate, layered bugs found and fixed here, both
+ * verified live via `getBoundingClientRect()` (in the real dev harness AND
+ * isolated on throwaway elements, to rule out anything else in this page):
+ *
+ * Bug 1 (the one the audit finding named): `.cc-sheet` competing with
+ * `.cc-preview-stage` for flex space when a bottom sheet is open — fixed
+ * above, at `.cc-sheet` (now `position: fixed`, out of the flex flow).
+ *
+ * Bug 2 (found while verifying Bug 1's fix): even with Bug 1 fixed,
+ * `.cc-preview-stage__canvas` measured 0x0 in EVERY state, sheet open or
+ * closed. Root cause: this rule had no explicit width/height, only
+ * `aspect-ratio` (set inline by preview-stage.tsx) plus `max-width`/
+ * `max-height` upper bounds — and CSS `aspect-ratio` on a non-replaced box
+ * (a plain `<div>`, not an `<img>`/`<video>`/real `<canvas>`) only
+ * transfers a size onto an AUTO dimension when the OTHER dimension is
+ * independently made definite; `max-*` alone never does that. Reproduced
+ * on a throwaway element with zero relation to this page's layout: an
+ * empty `position:fixed` div with only `max-width/max-height` + `aspect-
+ * ratio` measures `{w:0,h:0}`.
+ *
+ * The obvious next attempt — giving it a definite cross-axis size via flex
+ * stretch (`height: 100%`) — trades that bug for a DIFFERENT one: flexbox
+ * shrinks an item's MAIN-axis size to fit available space when its
+ * hypothetical (ratio-transferred) size overflows, but does not re-derive
+ * the now-stretched CROSS-axis size to match, so the box silently
+ * distorts. Also reproduced in isolation: a 300x200 flex-centered parent
+ * with a `height:100%; aspect-ratio:16/9` child renders at 300x200
+ * (ratio 1.5), not the requested 1.778.
+ *
+ * Fix: CSS Container Query length units (`cqw`/`cqh`, Chrome 105+/Safari
+ * 16+/Firefox 110+ — safe for this project's real target, a modern mobile
+ * WebView). `container-type: size` on `.cc-preview-stage` makes it a query
+ * container along both axes (safe here since its OWN size already comes
+ * from `flex: 1`, not from its content). The canvas's `width`/`height`
+ * then each independently pick the SMALLER of "100% of the container" and
+ * "the other axis's 100%, scaled by the ratio" — the standard CSS-native
+ * contain-fit formula, verified live to produce a correctly-ratioed,
+ * fully-contained, centered box in both the width-limited and
+ * height-limited case (a 300x200 landscape container and a 300x400
+ * portrait one, both checked against a 16:9 target ratio).
+ * `--cc-preview-ratio` (set inline by preview-stage.tsx, same value as the
+ * `aspect-ratio` property already there) is what the `calc()`s below read;
+ * `aspect-ratio` itself is kept as a plain intrinsic-ratio hint for any
+ * other UA sizing negotiation, though the `width`/`height` here are what
+ * actually determine the box now.
+ * ========================================================================= */
 .cc-preview-stage {
 	flex: 1;
 	display: flex;
@@ -763,15 +830,34 @@
 	justify-content: center;
 	min-height: 0;
 	padding: var(--cc-space-3);
+	container-type: size;
 }
 .cc-preview-stage__canvas {
-	max-width: 100%;
-	max-height: 100%;
+	width: min(100cqw, 100cqh * var(--cc-preview-ratio, 1.77778));
+	height: min(100cqh, 100cqw / var(--cc-preview-ratio, 1.77778));
 	border-radius: var(--cc-radius-card);
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	overflow: hidden;
+}
+
+/* --------------------- Editor-shell timeline mount (fixer) ----------------
+ * `.cc-editor-shell` is a single flex column, and `.cc-preview-stage` has
+ * `flex: 1; min-height: 0` with no floor — the same reason `.cc-sheet` had
+ * to move to `position: fixed` above. A fixed-height, non-growing row here
+ * (rather than another `flex: 1` competitor) is what lets M7's
+ * `TimelineView` sit permanently between the playback bar and the toolbars
+ * without ever squeezing the preview. Height is sized for ruler + ~2-3
+ * visible track rows (`--cc-ruler-height` + a few `--cc-track-height`s) —
+ * not a CapCut pixel measurement, self-consistent with the same token
+ * scale the rest of this file already uses (see this file's own top-of-file
+ * caveat re: [NEEDS-CAPTURE] values).
+ * ========================================================================= */
+.cc-editor-shell__timeline {
+	flex-shrink: 0;
+	height: 156px;
+	border-top: 1px solid var(--cc-border-subtle, rgba(255, 255, 255, 0.08));
 }
 
 /* ----------------------------- Playback bar -------------------------------- */

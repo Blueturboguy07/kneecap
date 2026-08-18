@@ -60,7 +60,15 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	project: TimelineProjectVM;
 	onTimeChange?: (params: { timeSec: number }) => void;
 	onZoomChange?: (params: { zoom: number }) => void;
-}>(function TimelineView({ project, onTimeChange, onZoomChange }, ref) {
+	/** Fixer pass (M7 mount into M8's EditorShell): fires alongside the
+	 *  existing local `selectedClipId` highlight state, so a live caller can
+	 *  drive the REAL `editor.selection` (see
+	 *  `use-timeline-project-vm.ts`'s `TimelineClipVM.id`/`.trackId`, which
+	 *  are the real element/track ids, not synthetic mock ids) — this is
+	 *  what makes tapping a clip here select the same element the Edit
+	 *  panel/preview/other panels already read from `useSelectedElement()`. */
+	onSelectClip?: (params: { clipId: string; trackId: string }) => void;
+}>(function TimelineView({ project, onTimeChange, onZoomChange, onSelectClip }, ref) {
 	const { ref: scrollRef, width: viewportWidthPx } = useElementSize<HTMLDivElement>();
 	const [zoom, setZoom] = useState(1);
 	const [currentTimeSec, setCurrentTimeSec] = useState(0);
@@ -271,7 +279,10 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 							viewEndSec={viewEndSec + VIEW_OVERSCAN_SEC}
 							durationSec={project.durationSec}
 							selectedClipId={selectedClipId}
-							onSelectClip={({ clipId }) => setSelectedClipId(clipId)}
+							onSelectClip={({ clipId }) => {
+								setSelectedClipId(clipId);
+								onSelectClip?.({ clipId, trackId: track.id });
+							}}
 							trimPreview={trimPreview}
 							onTrimPreview={handleTrimPreview}
 							onTrimCommit={handleTrimCommit}

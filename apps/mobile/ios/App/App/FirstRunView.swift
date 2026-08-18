@@ -55,7 +55,16 @@ struct FirstRunView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
-                        .background(Color(red: 0x4E / 255, green: 0x4A / 255, blue: 0xFF / 255))
+                        // Fixer pass: was 0x4E4AFF, a pre-B1 blue-violet
+                        // trade-dress accent written at M3, before the
+                        // ratified B1 hard directive ("full pixel fidelity
+                        // to CapCut mobile, cyan #00CAE0 in"). First-run
+                        // chrome isn't in B1's splash/name/icon exception
+                        // list, and packages/mobile-ui/src/tokens.css's
+                        // --cc-accent has used #00CAE0 since M6 — this
+                        // brings the one other native accent surface (see
+                        // colors.xml on Android) in line with it.
+                        .background(Color(red: 0x00 / 255, green: 0xCA / 255, blue: 0xE0 / 255))
                         .cornerRadius(12)
                 }
                 .padding(.horizontal, 24)

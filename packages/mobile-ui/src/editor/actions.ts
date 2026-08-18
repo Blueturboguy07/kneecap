@@ -344,5 +344,14 @@ export function seekToEnd({ editor }: { editor: EditorCore }): void {
 	editor.playback.seek({ time: calculateTotalDuration({ tracks }) });
 }
 
+/** Fixer pass (M7 mount): scrub/seek from the timeline's own float-second
+ *  UI coordinate space into a real `editor.playback.seek()` call. The
+ *  seconds->ticks conversion happens exactly once, here at the boundary,
+ *  via the real `mediaTimeFromSeconds` — never by passing a float through
+ *  as if it were already a `MediaTime`. */
+export function seekToSeconds({ editor, seconds }: { editor: EditorCore; seconds: number }): void {
+	editor.playback.seek({ time: mediaTimeFromSeconds({ seconds: Math.max(0, seconds) }) });
+}
+
 export { ZERO_MEDIA_TIME };
 export type { MediaTime };
