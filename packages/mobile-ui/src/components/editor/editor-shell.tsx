@@ -1,9 +1,10 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "../../lib/cn";
 import { isVisualElement, type VisualElement } from "@kneecap/editor-core/timeline";
 import { TopBar } from "./top-bar";
 import { PlaybackBar } from "./playback-bar";
 import { PreviewStage } from "./preview-stage";
+import { PreviewRenderer } from "./preview-renderer";
 import { BottomToolbar } from "../bottom-toolbar";
 import { SubToolbar, type ToolbarItemDef } from "../sub-toolbar";
 import { PRIMARY_TOOLBAR_ITEMS, type PrimaryToolId } from "./toolbar-defs";
@@ -72,21 +73,6 @@ interface EditorShellProps {
 }
 
 const CONTEXTUAL_ITEMS: ToolbarItemDef[] = [{ id: "edit", label: "Edit", icon: Scissors }];
-
-/** The engine's `blendMode` param values mirror CSS `mix-blend-mode` 1:1
- *  (`BLEND_MODE_OPTIONS` in packages/editor-core's params registry), but the
- *  param arrives as a plain string — `.find` against this literal list gives
- *  real narrowing to React's `CSSProperties["mixBlendMode"]` union, where a
- *  bare `as` cast would not survive the no-unsafe-type-assertion lint rule. */
-const MIX_BLEND_MODES: readonly NonNullable<CSSProperties["mixBlendMode"]>[] = [
-	"normal", "multiply", "screen", "overlay", "darken", "lighten",
-	"color-dodge", "color-burn", "hard-light", "soft-light",
-	"difference", "exclusion", "hue", "saturation", "color", "luminosity",
-];
-
-function toMixBlendMode(value: unknown): CSSProperties["mixBlendMode"] {
-	return MIX_BLEND_MODES.find((mode) => mode === value) ?? "normal";
-}
 
 const VISUAL_ONLY_SHEETS = new Set<SheetId>(["effects", "filters", "adjust"]);
 
@@ -199,32 +185,12 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 				canvasHeight={project.settings.canvasSize.height}
 				backgroundColor={backgroundColor}
 			>
-				{selectedElement?.type === "text" && (
-					<span
-						style={
-							{
-								color: typeof selectedElement.params.color === "string" ? selectedElement.params.color : "#fff",
-								fontSize: 20,
-								fontWeight: selectedElement.params.fontWeight === "bold" ? 700 : 400,
-								fontStyle: selectedElement.params.fontStyle === "italic" ? "italic" : "normal",
-								// Fixer pass: `opacity`/`blendMode` are real `visualElementParams`
-								// (packages/editor-core/src/params/registry.ts — spread into text
-								// elements too, not graphic-only) that OverlayPanel's sliders
-								// genuinely write via `setElementParam`, but this placeholder span
-								// never read them, so the write was invisible here even on a TEXT
-								// selection (the only element type this chrome-only preview
-								// renders anything for at all). `mix-blend-mode` mirrors the
-								// engine's own `blendMode` param naming/values 1:1 (see
-								// `BLEND_MODE_OPTIONS` in registry.ts).
-								opacity:
-									typeof selectedElement.params.opacity === "number" ? selectedElement.params.opacity : 1,
-								mixBlendMode: toMixBlendMode(selectedElement.params.blendMode),
-							}
-						}
-					>
-						{typeof selectedElement.params.content === "string" ? selectedElement.params.content : ""}
-					</span>
-				)}
+				{/* Real frame rendering (CanvasRenderer -> wgpu compositor) —
+				    replaces the chrome-only text-span placeholder; the renderer
+				    draws text/sticker/overlay/video elements with their actual
+				    params (opacity/blendMode included), so the span's partial
+				    re-implementation of that is gone with it. */}
+				<PreviewRenderer />
 			</PreviewStage>
 			<PlaybackBar
 				isPlaying={isPlaying}

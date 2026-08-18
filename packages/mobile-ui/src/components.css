@@ -420,6 +420,14 @@
 	cursor: default;
 }
 
+/* The live render surface fills the aspect-ratio canvas box; the wgpu
+   output <canvas> appended inside it is styled 100%/100% by
+   PreviewRenderer. */
+.cc-preview-stage__render {
+	position: absolute;
+	inset: 0;
+}
+
 /* Transient chrome-level error strip (tap to dismiss). */
 .cc-chrome-error {
 	position: fixed;
@@ -917,6 +925,11 @@
 	font-family: var(--cc-font-ui);
 	height: 100%;
 	overflow: hidden;
+	/* viewport-fit=cover puts us under the status bar / home indicator —
+	   inset the chrome (found live on device: the top bar rendered behind
+	   the clock, 2026-08-18). Resolves to 0 in the web dev harness. */
+	padding-top: env(safe-area-inset-top, 0px);
+	padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* ------------------------------- Top bar ---------------------------------- */
@@ -1029,6 +1042,7 @@
 	container-type: size;
 }
 .cc-preview-stage__canvas {
+	position: relative;
 	width: min(100cqw, 100cqh * var(--cc-preview-ratio, 1.77778));
 	height: min(100cqh, 100cqw / var(--cc-preview-ratio, 1.77778));
 	border-radius: var(--cc-radius-card);
