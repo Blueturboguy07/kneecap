@@ -2,7 +2,7 @@
 	"name": "@kneecap/mobile",
 	"version": "0.1.0",
 	"private": true,
-	"description": "kneecap M3: Capacitor 8 shell — iOS + Android native projects loading a locally-bundled static harness. This is NOT the CapCut UI (that's M6-M8); it is the throwaway proof that the shell scaffold and the NativeBridge seam actually round-trip on device. See README.md. Also bundles the M1 spike diagnostics screen (src/spike/, spike.html) — throwaway, see docs/SPIKE-GUIDE.md.",
+	"description": "kneecap: Capacitor 8 shell — iOS + Android native projects loading the real CapCut-parity mobile editor (@kneecap/mobile-ui's EditorShell, wired to @kneecap/editor-core). See README.md. The old M3/M4 raw-JSON shell harness still ships behind the #/diagnostics route (src/legacy-harness.ts) rather than being deleted. Also bundles the M1 spike diagnostics screen (src/spike/, spike.html) — throwaway, see docs/SPIKE-GUIDE.md.",
 	"license": "MIT",
 	"type": "module",
 	"scripts": {
@@ -24,13 +24,18 @@
 		"@capacitor/core": "^8.0.0",
 		"@capacitor/ios": "^8.0.0",
 		"@kneecap/editor-core": "workspace:*",
+		"@kneecap/mobile-ui": "workspace:*",
 		"@kneecap/native-bridge": "workspace:*",
 		"mediabunny": "^1.29.1",
-		"opencut-wasm": "^0.2.10"
+		"opencut-wasm": "^0.2.10",
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0"
 	},
 	"devDependencies": {
 		"@capacitor/cli": "^8.0.0",
 		"@kneecap/editor-core": "workspace:*",
+		"@types/react": "^19",
+		"@types/react-dom": "^19",
 		"typescript": "^5.8.3",
 		"vite": "^7.0.0",
 		"vite-plugin-wasm": "^3.6.0"

@@ -11,6 +11,10 @@
 		"resolveJsonModule": true,
 		"isolatedModules": true,
 		"forceConsistentCasingInFileNames": true,
+		// app-root.tsx mounts @kneecap/mobile-ui's JSX — same automatic-runtime
+		// convention that package's own tsconfig uses (and vite.config.ts's
+		// esbuild.jsx forwards for the actual build).
+		"jsx": "react-jsx",
 		// Same reason as packages/native-bridge/tsconfig.json: this harness
 		// transitively type-checks through @kneecap/native-bridge into
 		// @kneecap/editor-core/edl, whose files use `@/*` internally.
@@ -18,6 +22,15 @@
 			"@/*": ["../../packages/editor-core/src/*"]
 		}
 	},
-	"include": ["src/**/*.ts", "vite.config.ts", "capacitor.config.ts"],
+	"include": [
+		"src/**/*.ts",
+		"src/**/*.tsx",
+		// Ambient module shims (soundtouchjs has no upstream types) — same
+		// mechanism as packages/mobile-ui's and apps/web's tsconfigs: the
+		// shim only takes effect if the program includes the .d.ts file.
+		"../../packages/editor-core/src/types/**/*.d.ts",
+		"vite.config.ts",
+		"capacitor.config.ts"
+	],
 	"exclude": ["node_modules", "www", "ios", "android"]
 }

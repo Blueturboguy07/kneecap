@@ -48,9 +48,41 @@ type SheetId = PrimaryToolId | "export";
 
 interface EditorShellProps {
 	className?: string;
+	/** Back (top-left arrow) tap handler — `TopBar` has always rendered that
+	 *  arrow, but nothing here ever wired it to anything (dead button; the
+	 *  M8 dev harness page never needed a "back" destination). Optional and
+	 *  undefined by default so the dev harness's existing bare `<EditorShell
+	 *  />` keeps behaving exactly as before. The real app (apps/mobile)
+	 *  passes its own "back to project list" callback. */
+	onBack?: () => void;
+	/** Runs once on mount, before the shell renders live editor chrome —
+	 *  defaults to the M8 dev-harness demo project (`bootstrapDemoProject`,
+	 *  text/sticker/graphic/library-audio elements pre-inserted) so every
+	 *  existing caller of bare `<EditorShell />` (the `/dev/mobile-editor`
+	 *  page) keeps working unchanged. The real app already creates or loads
+	 *  a REAL project via `ProjectManager` (`editor.project.createNewProject`
+	 *  / `.loadProject`) before ever mounting this component, so it passes a
+	 *  no-op here instead — bootstrapping the demo project on top of an
+	 *  already-active real one would be wrong, not just redundant. */
+	bootstrap?: () => Promise<unknown>;
 }
 
 const CONTEXTUAL_ITEMS: ToolbarItemDef[] = [{ id: "edit", label: "Edit", icon: Scissors }];
+
+/** The engine's `blendMode` param values mirror CSS `mix-blend-mode` 1:1
+ *  (`BLEND_MODE_OPTIONS` in packages/editor-core's params registry), but the
+ *  param arrives as a plain string — `.find` against this literal list gives
+ *  real narrowing to React's `CSSProperties["mixBlendMode"]` union, where a
+ *  bare `as` cast would not survive the no-unsafe-type-assertion lint rule. */
+const MIX_BLEND_MODES: readonly NonNullable<CSSProperties["mixBlendMode"]>[] = [
+	"normal", "multiply", "screen", "overlay", "darken", "lighten",
+	"color-dodge", "color-burn", "hard-light", "soft-light",
+	"difference", "exclusion", "hue", "saturation", "color", "luminosity",
+];
+
+function toMixBlendMode(value: unknown): CSSProperties["mixBlendMode"] {
+	return MIX_BLEND_MODES.find((mode) => mode === value) ?? "normal";
+}
 
 const VISUAL_ONLY_SHEETS = new Set<SheetId>(["effects", "filters", "adjust"]);
 
@@ -72,15 +104,21 @@ const VISUAL_ONLY_SHEETS = new Set<SheetId>(["effects", "filters", "adjust"]);
  * that gap was already disclosed in timeline-view.tsx's own
  * `handleTrimCommit` comment and is unrelated to the mounting gap this pass
  * closes; it needs its own follow-up wiring pass.
+ *
+ * Structural-gap fixer pass (kneecap "close the mobile shipping gap"): this
+ * is now ALSO what `apps/mobile` mounts as the real app's editor screen, not
+ * only the dev harness — see `bootstrap`/`onBack` above for the two knobs
+ * that made that possible without forking the component.
  */
-export function EditorShell({ className }: EditorShellProps) {
+export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) {
 	const editor = useLiveEditor();
 	const [ready, setReady] = useState(false);
 	const [activeSheet, setActiveSheet] = useState<SheetId | null>(null);
 	const timelineProject = useTimelineProjectVM();
 
 	useEffect(() => {
-		bootstrapDemoProject().then(() => setReady(true));
+		(bootstrap ?? bootstrapDemoProject)().then(() => setReady(true));
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- `bootstrap`/`bootstrapDemoProject` are meant to run exactly once per mount (the demo bootstrap is itself idempotent via its own module-level cache — see demo-project.ts — and re-running a real caller's bootstrap on every render would be wrong, not just wasteful); depending on `bootstrap` would re-run this whenever a caller passes a fresh closure identity, which apps/mobile's own memoized `NOOP_BOOTSTRAP` avoids but nothing enforces.
 	}, []);
 
 	const [selectedRef, selectedElement] = useSelectedElement();
@@ -108,6 +146,7 @@ export function EditorShell({ className }: EditorShellProps) {
 		<div className={cn("cc-editor-shell", className)} data-kneecap-theme="capcut-mobile">
 			<TopBar
 				title={project.metadata.name}
+				onBack={onBack}
 				onUndo={() => editor.command.undo()}
 				onRedo={() => editor.command.redo()}
 				canUndo={editor.command.canUndo()}
@@ -138,11 +177,8 @@ export function EditorShell({ className }: EditorShellProps) {
 								// `BLEND_MODE_OPTIONS` in registry.ts).
 								opacity:
 									typeof selectedElement.params.opacity === "number" ? selectedElement.params.opacity : 1,
-								mixBlendMode:
-									typeof selectedElement.params.blendMode === "string"
-										? selectedElement.params.blendMode
-										: "normal",
-							} as CSSProperties
+								mixBlendMode: toMixBlendMode(selectedElement.params.blendMode),
+							}
 						}
 					>
 						{typeof selectedElement.params.content === "string" ? selectedElement.params.content : ""}

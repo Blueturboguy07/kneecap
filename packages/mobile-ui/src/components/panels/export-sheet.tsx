@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { SegmentedControl } from "../segmented-control";
+import { ProgressOverlay } from "../progress-overlay";
 import type { EditorCore } from "@kneecap/editor-core";
 import { buildEdl, type Edl } from "@kneecap/editor-core/edl";
 import type { ExportFormat, ExportQuality } from "@kneecap/editor-core/export";
-import { setProjectFps, setProjectResolution } from "../../editor/actions";
+import { getNativeBridge, type ExportProgress } from "@kneecap/native-bridge";
+import { setProjectFps, setProjectResolution, toEdlMediaAssets } from "../../editor/actions";
 import type { FrameRate } from "opencut-wasm";
 
 interface ExportSheetProps {
@@ -34,9 +36,18 @@ const QUALITY_OPTIONS: Array<{ id: ExportQuality; label: string }> = [
 	{ id: "very_high", label: "Very High" },
 ];
 
+const QUALITY_BITRATE: Record<ExportQuality, number> = {
+	low: 2_000_000,
+	medium: 5_000_000,
+	high: 10_000_000,
+	very_high: 20_000_000,
+};
+
 function isExportQuality(value: string): value is ExportQuality {
 	return QUALITY_OPTIONS.some((option) => option.id === value);
 }
+
+type ExportRunState = "idle" | "exporting" | "done" | "error";
 
 /**
  * M8 Export sheet — task scope: "resolution/fps/quality." Resolution and
@@ -50,11 +61,33 @@ function isExportQuality(value: string): value is ExportQuality {
  * not persisted project state.
  *
  * The "Preview EDL output" button is a REAL verification step, not
- * decoration: it calls the actual `buildEdl()` (same function M9's native
- * export bridge will call) with the CURRENT sheet selections and displays
+ * decoration: it calls the actual `buildEdl()` (same function the real
+ * export below calls) with the CURRENT sheet selections and displays
  * `output.resolution`/`output.fps` back — proving the sheet's controls
  * really do reach the EDL bridge contract, not just the UI. No file is
- * produced; encoding is M9 scope.
+ * produced by preview; it exists purely to inspect the EDL shape.
+ *
+ * Structural-gap fixer pass ("Export video"): the actual export handoff.
+ * Builds the same real `Edl` via `buildEdl()`, then drives it through
+ * `getNativeBridge().exportProject({ edl })` — the ONE way an editor UI
+ * file may reach a native shell (never `@capacitor/*` directly; see the
+ * bridge-import gate in scripts/invariants.sh and this package's own
+ * captions-actions.ts, which established the same `getNativeBridge()`
+ * pattern for M10). `exportProject`'s wire contract (capacitor-bridge.ts's
+ * merge note) already keys every export by a fresh `exportId` and streams
+ * `exportProgress` events back as an `AsyncGenerator<ExportProgress>` —
+ * this component just consumes that generator: each yielded stage/fraction
+ * drives `ProgressOverlay`, and stopping iteration (the Cancel button
+ * calling `.return()`) is the documented cancel contract, not a second
+ * bridge method.
+ *
+ * On the web-fallback bridge (`bunx cap sync` not run / plain browser dev),
+ * `exportProject` throws a typed `NativeBridgeError` with code
+ * `"UNSUPPORTED"` the moment the generator is first iterated — caught below
+ * and shown as an honest in-sheet message, not a crash. That IS "the
+ * web-fallback path still working in dev": the sheet stays usable, nothing
+ * throws past this component, and every OTHER control (resolution/fps/
+ * quality/EDL preview) keeps working exactly as before.
  */
 export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 	const project = editor.project.getActive();
@@ -64,6 +97,15 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 	const [format] = useState<ExportFormat>("mp4");
 	const [previewResult, setPreviewResult] = useState<{ fps: string; resolution: string } | null>(null);
 	const [previewError, setPreviewError] = useState<string | null>(null);
+
+	const [runState, setRunState] = useState<ExportRunState>("idle");
+	const [progress, setProgress] = useState<{ stage: ExportProgress["stage"]; fraction: number } | null>(null);
+	const [exportError, setExportError] = useState<string | null>(null);
+	const [outputUri, setOutputUri] = useState<string | null>(null);
+	// Holds the in-flight generator ONLY so Cancel can `.return()` it — never
+	// read for anything else. A ref, not state: swapping it must not trigger
+	// a re-render.
+	const activeExportRef = useRef<AsyncGenerator<ExportProgress> | null>(null);
 
 	const applyResolution = (id: string) => {
 		setResolutionId(id);
@@ -81,28 +123,36 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 		if (preset) setProjectFps({ editor, fps: preset.fps });
 	};
 
+	/** Shared by both "Preview EDL output" and "Export video" — the real
+	 *  export must build the EDL the exact same way the preview claims to,
+	 *  or the preview would be lying about what gets exported. */
+	const buildCurrentEdl = (): Edl => {
+		const scene = editor.scenes.getActiveScene();
+		const fpsPreset = FPS_OPTIONS.find((f) => f.id === fpsId)?.fps;
+		return buildEdl({
+			project,
+			scene,
+			// Real live media assets, not a hardcoded `[]` — genuinely empty
+			// today only because no panel in this app can insert a video/image
+			// element yet (media import is out of M8 scope; see
+			// demo-project.ts's header). The moment that lands, this keeps
+			// working with no change here.
+			mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
+			output: {
+				container: format,
+				videoCodec: "h264",
+				audioCodec: "aac",
+				bitrate: QUALITY_BITRATE[quality],
+				includeAudio: true,
+				fps: fpsPreset,
+			},
+		});
+	};
+
 	const previewEdl = () => {
 		setPreviewError(null);
 		try {
-			const scene = editor.scenes.getActiveScene();
-			const fpsPreset = FPS_OPTIONS.find((f) => f.id === fpsId)?.fps;
-			// The M8 demo project has no imported media (see demo-project.ts's
-			// header) so `mediaAssets` is genuinely empty here — `buildEdl` only
-			// needs entries for elements that reference a `mediaId`, and none of
-			// this harness's text/sticker/graphic/library-audio elements do.
-			const edl: Edl = buildEdl({
-				project,
-				scene,
-				mediaAssets: [],
-				output: {
-					container: format,
-					videoCodec: "h264",
-					audioCodec: "aac",
-					bitrate: quality === "low" ? 2_000_000 : quality === "medium" ? 5_000_000 : quality === "high" ? 10_000_000 : 20_000_000,
-					includeAudio: true,
-					fps: fpsPreset,
-				},
-			});
+			const edl = buildCurrentEdl();
 			setPreviewResult({
 				fps: `${edl.output.fps.numerator}/${edl.output.fps.denominator}`,
 				resolution: `${edl.output.resolution.width}x${edl.output.resolution.height}`,
@@ -112,46 +162,123 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 		}
 	};
 
+	const startExport = async () => {
+		setExportError(null);
+		setOutputUri(null);
+		setProgress({ stage: "preparing", fraction: 0 });
+		setRunState("exporting");
+
+		let edl: Edl;
+		try {
+			edl = buildCurrentEdl();
+		} catch (error) {
+			setRunState("error");
+			setExportError(error instanceof Error ? error.message : String(error));
+			return;
+		}
+
+		try {
+			const bridge = await getNativeBridge();
+			const generator = bridge.exportProject({ edl });
+			activeExportRef.current = generator;
+			for await (const event of generator) {
+				setProgress({ stage: event.stage, fraction: event.fraction });
+				if (event.stage === "error") {
+					setRunState("error");
+					setExportError(event.error ?? "Export failed");
+					break;
+				}
+				if (event.stage === "done") {
+					setRunState("done");
+					setOutputUri(event.outputUri ?? null);
+					break;
+				}
+			}
+		} catch (error) {
+			// Includes the honest `NativeBridgeError({code:"UNSUPPORTED",...})`
+			// the web-fallback bridge throws the moment this generator is first
+			// iterated (no native shell present) — same typed-error contract
+			// every other `getNativeBridge()` caller in this package relies on
+			// (see captions-actions.ts), surfaced here as plain sheet text
+			// rather than an uncaught rejection.
+			setRunState("error");
+			setExportError(error instanceof Error ? error.message : String(error));
+		} finally {
+			activeExportRef.current = null;
+		}
+	};
+
+	const cancelExport = () => {
+		// Stopping iteration is the documented cancel contract
+		// (capacitor-bridge.ts's `exportProject()` doc comment: the caller
+		// "simply stopping iteration of the AsyncGenerator" is what its
+		// `finally` block treats as a cancel request) — `.return()` here makes
+		// the `for await` above exit exactly like a `break` would, which is
+		// what runs that `finally` and tells native to actually stop encoding.
+		void activeExportRef.current?.return(undefined);
+		activeExportRef.current = null;
+		setRunState("idle");
+		setProgress(null);
+	};
+
 	return (
-		<PanelSheet onScrimClick={onClose} header={<SheetHeader onClose={onClose} />}>
-			<div className="cc-param-row">
-				<div className="cc-param-row__head">
-					<span className="cc-param-row__label">Resolution</span>
+		<>
+			<PanelSheet onScrimClick={onClose} header={<SheetHeader onClose={onClose} />}>
+				<div className="cc-param-row">
+					<div className="cc-param-row__head">
+						<span className="cc-param-row__label">Resolution</span>
+					</div>
+					<SegmentedControl aria-label="Resolution" segments={RESOLUTIONS} activeId={resolutionId} onSelect={applyResolution} />
 				</div>
-				<SegmentedControl aria-label="Resolution" segments={RESOLUTIONS} activeId={resolutionId} onSelect={applyResolution} />
-			</div>
-			<div className="cc-param-row">
-				<div className="cc-param-row__head">
-					<span className="cc-param-row__label">Frame rate</span>
+				<div className="cc-param-row">
+					<div className="cc-param-row__head">
+						<span className="cc-param-row__label">Frame rate</span>
+					</div>
+					<SegmentedControl aria-label="Frame rate" segments={FPS_OPTIONS} activeId={fpsId} onSelect={applyFps} />
 				</div>
-				<SegmentedControl aria-label="Frame rate" segments={FPS_OPTIONS} activeId={fpsId} onSelect={applyFps} />
-			</div>
-			<div className="cc-param-row">
-				<div className="cc-param-row__head">
-					<span className="cc-param-row__label">Quality</span>
+				<div className="cc-param-row">
+					<div className="cc-param-row__head">
+						<span className="cc-param-row__label">Quality</span>
+					</div>
+					<SegmentedControl
+						aria-label="Quality"
+						segments={QUALITY_OPTIONS}
+						activeId={quality}
+						onSelect={(id) => {
+							if (isExportQuality(id)) setQuality(id);
+						}}
+					/>
 				</div>
-				<SegmentedControl
-					aria-label="Quality"
-					segments={QUALITY_OPTIONS}
-					activeId={quality}
-					onSelect={(id) => {
-						if (isExportQuality(id)) setQuality(id);
-					}}
+				<button type="button" className="cc-panel-actions__btn" onClick={previewEdl}>
+					<span>Preview EDL output</span>
+				</button>
+				{previewResult && (
+					<p className="cc-panel-note">
+						EDL output reflects the sheet: resolution {previewResult.resolution}, fps {previewResult.fps}.
+					</p>
+				)}
+				{previewError && <p className="cc-panel-note">EDL preview failed: {previewError}</p>}
+
+				<button
+					type="button"
+					className="cc-panel-actions__btn"
+					onClick={() => void startExport()}
+					disabled={runState === "exporting"}
+				>
+					<span>Export video</span>
+				</button>
+				{runState === "error" && exportError && <p className="cc-panel-note">Export failed: {exportError}</p>}
+				{runState === "done" && (
+					<p className="cc-panel-note">Export complete{outputUri ? ` — ${outputUri}` : "."}</p>
+				)}
+			</PanelSheet>
+			{runState === "exporting" && progress && (
+				<ProgressOverlay
+					percent={progress.fraction * 100}
+					label={`Exporting — ${progress.stage}`}
+					onCancel={cancelExport}
 				/>
-			</div>
-			<button type="button" className="cc-panel-actions__btn" onClick={previewEdl}>
-				<span>Preview EDL output</span>
-			</button>
-			{previewResult && (
-				<p className="cc-panel-note">
-					EDL output reflects the sheet: resolution {previewResult.resolution}, fps {previewResult.fps}.
-				</p>
 			)}
-			{previewError && <p className="cc-panel-note">EDL preview failed: {previewError}</p>}
-			<p className="cc-panel-note">
-				Hardware encode is not implemented in this dev harness — M9 scope. This sheet only proves the settings reach
-				the EDL bridge.
-			</p>
-		</PanelSheet>
+		</>
 	);
 }

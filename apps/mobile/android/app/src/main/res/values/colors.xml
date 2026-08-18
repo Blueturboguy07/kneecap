@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- kneecap token palette. Fixer pass: this used to be plan §8.3's
+    <!-- kneecap token palette. Fixer pass: this used to be plan 8.3's
          pre-B1 blue-violet accent (oklch(0.488 0.243 264.376), still used
-         by apps/mobile/src/style.css's --accent for the separate M3/M4
-         debug harness UI — that's a different, larger surface tracked
-         under the audit's "apps/mobile never loads the CapCut-parity UI"
-         finding, not touched here). The ratified B1 hard directive ("full
-         pixel fidelity to CapCut mobile, cyan #00CAE0 in") applies to
-         first-run/onboarding chrome too — it isn't in B1's splash/name/icon
-         exception list — so this now matches
-         packages/mobile-ui/src/tokens.css's --cc-accent:#00cae0. -->
+         by the CSS accent var in apps/mobile/src/style.css for the separate
+         M3/M4 debug harness UI, a different surface tracked under the
+         audit's "apps/mobile never loads the CapCut-parity UI" finding,
+         not touched here). The ratified B1 hard directive (full pixel
+         fidelity to CapCut mobile, cyan 00CAE0 in) applies to
+         first-run/onboarding chrome too; it is not in B1's splash/name/icon
+         exception list, so this now matches the cc-accent token
+         (00cae0) in packages/mobile-ui/src/tokens.css. -->
     <color name="kneecapBg">#0A0A0A</color>
     <color name="kneecapPanel">#1E1E1E</color>
     <color name="kneecapTextPrimary">#F5F5F5</color>

@@ -1,0 +1,110 @@
+/* Home (project list) screen — app-shell chrome only. The editor itself is
+ * styled entirely by @kneecap/mobile-ui's tokens.css/components.css; these
+ * rules lean on the same --cc-* tokens so home matches the editor theme. */
+
+.kc-home {
+	min-height: 100vh;
+	min-height: 100dvh;
+	background: var(--cc-bg, #0b0b0b);
+	color: var(--cc-text-primary, #f5f5f5);
+	display: flex;
+	flex-direction: column;
+	padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+	gap: 16px;
+	font-family: var(--cc-font-family, system-ui, sans-serif);
+}
+
+.kc-home__header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.kc-home__header h1 {
+	font-size: 20px;
+	font-weight: 700;
+	margin: 0;
+}
+
+.kc-home__new {
+	background: var(--cc-accent, #00cae0);
+	color: #000;
+	border: none;
+	border-radius: 8px;
+	padding: 10px 16px;
+	font-size: 14px;
+	font-weight: 600;
+}
+
+.kc-home__new:disabled {
+	opacity: 0.5;
+}
+
+.kc-home__error {
+	color: var(--cc-danger, #ff5c5c);
+	font-size: 13px;
+	margin: 0;
+}
+
+.kc-home__empty {
+	opacity: 0.6;
+	font-size: 14px;
+	text-align: center;
+	margin-top: 40vh;
+	transform: translateY(-50%);
+}
+
+.kc-home__list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.kc-home__item {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	background: var(--cc-surface, #1a1a1a);
+	border: none;
+	border-radius: 10px;
+	padding: 10px;
+	color: inherit;
+	text-align: left;
+}
+
+.kc-home__item:disabled {
+	opacity: 0.5;
+}
+
+.kc-home__thumb {
+	width: 64px;
+	height: 40px;
+	border-radius: 6px;
+	object-fit: cover;
+	background: var(--cc-surface-raised, #262626);
+	flex: none;
+}
+
+.kc-home__meta {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.kc-home__name {
+	font-size: 14px;
+	font-weight: 600;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.kc-home__date {
+	font-size: 12px;
+	opacity: 0.55;
+}

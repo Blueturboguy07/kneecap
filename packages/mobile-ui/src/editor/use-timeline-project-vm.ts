@@ -105,7 +105,7 @@ function clipKindForElement(element: TimelineElement): TimelineClipKind {
 	}
 }
 
-function trackKindFor(track: TimelineTrack, isMain: boolean): TimelineTrackKind {
+function trackKindFor({ track, isMain }: { track: TimelineTrack; isMain: boolean }): TimelineTrackKind {
 	if (isMain) return "main";
 	switch (track.type) {
 		case "video":
@@ -125,7 +125,7 @@ function trackKindFor(track: TimelineTrack, isMain: boolean): TimelineTrackKind 
 	}
 }
 
-function mapTrack(track: TimelineTrack, isMain: boolean): TimelineTrackVM {
+function mapTrack({ track, isMain }: { track: TimelineTrack; isMain: boolean }): TimelineTrackVM {
 	const clips: TimelineClipVM[] = track.elements.map((element) => ({
 		id: element.id,
 		trackId: track.id,
@@ -137,7 +137,7 @@ function mapTrack(track: TimelineTrack, isMain: boolean): TimelineTrackVM {
 	}));
 	return {
 		id: track.id,
-		kind: trackKindFor(track, isMain),
+		kind: trackKindFor({ track, isMain }),
 		name: track.name,
 		clips,
 		muted: "muted" in track ? track.muted : undefined,
@@ -162,9 +162,9 @@ export function useTimelineProjectVM(): TimelineProjectVM | null {
 		if (!tracks || !fps) return null;
 
 		const trackVMs: TimelineTrackVM[] = [
-			mapTrack(tracks.main, true),
-			...tracks.overlay.map((track) => mapTrack(track, false)),
-			...tracks.audio.map((track) => mapTrack(track, false)),
+			mapTrack({ track: tracks.main, isMain: true }),
+			...tracks.overlay.map((track) => mapTrack({ track, isMain: false })),
+			...tracks.audio.map((track) => mapTrack({ track, isMain: false })),
 		];
 
 		return {

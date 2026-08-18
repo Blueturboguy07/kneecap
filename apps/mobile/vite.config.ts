@@ -38,11 +38,34 @@ const editorCoreSrc = fileURLToPath(
  * (Next.js's webpack config included) ever solved this —
  * `packages/editor-core/src/services/renderer/compositor/wasm-compositor.ts`
  * has never actually been exercised through a real bundler before the M1
- * spike (see that file's and apps/mobile/src/main.ts's own comments).
+ * spike (see that file's and apps/mobile/src/legacy-harness.ts's own
+ * comments).
+ *
+ * `esbuild.jsx`/`jsxImportSource` (structural-gap fixer pass — this app now
+ * mounts `@kneecap/mobile-ui`'s real `EditorShell`, its first host outside
+ * apps/web's Next.js dev route): this repo's own `src/**\/*.ts` files never
+ * use JSX (see main.ts/legacy-harness.ts's plain-DOM style), but
+ * `@kneecap/mobile-ui`'s `.tsx` source ships UNCOMPILED — its package.json
+ * `exports` point straight at `./src/*.tsx` — and Vite bundles that source
+ * directly, the same way it already bundles `@kneecap/editor-core`'s source
+ * (see the `resolve.alias` comment above). Those files use TS's `"jsx":
+ * "react-jsx"` automatic-runtime convention (no `import React` in scope —
+ * see e.g. editor-shell.tsx), so this app's OWN bundler needs to agree, or
+ * the emitted `jsx(...)` calls reference an import that was never added. No
+ * `@vitejs/plugin-react` needed for that alone: this app has no Fast Refresh
+ * requirement (it only ever runs through `vite build` into a packaged
+ * Capacitor shell, never a live dev server a device points at — see the
+ * `server.hostname` comment on `capacitor.config.ts`), and esbuild's own
+ * `jsx`/`jsxImportSource` transform options, forwarded here, are sufficient
+ * for a one-shot build.
  */
 export default defineConfig({
 	root: __dirname,
 	plugins: [wasm()],
+	esbuild: {
+		jsx: "automatic",
+		jsxImportSource: "react",
+	},
 	resolve: {
 		// Mirrors apps/web/tsconfig.json's "@/*" mapping: packages/editor-core's
 		// OWN source uses this alias internally (its tsconfig.json maps "@/*"

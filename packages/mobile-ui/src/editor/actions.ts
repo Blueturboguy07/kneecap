@@ -7,7 +7,7 @@
  * which is how the whole engine's React bridge is designed to be consumed
  * (see `@kneecap/editor-core/react`'s own header comment).
  */
-import type { EditorCore, TCanvasSize } from "@kneecap/editor-core";
+import type { EditorCore, MediaAsset, MediaType, TCanvasSize } from "@kneecap/editor-core";
 import type { ElementRef, RetimeConfig, TimelineElement } from "@kneecap/editor-core/timeline";
 import type { ParamValues } from "@kneecap/editor-core/params";
 import {
@@ -307,6 +307,64 @@ export const setOverlayOpacity = setElementParam;
 export const setOverlayBlendMode = setElementParam;
 
 // -------------------------------- Export sheet ------------------------------
+
+/**
+ * Structural stand-in for editor-core's internal `MediaAssetData`
+ * (`@/services/storage/types` — `buildEdl()`'s real `mediaAssets` param
+ * type, field-for-field identical here). Not imported directly: that
+ * subpath is reachable only through `@kneecap/editor-core`'s package.json
+ * `"./*"` wildcard fallback (nothing explicitly lists
+ * `services/storage/types`), which this package's own standalone `tsc
+ * --project tsconfig.json --noEmit` — the exact command
+ * scripts/invariants.sh's M8 gate runs — could not resolve (verified
+ * directly this session: `Cannot find module
+ * '@kneecap/editor-core/services/storage/types'`). `buildEdl` checks its
+ * `mediaAssets` argument structurally, not nominally, so matching the shape
+ * here satisfies it with no import of the unreachable type needed.
+ */
+interface EdlMediaAssetInput {
+	id: string;
+	name: string;
+	type: MediaType;
+	size: number;
+	lastModified: number;
+	width?: number;
+	height?: number;
+	duration?: number;
+	fps?: number;
+	hasAudio?: boolean;
+	ephemeral?: boolean;
+	thumbnailUrl?: string;
+}
+
+/**
+ * Maps the engine's live `MediaAsset[]` (`editor.media.getAssets()`) into
+ * the `EdlMediaAssetInput[]` shape `buildEdl()` expects. Kept here rather
+ * than inline in `export-sheet.tsx` for the same reason every other
+ * engine-facing function in this file lives here: one place that knows the
+ * real engine type shapes.
+ *
+ * `MediaAsset` is `Omit<MediaAssetData, "size" | "lastModified"> & { file:
+ * File; url?: string }` (`@kneecap/editor-core`'s own `media/types.ts`) — the
+ * two fields it drops are read straight off the asset's real `File` object,
+ * not invented, since every `MediaAsset` genuinely wraps one.
+ */
+export function toEdlMediaAssets({ assets }: { assets: MediaAsset[] }): EdlMediaAssetInput[] {
+	return assets.map((asset) => ({
+		id: asset.id,
+		name: asset.name,
+		type: asset.type,
+		size: asset.file.size,
+		lastModified: asset.file.lastModified,
+		width: asset.width,
+		height: asset.height,
+		duration: asset.duration,
+		fps: asset.fps,
+		hasAudio: asset.hasAudio,
+		ephemeral: asset.ephemeral,
+		thumbnailUrl: asset.thumbnailUrl,
+	}));
+}
 
 export function setProjectResolution({
 	editor,
