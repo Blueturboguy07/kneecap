@@ -23,6 +23,25 @@ async function boot() {
 	}
 }
 
+/** A boot failure must never strand the user on index.html's static
+ *  "Loading…" placeholder (exactly what a silent dynamic-import rejection
+ *  did on the first real-device run) — surface the error on screen, where
+ *  it is also screenshot-debuggable without a Web Inspector attach. */
+function showBootError(err: unknown) {
+	const detail =
+		err instanceof Error ? `${err.name}: ${err.message}\n\n${err.stack ?? ""}` : String(err);
+	const container = document.getElementById("app") ?? document.body;
+	const pre = document.createElement("pre");
+	pre.style.cssText =
+		"padding:16px;white-space:pre-wrap;word-break:break-word;color:#ff5c5c;font:12px/1.5 ui-monospace,monospace;";
+	pre.textContent = `kneecap failed to start\n\n${detail}`;
+	container.replaceChildren(pre);
+}
+
+window.addEventListener("unhandledrejection", (event) => {
+	showBootError(event.reason);
+});
+
 window.addEventListener("hashchange", () => {
 	const inDiagnostics = window.location.hash.startsWith(DIAGNOSTICS_HASH);
 	const bootedDiagnostics = document.body.dataset.kneecapMode === "diagnostics";
@@ -33,4 +52,4 @@ document.body.dataset.kneecapMode = window.location.hash.startsWith(DIAGNOSTICS_
 	? "diagnostics"
 	: "app";
 
-void boot();
+boot().catch(showBootError);
