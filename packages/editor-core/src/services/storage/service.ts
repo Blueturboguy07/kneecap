@@ -303,8 +303,16 @@ class StorageService {
 			width: mediaAsset.width,
 			height: mediaAsset.height,
 			duration: mediaAsset.duration,
+			fps: mediaAsset.fps,
+			hasAudio: mediaAsset.hasAudio,
 			thumbnailUrl: mediaAsset.thumbnailUrl,
 			ephemeral: mediaAsset.ephemeral,
+			// Native-custody assets (zero-byte stub file) live behind their
+			// converted proxy URL — persist it or reopened projects rehydrate
+			// a dead object-URL-of-zero-bytes (found on device 2026-08-19).
+			// Blob-backed assets get NO persisted url: their object URLs are
+			// session-scoped and regenerated in loadMediaAsset.
+			url: mediaAsset.file.size === 0 ? mediaAsset.url : undefined,
 		};
 
 		try {
@@ -351,7 +359,12 @@ class StorageService {
 		if (!file || !metadata) return null;
 
 		let url: string;
-		if (metadata.type === "image" && (!file.type || file.type === "")) {
+		if (metadata.url) {
+			// Native-custody asset: the stored file is the zero-byte stub and
+			// the playable bytes live on the native filesystem — the persisted
+			// proxy URL IS the playback source (see MediaAssetData.url).
+			url = metadata.url;
+		} else if (metadata.type === "image" && (!file.type || file.type === "")) {
 			try {
 				const text = await file.text();
 				if (text.trim().startsWith("<svg")) {
@@ -376,6 +389,8 @@ class StorageService {
 			width: metadata.width,
 			height: metadata.height,
 			duration: metadata.duration,
+			fps: metadata.fps,
+			hasAudio: metadata.hasAudio,
 			thumbnailUrl: metadata.thumbnailUrl,
 			ephemeral: metadata.ephemeral,
 		};

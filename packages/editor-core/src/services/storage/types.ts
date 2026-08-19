@@ -27,6 +27,15 @@ export interface MediaAssetData {
 	hasAudio?: boolean;
 	ephemeral?: boolean;
 	thumbnailUrl?: string;
+	/** Persisted playback URI — ONLY for native-custody assets whose stored
+	 *  `file` is the zero-byte stub (media/native-import.ts): the bytes live
+	 *  on the native filesystem, so the converted proxy URL is the asset's
+	 *  identity across launches. Never set for blob-backed assets (their
+	 *  object URLs die with the session and are regenerated at load).
+	 *  Known limit: the URI embeds the iOS app-container UUID, which
+	 *  changes on app REINSTALL — reinstalls orphan saved native assets
+	 *  (documented in STATUS.md, acceptable for direct-distribution v1). */
+	url?: string;
 }
 
 export type SerializedScene = Omit<TScene, "createdAt" | "updatedAt"> & {
