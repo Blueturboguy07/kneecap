@@ -80,3 +80,7 @@ export {
 	resolveNativeMediaPath,
 	relativeMediaPathFromPlaybackUrl,
 } from "./media/native-paths";
+// Read-only diagnostics surface (apps/mobile's #/autotest verdict): WebKit
+// clears WebGPU canvases after present, so on-screen pixels cannot be read
+// back in-page — decode-side stats are the honest in-page playback signal.
+export { videoCache } from "./services/video-cache/service";

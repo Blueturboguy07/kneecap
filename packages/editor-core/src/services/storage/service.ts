@@ -1,7 +1,10 @@
 import type { TProject, TProjectMetadata } from "@/project/types";
 import { getProjectDurationFromScenes } from "@/timeline/scenes";
 import type { MediaAsset } from "@/media/types";
-import { resolveNativeMediaPath } from "@/media/native-paths";
+import {
+	resolveNativeMediaPath,
+	salvageRelativeMediaPathFromStaleUrl,
+} from "@/media/native-paths";
 import { IndexedDBAdapter } from "./indexeddb-adapter";
 import { OPFSAdapter } from "./opfs-adapter";
 import {
@@ -367,16 +370,35 @@ class StorageService {
 		// playable bytes live on the native filesystem. Prefer re-anchoring
 		// the container-RELATIVE path to the CURRENT custody root — the
 		// persisted absolute url dies whenever iOS rotates the app container
-		// UUID (every update/reinstall; found live 2026-08-19).
-		const rebasedUrl = metadata.nativeRelativePath
+		// UUID (every update/reinstall; found live 2026-08-19). URLs saved
+		// before relative-path support get a best-effort salvage: the files
+		// survive the rotation (iOS migrates Application Support), only the
+		// path prefix changed.
+		let rebasedUrl = metadata.nativeRelativePath
 			? resolveNativeMediaPath(metadata.nativeRelativePath)
 			: null;
+		if (!rebasedUrl && metadata.url) {
+			const salvaged = salvageRelativeMediaPathFromStaleUrl(metadata.url);
+			if (salvaged) rebasedUrl = resolveNativeMediaPath(salvaged);
+		}
 
-		let url: string;
+		let url: string | undefined;
 		if (rebasedUrl) {
 			url = rebasedUrl;
 		} else if (metadata.url) {
 			url = metadata.url;
+		} else if (file.size === 0) {
+			// Dead legacy native asset (saved before ANY url/relative-path
+			// persistence existed): the stored file is the zero-byte stub and
+			// no pointer to the native bytes survives. Leave url undefined —
+			// the scene builder skips url-less assets — instead of the old
+			// behavior of wrapping the stub in an object URL, which fed the
+			// decoder a zero-byte blob and produced an endless error storm on
+			// device (2026-08-19). Re-importing the clip is the only recovery.
+			console.warn(
+				`[kneecap] media asset ${metadata.id} ("${metadata.name}") predates durable native paths — re-import it to restore playback`,
+			);
+			url = undefined;
 		} else if (metadata.type === "image" && (!file.type || file.type === "")) {
 			try {
 				const text = await file.text();
@@ -407,7 +429,16 @@ class StorageService {
 			thumbnailUrl:
 				(metadata.thumbnailNativeRelativePath
 					? resolveNativeMediaPath(metadata.thumbnailNativeRelativePath)
-					: null) ?? metadata.thumbnailUrl,
+					: null) ??
+				(metadata.thumbnailUrl
+					? (() => {
+							const salvaged = salvageRelativeMediaPathFromStaleUrl(
+								metadata.thumbnailUrl,
+							);
+							return salvaged ? resolveNativeMediaPath(salvaged) : null;
+						})()
+					: null) ??
+				metadata.thumbnailUrl,
 			ephemeral: metadata.ephemeral,
 			nativeRelativePath: metadata.nativeRelativePath,
 			thumbnailNativeRelativePath: metadata.thumbnailNativeRelativePath,

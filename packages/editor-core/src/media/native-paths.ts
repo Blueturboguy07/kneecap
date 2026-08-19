@@ -67,6 +67,36 @@ export function relativeMediaPathFromPlaybackUrl({
 	return rawPath.slice(cleanRoot.length + 1);
 }
 
+/**
+ * Best-effort salvage for URLs persisted BEFORE relative-path support
+ * (2026-08-19 round 3): those embed the previous install's container UUID,
+ * but iOS MIGRATES `Application Support` content across container
+ * rotations — the files still exist under the new UUID, so re-anchoring
+ * the root-relative suffix of the stale URL recovers them. The custody
+ * roots have fixed basenames ("kneecap" from iOS MediaSandbox,
+ * "no_backup" from Android's noBackupFilesDir), which is what makes the
+ * suffix extraction unambiguous. Returns the salvaged RELATIVE path, or
+ * undefined when the URL has no recognizable custody segment (e.g. web
+ * blob: URLs).
+ */
+const LEGACY_ROOT_BASENAMES = ["kneecap", "no_backup"];
+
+export function salvageRelativeMediaPathFromStaleUrl(
+	url: string,
+): string | undefined {
+	const markerIndex = url.indexOf(CAPACITOR_FILE_MARKER);
+	if (markerIndex === -1) return undefined;
+	const rawPath = url.slice(markerIndex + CAPACITOR_FILE_MARKER.length);
+	for (const basename of LEGACY_ROOT_BASENAMES) {
+		const segment = `/${basename}/`;
+		const segmentIndex = rawPath.indexOf(segment);
+		if (segmentIndex !== -1) {
+			return rawPath.slice(segmentIndex + segment.length);
+		}
+	}
+	return undefined;
+}
+
 /** Test hook: clears registration so suites don't leak state. */
 export function __resetNativeMediaPathResolverForTests(): void {
 	resolvePath = null;

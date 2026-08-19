@@ -12,11 +12,44 @@
  * this is a hidden debug switch, not user-facing navigation.
  */
 const DIAGNOSTICS_HASH = "#/diagnostics";
+const AUTOTEST_HASH = "#/autotest";
+
+/**
+ * Headless trigger for the `#/autotest` route: a Capacitor app launch has
+ * no way to carry a URL hash (`simctl launch` starts the app; the WebView
+ * always loads bare index.html), so an automated runner instead plants
+ * `<mediaRoot>/autotest.flag` in the app container and relaunches. The
+ * check is a single local scheme-handler fetch (missing file -> the task
+ * fails -> fetch throws -> false), a few ms on device and skipped
+ * entirely on the web dev server.
+ */
+async function autotestFlagPresent(): Promise<boolean> {
+	try {
+		const { Capacitor } = await import("@capacitor/core");
+		if (!Capacitor.isNativePlatform()) return false;
+		const { getNativeBridge } = await import("@kneecap/native-bridge");
+		const bridge = await getNativeBridge();
+		const root = await bridge.getMediaRoot();
+		if (!root) return false;
+		const res = await fetch(bridge.toPlaybackUri(`file://${root}/autotest.flag`));
+		return res.ok || res.status === 0;
+	} catch {
+		return false;
+	}
+}
 
 async function boot() {
 	if (window.location.hash.startsWith(DIAGNOSTICS_HASH)) {
 		const { mountLegacyHarness } = await import("./legacy-harness");
 		await mountLegacyHarness();
+	} else if (
+		window.location.hash.startsWith(AUTOTEST_HASH) ||
+		(await autotestFlagPresent())
+	) {
+		// End-to-end playback QA (import → persist → reopen → frames) — see
+		// autotest.tsx. Hidden debug route, same policy as #/diagnostics.
+		const { mountAutotest } = await import("./autotest");
+		await mountAutotest();
 	} else {
 		const { mountApp } = await import("./app/app-root");
 		mountApp();
