@@ -39,7 +39,12 @@ import {
 	mediaTimeFromSeconds,
 	ZERO_MEDIA_TIME,
 	type MediaTime,
+	type NativeImportProgress,
 } from "@kneecap/editor-core";
+
+export type NativeImportProgressHandler = (
+	progress: NativeImportProgress,
+) => void;
 import type { FrameRate } from "opencut-wasm";
 
 // --------------------------------- reads -----------------------------------
@@ -254,7 +259,13 @@ const IMAGE_DEFAULT_DURATION_SEC = 3;
  * the playhead through the same InsertElementCommand path every other
  * insert action here uses. Returns how many clips landed.
  */
-export async function importAndPlaceMedia({ editor }: { editor: EditorCore }): Promise<number> {
+export async function importAndPlaceMedia({
+	editor,
+	onProgress,
+}: {
+	editor: EditorCore;
+	onProgress?: NativeImportProgressHandler;
+}): Promise<number> {
 	const bridge = await getNativeBridge();
 	const projectId = editor.project.getActive().metadata.id;
 	const { imported } = await importMediaFromNative({
@@ -263,6 +274,7 @@ export async function importAndPlaceMedia({ editor }: { editor: EditorCore }): P
 		source: bridge,
 		kinds: ["video", "image"],
 		allowMultiple: true,
+		onProgress,
 	});
 	for (const asset of imported) {
 		const create = buildElementFromMedia({

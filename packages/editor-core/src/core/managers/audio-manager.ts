@@ -16,10 +16,10 @@ import {
 import {
 	ALL_FORMATS,
 	AudioBufferSink,
-	BlobSource,
 	Input,
 	type WrappedAudioBuffer,
 } from "mediabunny";
+import { createPlayableSource } from "@/media/playable-source";
 
 export class AudioManager {
 	private audioContext: AudioContext | null = null;
@@ -594,10 +594,16 @@ export class AudioManager {
 			return null;
 		}
 
-		const input = new Input({
-			source: new BlobSource(clip.file),
-			formats: ALL_FORMATS,
-		});
+		let input: Input;
+		try {
+			input = new Input({
+				source: createPlayableSource({ file: clip.file, url: clip.url }),
+				formats: ALL_FORMATS,
+			});
+		} catch (error) {
+			console.warn("Audio clip has no playable source:", error);
+			return null;
+		}
 
 		try {
 			const audioTrack = await input.getPrimaryAudioTrack();
@@ -679,7 +685,7 @@ export class AudioManager {
 
 		try {
 			const input = new Input({
-				source: new BlobSource(clip.file),
+				source: createPlayableSource({ file: clip.file, url: clip.url }),
 				formats: ALL_FORMATS,
 			});
 			const audioTrack = await input.getPrimaryAudioTrack();

@@ -927,9 +927,18 @@
 	overflow: hidden;
 	/* viewport-fit=cover puts us under the status bar / home indicator —
 	   inset the chrome (found live on device: the top bar rendered behind
-	   the clock, 2026-08-18). Resolves to 0 in the web dev harness. */
+	   the clock, 2026-08-18). Resolves to 0 in the web dev harness.
+	   border-box is load-bearing: no global box-sizing reset is loaded on
+	   the real app path (apps/mobile's reset lives in the legacy-harness
+	   stylesheet), so under default content-box these paddings ADDED to the
+	   100% height and pushed the toolbar/timeline below the viewport — the
+	   whole app scrolled on device (2026-08-19). Left/right cover the
+	   landscape notch. */
+	box-sizing: border-box;
 	padding-top: env(safe-area-inset-top, 0px);
 	padding-bottom: env(safe-area-inset-bottom, 0px);
+	padding-left: env(safe-area-inset-left, 0px);
+	padding-right: env(safe-area-inset-right, 0px);
 }
 
 /* ------------------------------- Top bar ---------------------------------- */

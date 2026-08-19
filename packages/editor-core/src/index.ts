@@ -70,6 +70,7 @@ export {
 	type NativeMediaHandle,
 	type NativeProxyProgress,
 	type NativeFrameRate,
+	type NativeImportProgress,
 	type ImportMediaFromNativeParams,
 	type ImportMediaFromNativeResult,
 	type NativeImportFailure,

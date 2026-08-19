@@ -48,6 +48,7 @@ import { Scissors, VolumeX, WandSparkles, ImagePlus } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
+import { ProgressOverlay } from "../progress-overlay";
 
 type SheetId = PrimaryToolId | "export";
 
@@ -140,6 +141,16 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	 *  on the founder's iPhone a dead pickMedia call surfaced as a
 	 *  whole-app death screen (2026-08-18). */
 	const [chromeError, setChromeError] = useState<string | null>(null);
+	/** Non-null while the "+" import flow is in flight — from the tap that
+	 *  opens the picker until every picked asset's native proxy transcode
+	 *  lands (or the picker is cancelled). Drives the same ProgressOverlay
+	 *  the export sheet uses; without it the seconds of native transcode
+	 *  after picking looked like a dead button (founder's device,
+	 *  2026-08-19). */
+	const [importProgress, setImportProgress] = useState<{
+		percent: number;
+		label: string;
+	} | null>(null);
 	const timelineProject = useTimelineProjectVM();
 
 	const reportChromeError = (error: unknown) => {
@@ -211,8 +222,30 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 						}
 						currentTimeLabel={`${formatTimecode(currentTimeSeconds)} / ${formatTimecode(durationSeconds)}`}
 						onAddClip={() => {
+							if (importProgress) return; // one import at a time
 							setChromeError(null);
-							importAndPlaceMedia({ editor }).catch(reportChromeError);
+							// Indeterminate 0% while the OS picker is up; the picker
+							// sheet covers it, and a cancelled pick clears it in
+							// `finally` (pickMedia resolves to an empty handle list).
+							setImportProgress({ percent: 0, label: "Choosing media…" });
+							importAndPlaceMedia({
+								editor,
+								onProgress: (p) => {
+									const overall =
+										((p.index + Math.min(1, Math.max(0, p.fraction))) /
+											Math.max(1, p.total)) *
+										100;
+									setImportProgress({
+										percent: Math.round(overall),
+										label:
+											p.total > 1
+												? `Importing ${p.index + 1} of ${p.total}…`
+												: `Importing ${p.fileName}…`,
+									});
+								},
+							})
+								.catch(reportChromeError)
+								.finally(() => setImportProgress(null));
 						}}
 						showAddAudio={!timelineProject.tracks.some((t) => t.kind === "audio")}
 						onAddAudio={() => setActiveSheet("audio")}
@@ -251,6 +284,10 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 				<button type="button" className="cc-chrome-error" onClick={() => setChromeError(null)}>
 					{chromeError}
 				</button>
+			)}
+
+			{importProgress && (
+				<ProgressOverlay percent={importProgress.percent} label={importProgress.label} />
 			)}
 
 			{selectedRef && selectedElement && (

@@ -1,10 +1,11 @@
 import {
 	Input,
 	ALL_FORMATS,
-	BlobSource,
 	CanvasSink,
 	type WrappedCanvas,
 } from "mediabunny";
+import { createPlayableSource } from "@/media/playable-source";
+import { toast } from "@/core/notifications";
 
 interface VideoSinkData {
 	input: Input;
@@ -22,17 +23,34 @@ export class VideoCache {
 	private initPromises = new Map<string, Promise<void>>();
 	private frameChain = new Map<string, Promise<unknown>>();
 	private seekGenerations = new Map<string, number>();
+	/** mediaId → error message. A sink that failed to open stays failed
+	 *  until the media is cleared: without this, the render loop re-parses
+	 *  the same broken source on EVERY advancing frame (the exact churn
+	 *  that made a stubbed native import read as "playback totally broken"
+	 *  on the founder's iPhone, 2026-08-19). */
+	private failedSinks = new Map<string, string>();
 
 	async getFrameAt({
 		mediaId,
 		file,
+		url = null,
 		time,
 	}: {
 		mediaId: string;
 		file: File;
+		url?: string | null;
 		time: number;
 	}): Promise<WrappedCanvas | null> {
-		await this.ensureSink({ mediaId, file });
+		if (this.failedSinks.has(mediaId)) return null;
+
+		try {
+			await this.ensureSink({ mediaId, file, url });
+		} catch {
+			// Already recorded in failedSinks + toasted by initializeSink; a
+			// broken clip must degrade to an empty layer, not take the whole
+			// frame (and every OTHER layer in it) down with a rejected render.
+			return null;
+		}
 
 		const sinkData = this.sinks.get(mediaId);
 		if (!sinkData) return null;
@@ -235,9 +253,11 @@ export class VideoCache {
 	private async ensureSink({
 		mediaId,
 		file,
+		url,
 	}: {
 		mediaId: string;
 		file: File;
+		url: string | null;
 	}): Promise<void> {
 		if (this.sinks.has(mediaId)) return;
 
@@ -246,7 +266,7 @@ export class VideoCache {
 			return;
 		}
 
-		const initPromise = this.initializeSink({ mediaId, file });
+		const initPromise = this.initializeSink({ mediaId, file, url });
 		this.initPromises.set(mediaId, initPromise);
 
 		try {
@@ -258,12 +278,14 @@ export class VideoCache {
 	private async initializeSink({
 		mediaId,
 		file,
+		url,
 	}: {
 		mediaId: string;
 		file: File;
+		url: string | null;
 	}): Promise<void> {
 		const input = new Input({
-			source: new BlobSource(file),
+			source: createPlayableSource({ file, url }),
 			formats: ALL_FORMATS,
 		});
 
@@ -295,6 +317,15 @@ export class VideoCache {
 			});
 		} catch (error) {
 			input.dispose();
+			const message = error instanceof Error ? error.message : String(error);
+			this.failedSinks.set(mediaId, message);
+			// Surface it ONCE — this failure class was previously console-only
+			// ("silent death" class, docs/TEST-REPORT.md) and read as a dead
+			// player on device.
+			toast.error({
+				message: `Can't play "${file.name || "clip"}"`,
+				description: message,
+			});
 			console.error(`Failed to initialize video sink for ${mediaId}:`, error);
 			throw error;
 		}
@@ -314,12 +345,15 @@ export class VideoCache {
 		this.initPromises.delete(mediaId);
 		this.frameChain.delete(mediaId);
 		this.seekGenerations.delete(mediaId);
+		this.failedSinks.delete(mediaId);
 	}
 
 	clearAll(): void {
 		for (const [mediaId] of this.sinks) {
 			this.clearVideo({ mediaId });
 		}
+		// Failed sinks never enter this.sinks — sweep them separately.
+		this.failedSinks.clear();
 	}
 
 	getStats() {

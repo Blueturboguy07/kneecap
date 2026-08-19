@@ -19,7 +19,11 @@ import { canElementHaveAudio, hasMediaId } from "@/timeline/element-utils";
 import { canTrackHaveAudio } from "@/timeline";
 import { mediaSupportsAudio } from "@/media/media-utils";
 import { getSourceTimeAtClipTime, renderRetimedBuffer } from "@/retime";
-import { Input, ALL_FORMATS, BlobSource, AudioBufferSink } from "mediabunny";
+import { Input, ALL_FORMATS, AudioBufferSink } from "mediabunny";
+import {
+	createPlayableSource,
+	readPlayableBytes,
+} from "@/media/playable-source";
 import { TICKS_PER_SECOND } from "@/wasm";
 import {
 	computeRmsBuckets,
@@ -254,7 +258,10 @@ async function resolveAudioBufferForAsset({
 }): Promise<AudioBuffer | null> {
 	if (asset.type === "audio") {
 		try {
-			const arrayBuffer = await asset.file.arrayBuffer();
+			const arrayBuffer = await readPlayableBytes({
+				file: asset.file,
+				url: asset.url ?? null,
+			});
 			return await audioContext.decodeAudioData(arrayBuffer.slice(0));
 		} catch (error) {
 			console.warn("Failed to decode audio asset:", error);
@@ -263,7 +270,10 @@ async function resolveAudioBufferForAsset({
 	}
 
 	const input = new Input({
-		source: new BlobSource(asset.file),
+		source: createPlayableSource({
+			file: asset.file,
+			url: asset.url ?? null,
+		}),
 		formats: ALL_FORMATS,
 	});
 
@@ -354,6 +364,9 @@ export interface AudioClipSource {
 	id: string;
 	sourceKey: string;
 	file: File;
+	/** Playable fallback for native imports whose `file` is a zero-byte
+	 *  stub (media/native-import.ts) — see media/playable-source.ts. */
+	url: string | null;
 	startTime: number;
 	duration: number;
 	trimStart: number;
@@ -422,6 +435,7 @@ async function fetchLibraryAudioClip({
 			id: element.id,
 			sourceKey: element.id,
 			file,
+			url: null,
 			startTime: element.startTime,
 			duration: element.duration,
 			trimStart: element.trimStart,
@@ -473,6 +487,7 @@ function collectMediaAudioClip({
 		id: element.id,
 		sourceKey: mediaAsset.id,
 		file: mediaAsset.file,
+		url: mediaAsset.url ?? null,
 		startTime: element.startTime / TICKS_PER_SECOND,
 		duration: element.duration / TICKS_PER_SECOND,
 		trimStart: element.trimStart / TICKS_PER_SECOND,

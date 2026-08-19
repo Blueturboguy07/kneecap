@@ -82,16 +82,13 @@ const MIME_BY_KIND: Record<MediaType, string> = {
  * jetsam vector M4's own exit criterion forbids ("peak JS heap delta during
  * import of a 2GB source file is under 20MB").
  *
- * KNOWN GAP, not silently papered over: any preview/waveform code path that
- * reads real bytes off `mediaAsset.file` (via mediabunny's `BlobSource`)
- * will not work correctly for a native-imported asset today. Fixing that
- * for real is the `NativeMediaStore`/`BlobSource`-to-`UrlSource` swap plan
- * §2.6 describes — a change to the RENDER pipeline, not the import
- * orchestration this file owns. `mediaAsset.url` (set to the native proxy's
- * playback URI below) is what actually works today: anything reading `url`
- * rather than `file` — which is how the M3 harness and a `<video src>`-based
- * preview would consume it — functions correctly. See the M4 handoff for
- * the full list of what this gap does and doesn't affect.
+ * The render/audio pipeline handles this stub via
+ * `media/playable-source.ts` (the plan §2.6 `BlobSource`-to-`UrlSource`
+ * swap, closed 2026-08-19 after on-device playback surfaced the gap):
+ * every decode path prefers real `file` bytes and falls back to streaming
+ * `mediaAsset.url` (the proxy's playback URI below) when the file is this
+ * zero-byte stub. Any NEW code that reads `mediaAsset.file` directly must
+ * go through `createPlayableSource`/`readPlayableBytes` instead.
  */
 function stubFile({
 	fileName,
@@ -152,6 +149,20 @@ export function buildMediaAssetFromNativeImport({
 	};
 }
 
+/**
+ * One tick of import progress, shaped for a UI that shows a single
+ * overall indicator: `index`/`total` locate the asset currently being
+ * proxied, `fraction` is that asset's own 0..1 transcode progress
+ * (mirrors `NativeProxyProgress.fraction`).
+ */
+export interface NativeImportProgress {
+	index: number;
+	total: number;
+	fileName: string;
+	stage: NativeProxyProgress["stage"];
+	fraction: number;
+}
+
 export interface ImportMediaFromNativeParams {
 	editor: EditorCore;
 	projectId: string;
@@ -160,6 +171,13 @@ export interface ImportMediaFromNativeParams {
 	allowMultiple: boolean;
 	/** Plan Amendment 4 default: 540p short edge, short-GOP on. */
 	proxySpec?: { targetHeight: number; shortGop: boolean };
+	/**
+	 * Fires as soon as the picker resolves and then on every native proxy
+	 * progress event. Without a consumer the import runs seconds of native
+	 * transcode with zero UI acknowledgement — the "nothing happens after I
+	 * pick a video" report from the founder's device (2026-08-19).
+	 */
+	onProgress?: (progress: NativeImportProgress) => void;
 }
 
 export interface NativeImportFailure {
@@ -187,19 +205,37 @@ export async function importMediaFromNative({
 	kinds,
 	allowMultiple,
 	proxySpec = { targetHeight: 540, shortGop: true },
+	onProgress,
 }: ImportMediaFromNativeParams): Promise<ImportMediaFromNativeResult> {
 	const handles = await source.pickMedia({ kinds, allowMultiple });
 
 	const imported: MediaAsset[] = [];
 	const failed: NativeImportFailure[] = [];
 
-	for (const handle of handles) {
+	for (const [index, handle] of handles.entries()) {
+		// Announce the asset before its first native event arrives — the gap
+		// between picker dismissal and the first "transcoding" event is
+		// exactly where the UI used to look dead.
+		onProgress?.({
+			index,
+			total: handles.length,
+			fileName: handle.fileName,
+			stage: "queued",
+			fraction: 0,
+		});
 		let finalProxy: NativeProxyProgress | null = null;
 		try {
 			for await (const progress of source.generateProxy({
 				handle,
 				spec: proxySpec,
 			})) {
+				onProgress?.({
+					index,
+					total: handles.length,
+					fileName: handle.fileName,
+					stage: progress.stage,
+					fraction: progress.fraction,
+				});
 				if (progress.stage === "done" || progress.stage === "error") {
 					finalProxy = progress;
 				}
