@@ -72,6 +72,14 @@ Fix, one layer per concern: (a) `importMediaFromNative` short-circuits `kind=="i
 
 Verified in the simulator via `#/autotest` (now imports a planted mp4 AND jpeg together): both import, both land on the timeline (screenshot), video plays, VERDICT PASS on import and reopen phases (the image's `rel=Media/autotest-image.jpeg` persists + re-anchors). invariants green; both native builds compile.
 
+## Round 7 (2026-08-19): the "stuck at import" class — pick progress + failure surfacing; fonts to PNG (1e582b4b)
+
+Device log showed `pickMedia` fire then silence. Root cause: iOS `loadFileRepresentation` IS the iCloud original download (minutes, unobserved Progress), and per-item errors resumed nil — silently dropped, so an all-failed batch resolved `handles: []` exactly like a user cancel. Android inversely rejected the whole batch on one bad item. Fixed with a `pickProgress` event stream on both platforms (iOS KVO on the load Progress = real download fractions; Android per-item stage markers + per-item isolation), forwarded as import-stage "picking" ("Preparing media N of M…" in the overlay), with every dropped item toasted.
+
+Fonts: lossless WebP ALSO failed device ImageIO (err=-50 ×15) — and round 5's "0 AVIF errors" sim check was vacuous because WebContent-process decode errors never reach the app console. Chunks are now PNG; the autotest VERDICT includes an in-app `Image.decode` probe (`fonts=ok`) so image-format support is measured, never assumed. Sim-verified: import phase exercises pickProgress, video+image import, playback PASS, fonts=ok; reopen PASS.
+
+**Closed as not-a-bug:** the boot "JS Eval error" ×1-2 is Capacitor's own `CapacitorBridge.eval` firing a lifecycle event before the page loads (always pre-"WebView loaded") — benign framework noise on every Capacitor iOS app.
+
 ## Test sweep (2026-08-18, Fable fork agent) — see docs/TEST-REPORT.md
 
 All three CRITICALs found by the sweep are fixed and re-verified live in the browser harness: (C1) GPU init now gates the preview renderer (plus boot-time `ensurePreviewGpu` + font atlas bundled into apps/mobile, so text renders with real fonts); (C2) the home project list re-renders via a selector subscription — the engine always had the data, the UI never re-subscribed (verified: engine 1 / DOM 0 before, 1/1 after; reopen-after-reload rehydrates); (C3) a CrashBoundary paints any React render crash on screen instead of silent black. HIGHs still open, in priority order: Android's EDL parser missing ~12 field families that TS emits and iOS parses (must parse-or-reject, never silently drop); split-at-boundary silently no-ops; audio waveforms never populated (mock-only).
