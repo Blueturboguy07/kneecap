@@ -65,7 +65,7 @@ function preloadChunkImages({ atlas }: { atlas: FontAtlas }): void {
 	for (let i = 0; i <= maxChunk; i++) {
 		// hint browser to preload the (same-origin) chunk image without blocking
 		const img = new Image();
-		img.src = `${FONT_CHUNK_PATH_PREFIX}${i}.avif`;
+		img.src = `${FONT_CHUNK_PATH_PREFIX}${i}.webp`;
 	}
 }
 
