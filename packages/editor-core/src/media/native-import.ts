@@ -251,20 +251,46 @@ export async function importMediaFromNative({
 			fraction: 0,
 		});
 		let finalProxy: NativeProxyProgress | null = null;
+
+		// Images never enter the proxy transcode: the native pipeline is a
+		// VIDEO transcoder (AVFoundation / Media3), and feeding it a still
+		// fails with "Cannot Open … AVErrorFailedDependenciesKey=(Duration)"
+		// (founder's iPhone, 2026-08-19 — every JPEG import died). The
+		// web-fallback contract already states the rule for proxy-less kinds:
+		// the proxy IS the source. The still is also its own thumbnail.
+		if (handle.kind === "image") {
+			finalProxy = {
+				assetId: handle.id,
+				stage: "done",
+				fraction: 1,
+				proxyUri: handle.uri,
+				thumbnailUris: [handle.uri],
+			};
+			onProgress?.({
+				index,
+				total: handles.length,
+				fileName: handle.fileName,
+				stage: "done",
+				fraction: 1,
+			});
+		}
+
 		try {
-			for await (const progress of source.generateProxy({
-				handle,
-				spec: proxySpec,
-			})) {
-				onProgress?.({
-					index,
-					total: handles.length,
-					fileName: handle.fileName,
-					stage: progress.stage,
-					fraction: progress.fraction,
-				});
-				if (progress.stage === "done" || progress.stage === "error") {
-					finalProxy = progress;
+			if (!finalProxy) {
+				for await (const progress of source.generateProxy({
+					handle,
+					spec: proxySpec,
+				})) {
+					onProgress?.({
+						index,
+						total: handles.length,
+						fileName: handle.fileName,
+						stage: progress.stage,
+						fraction: progress.fraction,
+					});
+					if (progress.stage === "done" || progress.stage === "error") {
+						finalProxy = progress;
+					}
 				}
 			}
 		} catch (error) {

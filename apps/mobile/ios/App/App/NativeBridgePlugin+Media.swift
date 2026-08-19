@@ -62,6 +62,16 @@ extension NativeBridgePlugin {
             call.reject("no such file at handle.uri: \(uriString)")
             return
         }
+        // This is a VIDEO transcoder (AVAssetReader/Writer). A still image
+        // has no Duration and AVFoundation dies with -11828 "Cannot Open"
+        // (founder's iPhone, 2026-08-19). The JS orchestration never calls
+        // this for kind=="image" (the proxy IS the source there); reject
+        // loudly rather than stream a cryptic AVFoundation error if a
+        // future caller regresses.
+        if let kind = handle["kind"] as? String, kind == "image" {
+            call.reject("generateProxy is video-only; image assets use their source as the proxy", "UNSUPPORTED")
+            return
+        }
 
         let specDict = call.getObject("spec") ?? [:]
         let targetShortEdge = (specDict["targetHeight"] as? Int) ?? 540

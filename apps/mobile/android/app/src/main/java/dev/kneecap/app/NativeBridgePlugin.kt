@@ -273,6 +273,13 @@ class NativeBridgePlugin : Plugin() {
 			call.reject("handle.uri must be a native file:// handle", "UNSUPPORTED")
 			return
 		}
+		// Same guard as iOS: this is a VIDEO transcoder (Media3 Transformer);
+		// stills never come through here — the JS orchestration uses the
+		// source as the proxy for kind=="image" (2026-08-19).
+		if (handleObj.getString("kind") == "image") {
+			call.reject("generateProxy is video-only; image assets use their source as the proxy", "UNSUPPORTED")
+			return
+		}
 		val targetShortEdgePx = specObj.optInt("targetHeight", 540)
 		val shortGop = specObj.optBoolean("shortGop", true)
 

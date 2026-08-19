@@ -73,6 +73,26 @@ function plantedHandle(root: string): NativeMediaHandle {
 	return Object.assign({}, handle, { rotationDegrees: 0 });
 }
 
+/** The still the runner plants next to the video (regression coverage for
+ *  the image-import path: images must NEVER reach the native video
+ *  transcoder — found on device 2026-08-19, AVFoundation -11828). */
+function plantedImageHandle(root: string): NativeMediaHandle {
+	const handle: NativeMediaHandle = {
+		id: "autotest-img",
+		uri: `${root}/Media/autotest-image.jpeg`,
+		kind: "image",
+		fileName: "autotest-image.jpeg",
+		sizeBytes: 100_000,
+		durationMicros: 0,
+		width: 1280,
+		height: 720,
+		hasAudio: false,
+		codec: "jpeg",
+		frameRate: null,
+	};
+	return Object.assign({}, handle, { rotationDegrees: 0 });
+}
+
 async function waitFor<T>(
 	label: string,
 	probe: () => T | null | undefined | false,
@@ -133,7 +153,7 @@ async function runPhase({
 
 	// The REAL import orchestration; only the picker is substituted.
 	const source: NativeMediaSource = {
-		pickMedia: async () => [plantedHandle(root)],
+		pickMedia: async () => [plantedHandle(root), plantedImageHandle(root)],
 		// The cast mirrors how the real flow types out: `actions.ts` passes
 		// the bridge itself (method bivariance), while this explicit wrapper
 		// is checked strictly — plantedHandle() DOES carry rotationDegrees.
@@ -148,33 +168,36 @@ async function runPhase({
 		editor,
 		projectId: editor.project.getActive().metadata.id,
 		source,
-		kinds: ["video"],
-		allowMultiple: false,
-		onProgress: (p) => log(`import ${p.stage} ${Math.round(p.fraction * 100)}%`),
+		kinds: ["video", "image"],
+		allowMultiple: true,
+		onProgress: (p) =>
+			log(`import ${p.fileName} ${p.stage} ${Math.round(p.fraction * 100)}%`),
 	});
-	if (failed.length > 0 || imported.length !== 1) {
+	if (failed.length > 0 || imported.length !== 2) {
 		throw new Error(
 			`import failed: imported=${imported.length} failed=${failed[0]?.error ?? "none"}`,
 		);
 	}
-	const asset = imported[0];
-	log(
-		`imported asset url=${asset.url} rel=${asset.nativeRelativePath ?? "(none)"}`,
-	);
-
-	editor.command.execute({
-		command: new InsertElementCommand({
-			element: buildElementFromMedia({
-				mediaId: asset.id,
-				mediaType: asset.type,
-				name: asset.name,
-				duration: mediaTimeFromSeconds({ seconds: asset.duration ?? 3 }),
-				startTime: editor.playback.getCurrentTime(),
+	for (const asset of imported) {
+		log(
+			`imported ${asset.type} url=${asset.url} rel=${asset.nativeRelativePath ?? "(none)"}`,
+		);
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildElementFromMedia({
+					mediaId: asset.id,
+					mediaType: asset.type,
+					name: asset.name,
+					// `||`: image imports probe duration 0 (same rule as
+					// actions.ts importAndPlaceMedia).
+					duration: mediaTimeFromSeconds({ seconds: asset.duration || 3 }),
+					startTime: editor.playback.getCurrentTime(),
+				}),
+				placement: { mode: "auto", trackType: "video" },
 			}),
-			placement: { mode: "auto", trackType: "video" },
-		}),
-	});
-	log("clip placed on timeline");
+		});
+	}
+	log("clips placed on timeline");
 	await editor.project.saveCurrentProject();
 	log("project saved");
 }

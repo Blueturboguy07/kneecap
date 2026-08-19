@@ -64,6 +64,14 @@ Also fixed after real research: the boot-time `AVIF err=-39` ×15 spam was the f
 
 Remaining round-5 leftovers: the boot "JS Eval error" (reproduces in sim, app unaffected — still undiagnosed); the simulator renders the editor chrome with degraded styling (huge serif fallbacks, mislaid timeline chrome — not seen in founder device captures; suspected iOS-26-sim WebKit/CSS quirk, worth one look); audio playback verified only decode-side (autotest asserts video frames, not audible output).
 
+## Round 6 (2026-08-19): image imports died in the video transcoder — fixed + autotest now covers stills
+
+The round-5 device log was the healthiest yet (dead legacy assets cleanly flagged, no error storms, the founder's fetch failures gone) but surfaced the next seam on first real use: **picking a JPEG fed the still to the VIDEO proxy transcoder** — AVFoundation refused with `-11828 Cannot Open … AVErrorFailedDependenciesKey=(Duration)`. Neither platform's `generateProxy` ever branched on `handle.kind`; the web fallback documented the intended contract all along ("the proxy IS the source"). NOTE for future triage: the scary LaunchServices/`usermanagerd`/sandbox-extension lines around picker use are normal out-of-process PHPicker noise, not app failures.
+
+Fix, one layer per concern: (a) `importMediaFromNative` short-circuits `kind=="image"` — no transcode call, proxy = source, the still is its own thumbnail, relative-path persistence included; fixes iOS AND Android identically. (b) Both native `generateProxy`s now reject images loudly ("video-only") instead of streaming a cryptic AVFoundation/Media3 error if a future caller regresses. (c) Zero-length image clips fixed at placement (`duration || 3s` — a probed still has durationMicros 0, and `?? 3` never fired).
+
+Verified in the simulator via `#/autotest` (now imports a planted mp4 AND jpeg together): both import, both land on the timeline (screenshot), video plays, VERDICT PASS on import and reopen phases (the image's `rel=Media/autotest-image.jpeg` persists + re-anchors). invariants green; both native builds compile.
+
 ## Test sweep (2026-08-18, Fable fork agent) — see docs/TEST-REPORT.md
 
 All three CRITICALs found by the sweep are fixed and re-verified live in the browser harness: (C1) GPU init now gates the preview renderer (plus boot-time `ensurePreviewGpu` + font atlas bundled into apps/mobile, so text renders with real fonts); (C2) the home project list re-renders via a selector subscription — the engine always had the data, the UI never re-subscribed (verified: engine 1 / DOM 0 before, 1/1 after; reopen-after-reload rehydrates); (C3) a CrashBoundary paints any React render crash on screen instead of silent black. HIGHs still open, in priority order: Android's EDL parser missing ~12 field families that TS emits and iOS parses (must parse-or-reject, never silently drop); split-at-boundary silently no-ops; audio waveforms never populated (mock-only).

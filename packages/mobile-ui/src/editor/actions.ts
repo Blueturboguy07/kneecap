@@ -281,7 +281,10 @@ export async function importAndPlaceMedia({
 			mediaId: asset.id,
 			mediaType: asset.type,
 			name: asset.name,
-			duration: mediaTimeFromSeconds({ seconds: asset.duration ?? IMAGE_DEFAULT_DURATION_SEC }),
+			// `||`, not `??`: a native image import probes durationMicros: 0,
+			// and a 0-length clip is invisible/untrimmable (found on device
+			// 2026-08-19 alongside the image-proxy fix).
+			duration: mediaTimeFromSeconds({ seconds: asset.duration || IMAGE_DEFAULT_DURATION_SEC }),
 			startTime: editor.playback.getCurrentTime(),
 		});
 		editor.command.execute({
