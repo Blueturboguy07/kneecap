@@ -68,6 +68,10 @@ export function useCurrentTimeSeconds(): number {
 			[editor],
 		),
 		() => mediaTimeToSeconds({ time: editor.playback.getCurrentTime() }),
+		// Server snapshot for apps/web's prerendered dev harness routes —
+		// there is no live playback clock during SSR; hydration re-reads the
+		// client snapshot immediately.
+		() => 0,
 	);
 }
 
