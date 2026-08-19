@@ -111,14 +111,20 @@ describe("createCapacitorBridge (production path, real @capacitor/core, no nativ
 		expect(bridge.platform).toBe("web");
 	});
 
-	test("toPlaybackUri converts a native path via Capacitor.convertFileSrc", () => {
+	test("toPlaybackUri normalizes raw paths to file:// before convertFileSrc", () => {
 		// Under `bun test`'s web platform, Capacitor.convertFileSrc is a
-		// pass-through (the real path-rewrite only exists in the native iOS/
-		// Android runtime) — so this just proves the method is wired at all,
-		// not the iOS `_capacitor_file_` rewrite itself (unverifiable outside
-		// a real WKWebView; see the M4 handoff).
+		// pass-through (the real `_capacitor_file_` rewrite only exists in
+		// the native iOS/Android runtime) — so what this pins down is the
+		// bridge's OWN normalization: a raw absolute path (what iOS's Swift
+		// side returns) must be prefixed with file:// or convertFileSrc
+		// passes it through untouched and the WebView gets an unloadable
+		// bare path (found on device, 2026-08-19).
 		expect(bridge.toPlaybackUri("/some/native/path.mp4")).toBe(
-			"/some/native/path.mp4",
+			"file:///some/native/path.mp4",
+		);
+		// Already-schemed URIs (Android's Uri.fromFile output) pass through.
+		expect(bridge.toPlaybackUri("file:///data/user/0/x/proxy.mp4")).toBe(
+			"file:///data/user/0/x/proxy.mp4",
 		);
 	});
 

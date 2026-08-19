@@ -354,9 +354,23 @@ function fromWireMediaHandle(wire: WireMediaHandle): MediaHandle {
  * path as the canonical `uri` and converting only at the point a `<video
  * src>`/`MediaAsset.url` is actually needed avoids two incompatible
  * "the uri" values floating around for the same asset.
+ *
+ * The `file://` normalization is load-bearing, found on the founder's
+ * iPhone (2026-08-19): `Capacitor.convertFileSrc` ONLY rewrites strings
+ * that start with `file://` (or `content://` on Android) and passes raw
+ * paths through UNCHANGED. iOS's Swift side returns raw `URL.path` values
+ * (by design, see above), so without this prefix every playback/thumbnail
+ * URL on iOS was a bare `/var/mobile/...` path — the WebView resolved it
+ * against the app origin, the scheme handler failed it, and mediabunny's
+ * UrlSource retried the dead fetch forever. Android already returns
+ * `file:///...` (`Uri.fromFile(...).toString()`), so the prefix is a
+ * no-op there.
  */
 function toPlaybackUri(nativeUri: string): string {
-	return Capacitor.convertFileSrc(nativeUri);
+	const normalized = nativeUri.startsWith("/")
+		? `file://${nativeUri}`
+		: nativeUri;
+	return Capacitor.convertFileSrc(normalized);
 }
 
 /**

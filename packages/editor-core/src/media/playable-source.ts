@@ -28,7 +28,18 @@ export function createPlayableSource({
 		return new BlobSource(file);
 	}
 	if (url) {
-		return new UrlSource(url);
+		return new UrlSource(url, {
+			// mediabunny's default policy retries same-origin failures FOREVER
+			// (exponential backoff, only gives up on suspected CORS). Against
+			// a local Capacitor-scheme URL a failure is deterministic — a bad
+			// path today is a bad path on attempt 40 — and the infinite loop
+			// kept the sink init pending so VideoCache's failed-sink cache and
+			// error toast never engaged (observed live: endless "Retrying
+			// failed fetch" console spam, founder's iPhone 2026-08-19). Three
+			// quick attempts, then fail loudly.
+			getRetryDelay: (previousAttempts) =>
+				previousAttempts >= 3 ? null : 0.2 * previousAttempts,
+		});
 	}
 	throw new Error(
 		"Media asset has neither in-memory bytes nor a playable URL",
