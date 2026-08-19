@@ -312,6 +312,38 @@ final class MediaPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
         case failed(String)
     }
 
+    /// Thread-safe holder so the KVO observation can be created after the
+    /// load call returns its Progress, yet invalidated from the load's
+    /// completion (which may run on any queue) before the Progress dies.
+    private final class ObservationBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _observation: NSKeyValueObservation?
+        private var dead = false
+        var observation: NSKeyValueObservation? {
+            get { lock.lock(); defer { lock.unlock() }; return _observation }
+            set {
+                lock.lock()
+                defer { lock.unlock() }
+                if dead {
+                    // The load completion already ran (fast local file) —
+                    // the Progress may be moments from dealloc; kill the
+                    // observation NOW rather than at box deinit.
+                    newValue?.invalidate()
+                    _observation = nil
+                    return
+                }
+                _observation = newValue
+            }
+        }
+        func invalidate() {
+            lock.lock()
+            defer { lock.unlock() }
+            dead = true
+            _observation?.invalidate()
+            _observation = nil
+        }
+    }
+
     /// Loads one `PHPickerResult`'s file representation, copies it into
     /// sandboxed media custody, and probes it. Returns `.failed(reason)`
     /// (rather than failing the whole batch) for a single result this repo
@@ -349,8 +381,15 @@ final class MediaPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
             case success(URL)
             case failure(String)
         }
+        // The observation's lifetime must be OURS, invalidated before the
+        // Progress deallocates — tying it to the Progress via an associated
+        // object (the first version) releases it DURING the observee's
+        // dealloc, a classic KVO teardown-ordering crash window right at
+        // the pick→import boundary.
+        let observationBox = ObservationBox()
         let outcome: LoadResult = await withCheckedContinuation { (continuation: CheckedContinuation<LoadResult, Never>) in
             let progress = provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { tempURL, error in
+                observationBox.invalidate()
                 if let error {
                     continuation.resume(returning: .failure(error.localizedDescription))
                     return
@@ -373,12 +412,11 @@ final class MediaPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
                     continuation.resume(returning: .failure("copy into custody failed: \(error.localizedDescription)"))
                 }
             }
-            let observation = progress.observe(\.fractionCompleted, options: [.new]) { prog, _ in
+            observationBox.observation = progress.observe(\.fractionCompleted, options: [.new]) { prog, _ in
                 onFraction(prog.fractionCompleted)
             }
-            // Keep the observation alive as long as the Progress itself.
-            objc_setAssociatedObject(progress, Unmanaged.passUnretained(progress).toOpaque(), observation, .OBJC_ASSOCIATION_RETAIN)
         }
+        withExtendedLifetime(observationBox) {}
 
         let custodyURL: URL
         switch outcome {

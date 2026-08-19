@@ -221,6 +221,11 @@ async function driveAndSample({
 			document.querySelector<HTMLCanvasElement>(
 				".cc-preview-stage__render canvas",
 			),
+		// Generous: the canvas appears only after bootstrap, which includes
+		// the REAL native transcode — a 4K60 source under the simulator's
+		// software HEVC decode legitimately takes minutes (a 20s limit here
+		// produced a false FAIL against a perfectly healthy app, 2026-08-19).
+		240_000,
 	);
 	// Give the first render a beat, then confirm playback advances AND the
 	// canvas shows real pixels.
