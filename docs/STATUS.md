@@ -80,6 +80,16 @@ Fonts: lossless WebP ALSO failed device ImageIO (err=-50 ×15) — and round 5's
 
 **Closed as not-a-bug:** the boot "JS Eval error" ×1-2 is Capacitor's own `CapacitorBridge.eval` firing a lifecycle event before the page loads (always pre-"WebView loaded") — benign framework noise on every Capacitor iOS app.
 
+## Round 8 (2026-08-19): audio + timeline-follow — sim VERDICT now fully green (97486811, 53188d46)
+
+Founder: "audio doesn't play and the timeline doesn't track." Both real, both engine-adjacent mobile-shell wiring (the OpenCut engine itself is intact — every campaign bug has lived in the new UI/native seams):
+
+- **Every iOS proxy was silently MUTE**: nil-passthrough audio writer without a sourceFormatHint fails `writer.canAdd`, and the guard skipped audio wholesale (proven by #/autotest's new mediabunny probe: `getPrimaryAudioTrack()==null` on the proxy). Now PCM-decode → AAC 44.1k/2ch/128k encode (robust to any source codec), failed add THROWS. That exposed the classic AVAssetReader two-output stall (sequential drain + bulky PCM = 27%-in-4-minutes crawl) — track loops now drain concurrently. Plus AVAudioSession `.playback` so the ring/silent switch stops muting all WebAudio.
+- **Timecode + strip froze during playback**: per-frame time rides `PlaybackManager.onUpdate`, but `useEditor` selectors ride `subscribe` (play/pause/seek only). `useCurrentTimeSeconds` now subscribes to all three channels (+ SSR getServerSnapshot for the web harness — caught after invariants printed 11/12), and TimelineView gained playback-follow (fixed-center playhead, strip scrolls beneath, no-op-set guard so syncs can't swallow the next user scrub).
+- **Harness confession**: #/autotest never imported the app stylesheets (vite per-entry CSS splitting) — every "degraded UI" screenshot and the unscrollable `overflow:visible` timeline were HARNESS artifacts, not app bugs. Fixed; the route now renders and asserts the real UI. Verdict asserts audio stats (new `AudioManager.getStats`) and measured strip scroll: final sim run `PASS advanced sinks decodedFrames fonts=ok audio=ok timeline=ok(0->126px)`.
+
+Residual: audible-through-speakers not verifiable headlessly (stats say running+scheduled); reopen-phase proxies transcoded by OLDER builds remain mute — re-import once on the new build.
+
 ## Test sweep (2026-08-18, Fable fork agent) — see docs/TEST-REPORT.md
 
 All three CRITICALs found by the sweep are fixed and re-verified live in the browser harness: (C1) GPU init now gates the preview renderer (plus boot-time `ensurePreviewGpu` + font atlas bundled into apps/mobile, so text renders with real fonts); (C2) the home project list re-renders via a selector subscription — the engine always had the data, the UI never re-subscribed (verified: engine 1 / DOM 0 before, 1/1 after; reopen-after-reload rehydrates); (C3) a CrashBoundary paints any React render crash on screen instead of silent black. HIGHs still open, in priority order: Android's EDL parser missing ~12 field families that TS emits and iOS parses (must parse-or-reject, never silently drop); split-at-boundary silently no-ops; audio waveforms never populated (mock-only).
