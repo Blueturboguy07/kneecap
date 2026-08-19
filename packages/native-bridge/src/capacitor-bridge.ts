@@ -91,6 +91,7 @@ import type {
 	NativeBridge,
 	NativeBridgeErrorCode,
 	PickMediaOptions,
+	PickProgress,
 	Platform,
 	ProxyProgress,
 	ProxySpec,
@@ -220,6 +221,10 @@ interface NativeBridgePluginSpec {
 	addListener(
 		eventName: "proxyProgress",
 		listenerFunc: (data: RawProxyProgress) => void,
+	): Promise<PluginListenerHandle>;
+	addListener(
+		eventName: "pickProgress",
+		listenerFunc: (data: PickProgress) => void,
 	): Promise<PluginListenerHandle>;
 	addListener(
 		eventName: "exportProgress",
@@ -434,6 +439,12 @@ export function createCapacitorBridge({
 		},
 
 		async pickMedia(opts: PickMediaOptions): Promise<MediaHandle[]> {
+			// The pickProgress stream exists only for the duration of this
+			// one call (the picker is modal — at most one pick in flight;
+			// `activePickerCoordinator` enforces that on the native side).
+			const progressListener = opts.onProgress
+				? await plugin.addListener("pickProgress", opts.onProgress)
+				: null;
 			try {
 				const { handles } = await plugin.pickMedia({
 					kinds: opts.kinds,
@@ -443,6 +454,8 @@ export function createCapacitorBridge({
 				return handles.map(fromWireMediaHandle);
 			} catch (err) {
 				throw toNativeBridgeError({ err, method: "pickMedia" });
+			} finally {
+				await progressListener?.remove();
 			}
 		},
 

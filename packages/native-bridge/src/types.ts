@@ -27,12 +27,32 @@ export type Platform = "ios" | "android" | "web";
 
 export type MediaKind = "video" | "audio" | "image";
 
+/**
+ * Per-item progress of the POST-pick load/copy step. On iOS this step can
+ * be an iCloud original DOWNLOAD (minutes for a large video) — without
+ * these events the UI froze at 0% and read as stuck; and a per-item
+ * failure (e.g. iCloud + no network) was silently dropped, making an
+ * all-failed batch indistinguishable from a user cancel (founder's
+ * iPhone, 2026-08-19). "error" items are NOT in the resolved handle list.
+ */
+export interface PickProgress {
+	index: number;
+	total: number;
+	stage: "loading" | "loaded" | "error";
+	/** 0..1 within the item; iOS reports real download fractions, Android
+	 *  emits stage markers (0 then 1). */
+	fraction: number;
+	error?: string;
+}
+
 export interface PickMediaOptions {
 	kinds: MediaKind[];
 	allowMultiple: boolean;
 	/** Honor `capture="camera"` — plan M4 item 3: not honored by Android
 	 * WebView by default, so the host must build the camera Intent itself. */
 	source?: "library" | "camera";
+	/** Fires during the post-pick load/copy of each selected item. */
+	onProgress?: (progress: PickProgress) => void;
 }
 
 /**

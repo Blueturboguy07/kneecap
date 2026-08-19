@@ -39,9 +39,22 @@ extension NativeBridgePlugin {
                 return
             }
             let picker = PHPickerViewController(configuration: config)
-            let coordinator = MediaPickerCoordinator(call: call) { [weak self] in
-                self?.activePickerCoordinator = nil
-            }
+            let coordinator = MediaPickerCoordinator(
+                call: call,
+                emitPickProgress: { [weak self] payload in
+                    // The post-pick copy can be an iCloud ORIGINAL DOWNLOAD
+                    // (minutes for a large video) — without these events the
+                    // UI sits on a frozen 0% and reads as stuck (founder's
+                    // iPhone, 2026-08-19). Same notifyListeners channel
+                    // pattern as "proxyProgress".
+                    DispatchQueue.main.async {
+                        self?.notifyListeners("pickProgress", data: payload)
+                    }
+                },
+                onFinished: { [weak self] in
+                    self?.activePickerCoordinator = nil
+                }
+            )
             self.activePickerCoordinator = coordinator
             picker.delegate = coordinator
             presenter.present(picker, animated: true)
@@ -227,10 +240,16 @@ extension NativeBridgePlugin {
 /// forbidden by the bridge contract either) can't cross-talk.
 final class MediaPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
     private let call: CAPPluginCall
+    private let emitPickProgress: ([String: Any]) -> Void
     private let onFinished: () -> Void
 
-    init(call: CAPPluginCall, onFinished: @escaping () -> Void) {
+    init(
+        call: CAPPluginCall,
+        emitPickProgress: @escaping ([String: Any]) -> Void,
+        onFinished: @escaping () -> Void
+    ) {
         self.call = call
+        self.emitPickProgress = emitPickProgress
         self.onFinished = onFinished
     }
 
@@ -247,9 +266,40 @@ final class MediaPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
 
         Task {
             var handles: [[String: Any]] = []
-            for result in results {
-                if let handleDict = await Self.importOne(result: result) {
+            for (index, result) in results.enumerated() {
+                let outcome = await Self.importOne(
+                    result: result,
+                    onFraction: { [emitPickProgress] fraction in
+                        emitPickProgress([
+                            "index": index,
+                            "total": results.count,
+                            "stage": "loading",
+                            "fraction": fraction,
+                        ])
+                    }
+                )
+                switch outcome {
+                case .imported(let handleDict):
+                    emitPickProgress([
+                        "index": index,
+                        "total": results.count,
+                        "stage": "loaded",
+                        "fraction": 1,
+                    ])
                     handles.append(handleDict)
+                case .failed(let reason):
+                    // A dropped item must be VISIBLE: with every item failing
+                    // (e.g. iCloud originals with no network) the old silent
+                    // nil-drop resolved `handles: []` — indistinguishable
+                    // from a user cancel, and the app just sat there
+                    // (founder's iPhone, 2026-08-19).
+                    emitPickProgress([
+                        "index": index,
+                        "total": results.count,
+                        "stage": "error",
+                        "fraction": 1,
+                        "error": reason,
+                    ])
                 }
             }
             call.resolve(["handles": handles])
@@ -257,12 +307,23 @@ final class MediaPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
         }
     }
 
+    enum ImportOutcome {
+        case imported([String: Any])
+        case failed(String)
+    }
+
     /// Loads one `PHPickerResult`'s file representation, copies it into
-    /// sandboxed media custody, and probes it. Returns `nil` (rather than
-    /// failing the whole batch) for a single result this repo can't handle —
-    /// e.g. an item with neither a movie nor an image representation — so
-    /// one bad pick in a multi-select doesn't lose the rest.
-    private static func importOne(result: PHPickerResult) async -> [String: Any]? {
+    /// sandboxed media custody, and probes it. Returns `.failed(reason)`
+    /// (rather than failing the whole batch) for a single result this repo
+    /// can't handle — so one bad pick in a multi-select doesn't lose the
+    /// rest, and the failure is EMITTED as a pickProgress error event rather
+    /// than silently dropped (the silent drop made an all-iCloud-failure
+    /// batch indistinguishable from a user cancel — founder's iPhone,
+    /// 2026-08-19).
+    private static func importOne(
+        result: PHPickerResult,
+        onFraction: @escaping (Double) -> Void
+    ) async -> ImportOutcome {
         let provider = result.itemProvider
         let typeIdentifier: String
         let kind: String
@@ -273,7 +334,7 @@ final class MediaPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
             typeIdentifier = UTType.image.identifier
             kind = "image"
         } else {
-            return nil
+            return .failed("item has neither a movie nor an image representation")
         }
 
         let assetId = UUID().uuidString
@@ -281,31 +342,54 @@ final class MediaPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
         // `loadFileRepresentation`'s temp URL is only valid inside this
         // completion handler — the copy into sandbox custody MUST happen
         // synchronously here, not after resuming the continuation, or the OS
-        // may have already reclaimed the temp file.
-        let custodyURL: URL? = await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
-            provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { tempURL, error in
-                guard let tempURL, error == nil else {
-                    continuation.resume(returning: nil)
+        // may have already reclaimed the temp file. For an iCloud-offloaded
+        // original this call IS the download; its returned `Progress` is the
+        // only feedback that exists, so it's observed and forwarded.
+        enum LoadResult {
+            case success(URL)
+            case failure(String)
+        }
+        let outcome: LoadResult = await withCheckedContinuation { (continuation: CheckedContinuation<LoadResult, Never>) in
+            let progress = provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { tempURL, error in
+                if let error {
+                    continuation.resume(returning: .failure(error.localizedDescription))
+                    return
+                }
+                guard let tempURL else {
+                    continuation.resume(returning: .failure("no file representation returned"))
                     return
                 }
                 let ext = tempURL.pathExtension.isEmpty
                     ? (kind == "video" ? "mov" : "jpg")
                     : tempURL.pathExtension
-                let copied = try? MediaSandbox.copyIntoMediaCustody(
-                    sourceURL: tempURL,
-                    assetId: assetId,
-                    fileExtension: ext
-                )
-                continuation.resume(returning: copied)
+                do {
+                    let copied = try MediaSandbox.copyIntoMediaCustody(
+                        sourceURL: tempURL,
+                        assetId: assetId,
+                        fileExtension: ext
+                    )
+                    continuation.resume(returning: .success(copied))
+                } catch {
+                    continuation.resume(returning: .failure("copy into custody failed: \(error.localizedDescription)"))
+                }
             }
+            let observation = progress.observe(\.fractionCompleted, options: [.new]) { prog, _ in
+                onFraction(prog.fractionCompleted)
+            }
+            // Keep the observation alive as long as the Progress itself.
+            objc_setAssociatedObject(progress, Unmanaged.passUnretained(progress).toOpaque(), observation, .OBJC_ASSOCIATION_RETAIN)
         }
 
-        guard let custodyURL else { return nil }
+        let custodyURL: URL
+        switch outcome {
+        case .success(let url): custodyURL = url
+        case .failure(let reason): return .failed(reason)
+        }
 
         if kind == "image" {
             let attrs = try? FileManager.default.attributesOfItem(atPath: custodyURL.path)
             let sizeBytes = (attrs?[.size] as? Int) ?? 0
-            return [
+            return .imported([
                 "id": assetId,
                 "uri": custodyURL.path,
                 "kind": "image",
@@ -318,10 +402,12 @@ final class MediaPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
                 "hasAudio": false,
                 "codec": custodyURL.pathExtension,
                 "frameRate": NSNull(),
-            ]
+            ])
         }
 
-        guard let probed = try? await MediaProbe.probe(url: custodyURL) else { return nil }
+        guard let probed = try? await MediaProbe.probe(url: custodyURL) else {
+            return .failed("probe failed — unsupported or corrupt media")
+        }
         let attrs = try? FileManager.default.attributesOfItem(atPath: custodyURL.path)
         let sizeBytes = (attrs?[.size] as? Int) ?? 0
 
@@ -330,7 +416,7 @@ final class MediaPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
             frameRate = ["numerator": num, "denominator": den]
         }
 
-        return [
+        return .imported([
             "id": assetId,
             "uri": custodyURL.path,
             "kind": probed.kind,
@@ -343,6 +429,6 @@ final class MediaPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
             "hasAudio": probed.hasAudio,
             "codec": probed.codec,
             "frameRate": frameRate,
-        ]
+        ])
     }
 }

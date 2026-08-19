@@ -153,7 +153,13 @@ async function runPhase({
 
 	// The REAL import orchestration; only the picker is substituted.
 	const source: NativeMediaSource = {
-		pickMedia: async () => [plantedHandle(root), plantedImageHandle(root)],
+		pickMedia: async (opts) => {
+			// Exercise the pickProgress plumbing the way a real iCloud
+			// download would drive it.
+			opts.onProgress?.({ index: 0, total: 2, stage: "loading", fraction: 0.5 });
+			opts.onProgress?.({ index: 0, total: 2, stage: "loaded", fraction: 1 });
+			return [plantedHandle(root), plantedImageHandle(root)];
+		},
 		// The cast mirrors how the real flow types out: `actions.ts` passes
 		// the bridge itself (method bivariance), while this explicit wrapper
 		// is checked strictly — plantedHandle() DOES carry rotationDegrees.
@@ -230,6 +236,19 @@ async function driveAndSample({
 
 	const advanced = t1 > t0;
 	const stats = videoCache.getStats();
+	// Font-chunk decode probe: image-FORMAT support must be measured
+	// in-app, not assumed — the atlas shipped as AVIF variants iOS could
+	// not decode, then as lossless WebP iOS ALSO refused (err=-50), and
+	// neither showed up in any console this harness captured (the decode
+	// errors live in the WebContent process). Image.decode() is the same
+	// path the real font picker uses.
+	const fontsOk = await new Promise<boolean>((resolve) => {
+		const probe = new Image();
+		probe.onload = () => resolve(probe.naturalWidth > 0);
+		probe.onerror = () => resolve(false);
+		probe.src = "/fonts/font-chunk-0.png";
+		setTimeout(() => resolve(false), 5000);
+	});
 	// WebKit clears WebGPU canvases after present, so drawImage readback is
 	// legitimately blank (verified 2026-08-19: lit=0.000 while a simulator
 	// screenshot showed the video playing). `lit` is advisory only; the
@@ -238,9 +257,9 @@ async function driveAndSample({
 	// captures a `simctl io … screenshot` for pixel-level ground truth.
 	const decoded = stats.totalSinks > 0 && stats.cachedFrames > 0;
 	const lit = Math.max(litA, litB);
-	const pass = advanced && decoded;
+	const pass = advanced && decoded && fontsOk;
 	log(
-		`VERDICT phase=${phase} ${pass ? "PASS" : "FAIL"} advanced=${advanced} sinks=${stats.totalSinks} decodedFrames=${stats.cachedFrames} lit=${lit.toFixed(3)} (t ${String(t0)} -> ${String(t1)})`,
+		`VERDICT phase=${phase} ${pass ? "PASS" : "FAIL"} advanced=${advanced} sinks=${stats.totalSinks} decodedFrames=${stats.cachedFrames} fonts=${fontsOk ? "ok" : "FAIL"} lit=${lit.toFixed(3)} (t ${String(t0)} -> ${String(t1)})`,
 	);
 }
 

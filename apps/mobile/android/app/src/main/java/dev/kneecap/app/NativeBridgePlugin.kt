@@ -203,25 +203,42 @@ class NativeBridgePlugin : Plugin() {
 	 * matters). */
 	private fun importAndProbeAsync(call: PluginCall, uris: List<Uri>) {
 		Thread {
-			try {
-				val handles = JSArray()
-				for (uri in uris) {
+			val handles = JSArray()
+			// Per-item isolation + pickProgress events, matching iOS: one
+			// failing item must neither lose the batch (the old behavior
+			// here) nor vanish silently (the old iOS behavior) — and the
+			// copy of a cloud-backed picker item is real wall-clock work
+			// the UI needs to show (2026-08-19).
+			for ((index, uri) in uris.withIndex()) {
+				emitPickProgress(index, uris.size, "loading", 0.0, null)
+				try {
 					val imported = MediaImporter.importInto(context, uri)
 					try {
 						val probed = MediaProbe.probe(imported.file, imported.mimeType)
 						handles.put(mediaHandleToJson(imported, probed))
+						emitPickProgress(index, uris.size, "loaded", 1.0, null)
 					} catch (e: Exception) {
 						MediaImporter.delete(imported.file)
 						throw e
 					}
+				} catch (e: Exception) {
+					emitPickProgress(index, uris.size, "error", 1.0, e.message ?: "media import failed")
 				}
-				val result = JSObject()
-				result.put("handles", handles)
-				call.resolve(result)
-			} catch (e: Exception) {
-				call.reject(e.message ?: "media import failed", "IO_ERROR")
 			}
+			val result = JSObject()
+			result.put("handles", handles)
+			call.resolve(result)
 		}.start()
+	}
+
+	private fun emitPickProgress(index: Int, total: Int, stage: String, fraction: Double, error: String?) {
+		val payload = JSObject()
+		payload.put("index", index)
+		payload.put("total", total)
+		payload.put("stage", stage)
+		payload.put("fraction", fraction)
+		if (error != null) payload.put("error", error)
+		notifyListeners("pickProgress", payload)
 	}
 
 	private fun mediaHandleToJson(imported: MediaImporter.ImportedFile, probed: MediaProbe.ProbedMedia): JSObject {

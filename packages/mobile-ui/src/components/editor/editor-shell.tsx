@@ -235,12 +235,18 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 										((p.index + Math.min(1, Math.max(0, p.fraction))) /
 											Math.max(1, p.total)) *
 										100;
+									// "picking" = post-pick load/copy, which for
+									// iCloud-stored originals is a real download —
+									// name it, or minutes of it read as a hang.
+									const label =
+										p.stage === "picking"
+											? `Preparing media ${p.index + 1} of ${p.total}…`
+											: p.total > 1
+												? `Importing ${p.index + 1} of ${p.total}…`
+												: `Importing ${p.fileName}…`;
 									setImportProgress({
 										percent: Math.round(overall),
-										label:
-											p.total > 1
-												? `Importing ${p.index + 1} of ${p.total}…`
-												: `Importing ${p.fileName}…`,
+										label,
 									});
 								},
 							})

@@ -53,11 +53,21 @@ export interface NativeProxyProgress {
 	error?: string;
 }
 
+/** Structural subset of `@kneecap/native-bridge`'s `PickProgress`. */
+export interface NativePickProgress {
+	index: number;
+	total: number;
+	stage: "loading" | "loaded" | "error";
+	fraction: number;
+	error?: string;
+}
+
 /** Structural subset of `@kneecap/native-bridge`'s `NativeBridge`. */
 export interface NativeMediaSource {
 	pickMedia(opts: {
 		kinds: MediaType[];
 		allowMultiple: boolean;
+		onProgress?: (progress: NativePickProgress) => void;
 	}): Promise<NativeMediaHandle[]>;
 	generateProxy(params: {
 		handle: NativeMediaHandle;
@@ -175,14 +185,16 @@ export function buildMediaAssetFromNativeImport({
 /**
  * One tick of import progress, shaped for a UI that shows a single
  * overall indicator: `index`/`total` locate the asset currently being
- * proxied, `fraction` is that asset's own 0..1 transcode progress
- * (mirrors `NativeProxyProgress.fraction`).
+ * worked, `fraction` is that asset's own 0..1 progress. The "picking"
+ * stage covers the post-pick load/copy — on iOS that can be a real
+ * iCloud original download taking minutes (`NativePickProgress`), and
+ * before it was surfaced the UI froze at 0% and read as stuck.
  */
 export interface NativeImportProgress {
 	index: number;
 	total: number;
 	fileName: string;
-	stage: NativeProxyProgress["stage"];
+	stage: NativeProxyProgress["stage"] | "picking";
 	fraction: number;
 }
 
@@ -230,7 +242,35 @@ export async function importMediaFromNative({
 	proxySpec = { targetHeight: 540, shortGop: true },
 	onProgress,
 }: ImportMediaFromNativeParams): Promise<ImportMediaFromNativeResult> {
-	const handles = await source.pickMedia({ kinds, allowMultiple });
+	let pickFailures = 0;
+	const handles = await source.pickMedia({
+		kinds,
+		allowMultiple,
+		onProgress: (pick) => {
+			if (pick.stage === "error") {
+				// A dropped item must be VISIBLE — the silent version made an
+				// all-failed batch (e.g. iCloud originals with no network)
+				// indistinguishable from a user cancel (2026-08-19).
+				pickFailures++;
+				toast.error({
+					message: `Couldn't load item ${pick.index + 1} of ${pick.total}`,
+					description: `${pick.error ?? "unknown error"} — if it's stored in iCloud, check your connection and try again`,
+				});
+				return;
+			}
+			onProgress?.({
+				index: pick.index,
+				total: pick.total,
+				fileName: "",
+				stage: "picking",
+				fraction: pick.fraction,
+			});
+		},
+	});
+	if (handles.length === 0 && pickFailures > 0) {
+		// Not a cancel: everything the user chose failed to load.
+		return { imported: [], failed: [] };
+	}
 
 	// One root lookup per import batch; null (web / old native build) just
 	// disables relative-path persistence, it never blocks the import.

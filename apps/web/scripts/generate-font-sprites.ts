@@ -241,8 +241,8 @@ async function renderChunks({
 
 		const pngBuffer = canvas.toBuffer("image/png");
 		await sharp(pngBuffer)
-			.webp({ lossless: true })
-			.toFile(join(OUTPUT_DIR, `font-chunk-${i}.webp`));
+			.png()
+			.toFile(join(OUTPUT_DIR, `font-chunk-${i}.png`));
 
 		console.log(
 			`  Chunk ${i}: ${chunk.length} fonts, ${CANVAS_WIDTH}×${chunkHeight}`,
