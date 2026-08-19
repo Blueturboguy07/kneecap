@@ -75,3 +75,8 @@ export {
 	type ImportMediaFromNativeResult,
 	type NativeImportFailure,
 } from "./media/native-import";
+export {
+	registerNativeMediaPathResolver,
+	resolveNativeMediaPath,
+	relativeMediaPathFromPlaybackUrl,
+} from "./media/native-paths";

@@ -33,6 +33,12 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "NativeBridge"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getDeviceInfo", returnType: CAPPluginReturnPromise),
+        // The media-custody root, so the webview can persist
+        // container-RELATIVE media paths: iOS rotates the app data
+        // container UUID on every app update/reinstall, so any persisted
+        // absolute path dies with the next install (found live 2026-08-19 —
+        // every saved project's playback broke after an Xcode reinstall).
+        CAPPluginMethod(name: "getMediaRoot", returnType: CAPPluginReturnPromise),
         // kneecap M4 — see NativeBridgePlugin+Media.swift for the
         // implementations. `pickMedia` is a normal promise call (resolves
         // once, with the picked+probed handles). `generateProxy` resolves
@@ -94,6 +100,15 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
             return UIDevice.current.model
         }
         return identifier
+    }
+
+    @objc func getMediaRoot(_ call: CAPPluginCall) {
+        do {
+            let root = try MediaSandbox.rootDirectory()
+            call.resolve(["root": root.path])
+        } catch {
+            call.reject("getMediaRoot failed: \(error.localizedDescription)")
+        }
     }
 
     @objc func getDeviceInfo(_ call: CAPPluginCall) {

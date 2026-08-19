@@ -32,6 +32,11 @@ export class AudioManager {
 	private clips: AudioClipSource[] = [];
 	private sinks = new Map<string, AudioBufferSink>();
 	private inputs = new Map<string, Input>();
+	/** sourceKeys whose sink init already failed — without this the play
+	 *  loop re-attempts (and re-logs) the same failing open every tick
+	 *  (observed as endless warn spam on device, 2026-08-19). Cleared with
+	 *  the sinks in disposeSinks(). */
+	private failedSinkSources = new Set<string>();
 	private activeClipIds = new Set<string>();
 	private clipIterators = new Map<
 		string,
@@ -452,6 +457,9 @@ export class AudioManager {
 		}
 		this.inputs.clear();
 		this.sinks.clear();
+		// Timeline edits can replace a broken source (e.g. re-import) — give
+		// failed sources a fresh chance whenever sinks are rebuilt.
+		this.failedSinkSources.clear();
 	}
 
 	private shouldUsePreparedClipBuffer({
@@ -682,6 +690,7 @@ export class AudioManager {
 	}): Promise<AudioBufferSink | null> {
 		const existingSink = this.sinks.get(clip.sourceKey);
 		if (existingSink) return existingSink;
+		if (this.failedSinkSources.has(clip.sourceKey)) return null;
 
 		try {
 			const input = new Input({
@@ -699,7 +708,15 @@ export class AudioManager {
 			this.sinks.set(clip.sourceKey, sink);
 			return sink;
 		} catch (error) {
-			console.warn("Failed to initialize audio sink:", error);
+			this.failedSinkSources.add(clip.sourceKey);
+			console.warn(
+				`Failed to initialize audio sink (source: ${
+					clip.file.size > 0
+						? `file bytes (${clip.file.size})`
+						: `url ${clip.url ?? "(none)"}`
+				}):`,
+				error,
+			);
 			return null;
 		}
 	}

@@ -20,7 +20,8 @@ import "@kneecap/mobile-ui/components.css";
 import "./app-root.css";
 import { Component, StrictMode, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { EditorCore } from "@kneecap/editor-core";
+import { EditorCore, registerNativeMediaPathResolver } from "@kneecap/editor-core";
+import { getNativeBridge } from "@kneecap/native-bridge";
 import { loadFontAtlas } from "@kneecap/editor-core/fonts/local-fonts";
 import { useEditor } from "@kneecap/editor-core/react";
 import { EditorShell, ensurePreviewGpu } from "@kneecap/mobile-ui";
@@ -199,6 +200,20 @@ export function mountApp() {
 	// (text renders with a fallback face without it). Both are cached
 	// one-shot promises; PreviewRenderer awaits the same GPU promise.
 	void ensurePreviewGpu().then(() => loadFontAtlas());
+	// Anchor persisted container-RELATIVE media paths to THIS install's
+	// custody root before any project load needs them (iOS rotates the
+	// container UUID every update/reinstall — media/native-paths.ts). Fire
+	// and forget: a human can't reach a saved project before this settles,
+	// and a failure just leaves the absolute-url fallback in effect.
+	void getNativeBridge().then(async (bridge) => {
+		const root = await bridge.getMediaRoot();
+		if (root) {
+			registerNativeMediaPathResolver({
+				root,
+				toPlaybackUri: bridge.toPlaybackUri,
+			});
+		}
+	});
 	container.innerHTML = "";
 	createRoot(container).render(
 		<StrictMode>

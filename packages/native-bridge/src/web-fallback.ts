@@ -161,6 +161,10 @@ export function createWebFallbackBridge(): NativeBridge {
 		// nothing to convert.
 		toPlaybackUri: (nativeUri: string) => nativeUri,
 
+		// No stable native filesystem — blob: URLs are session-scoped, so
+		// relative-path persistence has nothing to anchor to here.
+		getMediaRoot: async () => null,
+
 		async pickMedia(opts) {
 			const files = await openFilePicker(opts);
 			const handles: MediaHandle[] = [];

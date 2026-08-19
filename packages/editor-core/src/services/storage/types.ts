@@ -33,9 +33,17 @@ export interface MediaAssetData {
 	 *  identity across launches. Never set for blob-backed assets (their
 	 *  object URLs die with the session and are regenerated at load).
 	 *  Known limit: the URI embeds the iOS app-container UUID, which
-	 *  changes on app REINSTALL — reinstalls orphan saved native assets
-	 *  (documented in STATUS.md, acceptable for direct-distribution v1). */
+	 *  changes on app REINSTALL — so this absolute form is only a FALLBACK;
+	 *  the durable identity is `nativeRelativePath` below. */
 	url?: string;
+	/** Custody-root-relative path of the native proxy (see
+	 *  media/native-paths.ts) — survives iOS container-UUID rotation across
+	 *  app updates, which kills any persisted absolute path/URL. Present
+	 *  only for native-custody assets imported on a build whose native side
+	 *  implements `getMediaRoot`. */
+	nativeRelativePath?: string;
+	/** Same, for the persisted thumbnail. */
+	thumbnailNativeRelativePath?: string;
 }
 
 export type SerializedScene = Omit<TScene, "createdAt" | "updatedAt"> & {

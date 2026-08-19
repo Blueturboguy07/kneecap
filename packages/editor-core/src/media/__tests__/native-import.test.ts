@@ -98,6 +98,9 @@ function fakeSource(overrides: Partial<NativeMediaSource> = {}): NativeMediaSour
 			// no-op default
 		},
 		toPlaybackUri: (uri: string) => `webview://${uri}`,
+		async getMediaRoot() {
+			return null;
+		},
 		...overrides,
 	};
 }

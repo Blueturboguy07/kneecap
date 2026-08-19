@@ -185,6 +185,7 @@ interface NativeTranscribeResult {
 
 interface NativeBridgePluginSpec {
 	getDeviceInfo(): Promise<NativeDeviceInfo>;
+	getMediaRoot(): Promise<{ root: string }>;
 	pickMedia(opts: {
 		kinds: MediaKind[];
 		allowMultiple: boolean;
@@ -419,6 +420,18 @@ export function createCapacitorBridge({
 	return {
 		platform,
 		toPlaybackUri,
+
+		async getMediaRoot(): Promise<string | null> {
+			try {
+				const { root } = await plugin.getMediaRoot();
+				return root || null;
+			} catch {
+				// A native build predating the method rejects with Capacitor's
+				// "not implemented" — degrade to absolute-path persistence
+				// rather than failing the import flow.
+				return null;
+			}
+		},
 
 		async pickMedia(opts: PickMediaOptions): Promise<MediaHandle[]> {
 			try {

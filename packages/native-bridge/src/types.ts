@@ -245,6 +245,17 @@ export interface NativeBridge {
 	 * for the webview needs the converted form.
 	 */
 	toPlaybackUri(nativeUri: string): string;
+	/**
+	 * The media-custody root directory (the parent of the native
+	 * Media/Proxies/Thumbnails dirs), or null when the platform has no
+	 * stable native filesystem (web fallback) or the running native build
+	 * predates the method. Exists so the engine can persist
+	 * container-RELATIVE media paths: iOS rotates the app data-container
+	 * UUID on every app update/reinstall, so persisted ABSOLUTE paths die
+	 * with the next install (found live 2026-08-19 — every saved project's
+	 * playback broke after an Xcode reinstall).
+	 */
+	getMediaRoot(): Promise<string | null>;
 	pickMedia(opts: PickMediaOptions): Promise<MediaHandle[]>;
 	// `AsyncGenerator`, not the plan sketch's `AsyncIterable`: every
 	// implementation IS an async generator function, and callers (including

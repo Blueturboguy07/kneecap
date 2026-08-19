@@ -1,6 +1,7 @@
 import type { TProject, TProjectMetadata } from "@/project/types";
 import { getProjectDurationFromScenes } from "@/timeline/scenes";
 import type { MediaAsset } from "@/media/types";
+import { resolveNativeMediaPath } from "@/media/native-paths";
 import { IndexedDBAdapter } from "./indexeddb-adapter";
 import { OPFSAdapter } from "./opfs-adapter";
 import {
@@ -311,8 +312,12 @@ class StorageService {
 			// converted proxy URL — persist it or reopened projects rehydrate
 			// a dead object-URL-of-zero-bytes (found on device 2026-08-19).
 			// Blob-backed assets get NO persisted url: their object URLs are
-			// session-scoped and regenerated in loadMediaAsset.
+			// session-scoped and regenerated in loadMediaAsset. The absolute
+			// url is only a same-install fallback — the durable identity is
+			// the container-relative path (media/native-paths.ts).
 			url: mediaAsset.file.size === 0 ? mediaAsset.url : undefined,
+			nativeRelativePath: mediaAsset.nativeRelativePath,
+			thumbnailNativeRelativePath: mediaAsset.thumbnailNativeRelativePath,
 		};
 
 		try {
@@ -358,11 +363,19 @@ class StorageService {
 
 		if (!file || !metadata) return null;
 
+		// Native-custody asset: the stored file is the zero-byte stub and the
+		// playable bytes live on the native filesystem. Prefer re-anchoring
+		// the container-RELATIVE path to the CURRENT custody root — the
+		// persisted absolute url dies whenever iOS rotates the app container
+		// UUID (every update/reinstall; found live 2026-08-19).
+		const rebasedUrl = metadata.nativeRelativePath
+			? resolveNativeMediaPath(metadata.nativeRelativePath)
+			: null;
+
 		let url: string;
-		if (metadata.url) {
-			// Native-custody asset: the stored file is the zero-byte stub and
-			// the playable bytes live on the native filesystem — the persisted
-			// proxy URL IS the playback source (see MediaAssetData.url).
+		if (rebasedUrl) {
+			url = rebasedUrl;
+		} else if (metadata.url) {
 			url = metadata.url;
 		} else if (metadata.type === "image" && (!file.type || file.type === "")) {
 			try {
@@ -391,8 +404,13 @@ class StorageService {
 			duration: metadata.duration,
 			fps: metadata.fps,
 			hasAudio: metadata.hasAudio,
-			thumbnailUrl: metadata.thumbnailUrl,
+			thumbnailUrl:
+				(metadata.thumbnailNativeRelativePath
+					? resolveNativeMediaPath(metadata.thumbnailNativeRelativePath)
+					: null) ?? metadata.thumbnailUrl,
 			ephemeral: metadata.ephemeral,
+			nativeRelativePath: metadata.nativeRelativePath,
+			thumbnailNativeRelativePath: metadata.thumbnailNativeRelativePath,
 		};
 	}
 

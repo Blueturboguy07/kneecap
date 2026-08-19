@@ -81,6 +81,19 @@ class NativeBridgePlugin : Plugin() {
 	 * platforms. */
 	private var activeExportId: String? = null
 
+	/** The media-custody root, so the webview persists container-RELATIVE
+	 *  media paths. On iOS the data-container UUID rotates every
+	 *  update/reinstall, killing persisted absolute paths; Android's data
+	 *  dir is stable, but the same relative scheme keeps the two platforms'
+	 *  persistence identical. Root here = `noBackupFilesDir`, the parent of
+	 *  MediaImporter/ProxyTranscoder/ThumbnailStripGenerator's subdirs. */
+	@PluginMethod
+	fun getMediaRoot(call: PluginCall) {
+		val result = JSObject()
+		result.put("root", context.noBackupFilesDir.absolutePath)
+		call.resolve(result)
+	}
+
 	@PluginMethod
 	fun getDeviceInfo(call: PluginCall) {
 		val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager

@@ -321,12 +321,19 @@ export class VideoCache {
 			this.failedSinks.set(mediaId, message);
 			// Surface it ONCE — this failure class was previously console-only
 			// ("silent death" class, docs/TEST-REPORT.md) and read as a dead
-			// player on device.
+			// player on device. The url/size detail is load-bearing for device
+			// triage: "Load failed" alone cannot distinguish a bad URL from a
+			// missing file from a stale zero-byte rehydration (2026-08-19).
+			const source =
+				file.size > 0 ? `file bytes (${file.size})` : `url ${url ?? "(none)"}`;
 			toast.error({
 				message: `Can't play "${file.name || "clip"}"`,
-				description: message,
+				description: `${message} — source: ${source}`,
 			});
-			console.error(`Failed to initialize video sink for ${mediaId}:`, error);
+			console.error(
+				`Failed to initialize video sink for ${mediaId} (source: ${source}):`,
+				error,
+			);
 			throw error;
 		}
 	}

@@ -1,6 +1,7 @@
 import { AddMediaAssetCommand } from "@/commands/media/add-media-asset";
 import type { EditorCore } from "@/core";
 import { toast } from "@/core/notifications";
+import { relativeMediaPathFromPlaybackUrl } from "@/media/native-paths";
 import type { MediaAsset, MediaType } from "@/media/types";
 
 /**
@@ -63,6 +64,9 @@ export interface NativeMediaSource {
 		spec: { targetHeight: number; shortGop: boolean };
 	}): AsyncGenerator<NativeProxyProgress>;
 	toPlaybackUri(nativeUri: string): string;
+	/** See `@kneecap/native-bridge` `NativeBridge.getMediaRoot` — null on
+	 *  web or when the native build predates the method. */
+	getMediaRoot(): Promise<string | null>;
 }
 
 const MIME_BY_KIND: Record<MediaType, string> = {
@@ -110,10 +114,14 @@ export function buildMediaAssetFromNativeImport({
 	handle,
 	proxy,
 	toPlaybackUri,
+	mediaRoot = null,
 }: {
 	handle: NativeMediaHandle;
 	proxy: NativeProxyProgress;
 	toPlaybackUri: (nativeUri: string) => string;
+	/** Custody root from `NativeMediaSource.getMediaRoot()`; enables
+	 *  container-relative persistence (media/native-paths.ts). */
+	mediaRoot?: string | null;
 }): Omit<MediaAsset, "id"> {
 	if (proxy.stage !== "done" || !proxy.proxyUri) {
 		throw new Error(
@@ -125,11 +133,16 @@ export function buildMediaAssetFromNativeImport({
 		? handle.frameRate.numerator / handle.frameRate.denominator
 		: undefined;
 
+	const url = toPlaybackUri(proxy.proxyUri);
+	const thumbnailUrl = proxy.thumbnailUris?.[0]
+		? toPlaybackUri(proxy.thumbnailUris[0])
+		: undefined;
+
 	return {
 		name: handle.fileName,
 		type: handle.kind,
 		file: stubFile({ fileName: handle.fileName, kind: handle.kind }),
-		url: toPlaybackUri(proxy.proxyUri),
+		url,
 		// Prefer the proxy's OWN (downscaled) dimensions when known — that's
 		// what the webview will actually be compositing against — falling
 		// back to the source probe for kinds/cases with no proxy resize
@@ -143,9 +156,19 @@ export function buildMediaAssetFromNativeImport({
 		// `thumbnailUrl` slot, not an array. The rest of `proxy.thumbnailUris`
 		// (the actual filmstrip) has no storage home yet; that's M7's
 		// timeline UI to build, not this import path's job to invent.
-		thumbnailUrl: proxy.thumbnailUris?.[0]
-			? toPlaybackUri(proxy.thumbnailUris[0])
-			: undefined,
+		thumbnailUrl,
+		// Container-relative persistence identities (media/native-paths.ts):
+		// the ONLY forms that survive an iOS app update's container-UUID
+		// rotation. Absent when the native build has no getMediaRoot or the
+		// file lives outside the custody root.
+		nativeRelativePath: relativeMediaPathFromPlaybackUrl({
+			url,
+			root: mediaRoot,
+		}),
+		thumbnailNativeRelativePath: relativeMediaPathFromPlaybackUrl({
+			url: thumbnailUrl,
+			root: mediaRoot,
+		}),
 	};
 }
 
@@ -209,6 +232,10 @@ export async function importMediaFromNative({
 }: ImportMediaFromNativeParams): Promise<ImportMediaFromNativeResult> {
 	const handles = await source.pickMedia({ kinds, allowMultiple });
 
+	// One root lookup per import batch; null (web / old native build) just
+	// disables relative-path persistence, it never blocks the import.
+	const mediaRoot = await source.getMediaRoot().catch(() => null);
+
 	const imported: MediaAsset[] = [];
 	const failed: NativeImportFailure[] = [];
 
@@ -264,6 +291,7 @@ export async function importMediaFromNative({
 			handle,
 			proxy: finalProxy,
 			toPlaybackUri: source.toPlaybackUri,
+			mediaRoot,
 		});
 
 		const command = new AddMediaAssetCommand({ projectId, asset: assetInput });
