@@ -221,6 +221,8 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 							selectElement({ editor, ref: { trackId, elementId: clipId } })
 						}
 						currentTimeLabel={`${formatTimecode(currentTimeSeconds)} / ${formatTimecode(durationSeconds)}`}
+						playbackTimeSec={currentTimeSeconds}
+						isPlaying={isPlaying}
 						onAddClip={() => {
 							if (importProgress) return; // one import at a time
 							setChromeError(null);

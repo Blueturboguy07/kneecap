@@ -1,3 +1,4 @@
+import { useCallback, useSyncExternalStore } from "react";
 import { useEditor } from "@kneecap/editor-core/react";
 import { mediaTimeToSeconds, type EditorCore } from "@kneecap/editor-core";
 import type { ElementRef, TimelineElement } from "@kneecap/editor-core/timeline";
@@ -46,7 +47,28 @@ export function useSelectedElement(): readonly [ElementRef, TimelineElement] | r
  *  `mediaTimeToSeconds` wasm-backed helper, never by treating ticks as
  *  seconds directly. */
 export function useCurrentTimeSeconds(): number {
-	return useEditor((editor) => mediaTimeToSeconds({ time: editor.playback.getCurrentTime() }));
+	const editor = useEditor();
+	// PlaybackManager splits its channels: `subscribe` (what `useEditor`
+	// rides) fires on play/pause/seek ONLY, while per-frame time during
+	// playback goes out on `onUpdate`. A selector on `subscribe` alone
+	// freezes for the whole duration of playback — on device that read as
+	// "the timecode and timeline don't track the video" (2026-08-19).
+	return useSyncExternalStore(
+		useCallback(
+			(onStoreChange) => {
+				const unsubscribe = editor.playback.subscribe(onStoreChange);
+				const unsubscribeUpdate = editor.playback.onUpdate(onStoreChange);
+				const unsubscribeSeek = editor.playback.onSeek(onStoreChange);
+				return () => {
+					unsubscribe();
+					unsubscribeUpdate();
+					unsubscribeSeek();
+				};
+			},
+			[editor],
+		),
+		() => mediaTimeToSeconds({ time: editor.playback.getCurrentTime() }),
+	);
 }
 
 export function useIsPlaying(): boolean {

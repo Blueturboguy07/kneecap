@@ -29,6 +29,14 @@
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
  */
+// The SAME stylesheet set app-root.tsx loads — vite splits CSS per entry
+// chunk, so without these the whole route rendered UNSTYLED: every earlier
+// screenshot's degraded layout, and a timeline scroller stuck at
+// overflow:visible (scrollLeft a no-op), were THIS harness's artifact, not
+// the app's (2026-08-19).
+import "@kneecap/mobile-ui/tokens.css";
+import "@kneecap/mobile-ui/components.css";
+import "./app/app-root.css";
 import { createRoot } from "react-dom/client";
 import {
 	EditorCore,
@@ -230,13 +238,82 @@ async function driveAndSample({
 	// Give the first render a beat, then confirm playback advances AND the
 	// canvas shows real pixels.
 	await new Promise((resolve) => setTimeout(resolve, 800));
+	const timelineScroller =
+		document.querySelector<HTMLElement>(".cc-timeline__scroll");
 	const t0 = editor.playback.getCurrentTime();
+	const scroll0 = timelineScroller?.scrollLeft ?? -1;
 	editor.playback.play();
 	await new Promise((resolve) => setTimeout(resolve, 1200));
+	log(
+		"mid-play:",
+		JSON.stringify({
+			engineT: String(editor.playback.getCurrentTime()),
+			scrollLeft: timelineScroller?.scrollLeft ?? -1,
+			scrollWidth: timelineScroller?.scrollWidth ?? -1,
+			clientWidth: timelineScroller?.clientWidth ?? -1,
+			overflowX: timelineScroller
+				? getComputedStyle(timelineScroller).overflowX
+				: "(none)",
+			display: timelineScroller
+				? getComputedStyle(timelineScroller).display
+				: "(none)",
+			label:
+				document.querySelector(".cc-timeline__timecode, [class*='timecode']")
+					?.textContent ?? "(no label node)",
+		}),
+	);
 	const litA = sampleLitFraction(canvas);
 	await new Promise((resolve) => setTimeout(resolve, 800));
 	const litB = sampleLitFraction(canvas);
 	const t1 = editor.playback.getCurrentTime();
+	const scroll1 = timelineScroller?.scrollLeft ?? -1;
+	const audio = editor.audio.getStats();
+	// Bisect the audio-sink hang: same asset URL, (a) mediabunny audio
+	// demux over UrlSource (the hanging production path), (b) over a
+	// whole-file Blob (transport removed). TIMEOUT on (a) + ok on (b)
+	// convicts UrlSource-based audio demux; TIMEOUT on both convicts the
+	// demux/decode itself.
+	const videoAsset = editor.media.getAssets().find((a) => a.type === "video");
+	if (videoAsset?.url) {
+		const { Input, ALL_FORMATS, UrlSource, BlobSource } = await import("mediabunny");
+		const race = (p: Promise<unknown>) =>
+			Promise.race([
+				p.then((v) => (v ? "ok" : "null")),
+				new Promise<string>((r) => setTimeout(() => r("TIMEOUT"), 4000)),
+			]).catch((e) => `THREW ${e instanceof Error ? e.message : String(e)}`);
+		const urlInput = new Input({
+			source: new UrlSource(videoAsset.url),
+			formats: ALL_FORMATS,
+		});
+		log("audio-probe url:", await race(urlInput.getPrimaryAudioTrack()));
+		const bytes = await fetch(videoAsset.url).then((r) => r.arrayBuffer());
+		const blobInput = new Input({
+			source: new BlobSource(new Blob([bytes])),
+			formats: ALL_FORMATS,
+		});
+		log("audio-probe blob:", await race(blobInput.getPrimaryAudioTrack()));
+	}
+	const dbgTracks = editor.scenes.getActiveSceneOrNull()?.tracks;
+	log(
+		"audio-debug elements:",
+		JSON.stringify(
+			dbgTracks?.main.elements.map((e) => {
+				const el = e as unknown as Record<string, unknown>;
+				return {
+					type: el.type,
+					mediaId: el.mediaId,
+					muted: el.muted,
+					sourceType: el.sourceType,
+				};
+			}),
+		),
+		"assets:",
+		JSON.stringify(
+			editor.media
+				.getAssets()
+				.map((a) => ({ type: a.type, hasAudio: a.hasAudio, name: a.name })),
+		),
+	);
 	editor.playback.pause();
 
 	const advanced = t1 > t0;
@@ -262,9 +339,19 @@ async function driveAndSample({
 	// captures a `simctl io … screenshot` for pixel-level ground truth.
 	const decoded = stats.totalSinks > 0 && stats.cachedFrames > 0;
 	const lit = Math.max(litA, litB);
-	const pass = advanced && decoded && fontsOk;
+	// Audio: speakers can't be heard headlessly; the in-page evidence is a
+	// RUNNING AudioContext with opened sinks and zero failures (the test
+	// clip has an audio track). Timeline follow: the strip must have
+	// scrolled while the clock ran (CapCut fixed-playhead model — the strip
+	// IS the tracking).
+	const audioOk =
+		audio.contextState === "running" &&
+		audio.failedSinks === 0 &&
+		audio.activeSinks + audio.decodedBuffers > 0;
+	const timelineOk = scroll0 >= 0 && scroll1 > scroll0;
+	const pass = advanced && decoded && fontsOk && audioOk && timelineOk;
 	log(
-		`VERDICT phase=${phase} ${pass ? "PASS" : "FAIL"} advanced=${advanced} sinks=${stats.totalSinks} decodedFrames=${stats.cachedFrames} fonts=${fontsOk ? "ok" : "FAIL"} lit=${lit.toFixed(3)} (t ${String(t0)} -> ${String(t1)})`,
+		`VERDICT phase=${phase} ${pass ? "PASS" : "FAIL"} advanced=${advanced} sinks=${stats.totalSinks} decodedFrames=${stats.cachedFrames} fonts=${fontsOk ? "ok" : "FAIL"} audio=${audioOk ? "ok" : `FAIL(${audio.contextState},clips=${audio.scheduledClips},active=${audio.activeClips},sinks=${audio.activeSinks},failed=${audio.failedSinks},buffers=${audio.decodedBuffers})`} timeline=${timelineOk ? `ok(${scroll0}->${scroll1}px)` : `FAIL(${scroll0}->${scroll1}px)`} lit=${lit.toFixed(3)} (t ${String(t0)} -> ${String(t1)})`,
 	);
 }
 

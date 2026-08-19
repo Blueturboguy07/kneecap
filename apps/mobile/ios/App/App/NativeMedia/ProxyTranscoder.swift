@@ -140,7 +140,17 @@ public enum ProxyTranscoder {
 
 		var audioReaderOutput: AVAssetReaderTrackOutput?
 		if let audioTrack {
-			let out = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
+			// Decode to PCM — NOT nil-passthrough. Passthrough into an .mp4
+			// writer input with nil outputSettings and no sourceFormatHint
+			// makes `writer.canAdd` return false, and the guard below then
+			// silently produced AUDIO-LESS proxies — every imported clip
+			// played mute (found via the #/autotest audio probe, 2026-08-19:
+			// getPrimaryAudioTrack() == null on the proxy itself). PCM in →
+			// AAC out below is also robust to ANY source audio codec.
+			let out = AVAssetReaderTrackOutput(
+				track: audioTrack,
+				outputSettings: [AVFormatIDKey: kAudioFormatLinearPCM]
+			)
 			out.alwaysCopiesSampleData = false
 			if reader.canAdd(out) {
 				reader.add(out)
@@ -185,11 +195,22 @@ public enum ProxyTranscoder {
 
 		var audioWriterInput: AVAssetWriterInput?
 		if audioReaderOutput != nil {
-			let input = AVAssetWriterInput(mediaType: .audio, outputSettings: nil)
+			// Real AAC encode of the PCM stream above (see the reader-side
+			// comment for why passthrough silently produced mute proxies).
+			let input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+				AVFormatIDKey: kAudioFormatMPEG4AAC,
+				AVSampleRateKey: 44_100,
+				AVNumberOfChannelsKey: 2,
+				AVEncoderBitRateKey: 128_000,
+			])
 			input.expectsMediaDataInRealTime = false
 			if writer.canAdd(input) {
 				writer.add(input)
 				audioWriterInput = input
+			} else {
+				// Never silently drop audio again — this guard hiding a
+				// failed add is exactly how the mute-proxy bug lived.
+				throw ProxyTranscodeError.writerSetupFailed("cannot add AAC audio input")
 			}
 		}
 
@@ -205,28 +226,50 @@ public enum ProxyTranscoder {
 		let durationSeconds = max(duration.seconds, 0.001)
 		let scaleTransform = CGAffineTransform(scaleX: scale, y: scale)
 
-		try await runVideoPhase(
-			reader: reader,
-			readerOutput: videoReaderOutput,
-			writerInput: videoWriterInput,
-			adaptor: adaptor,
-			ciContext: ciContext,
-			// Applying the SAME matrix AVFoundation itself reports as
-			// "the transform that makes this track display upright"
-			// (`preferredTransform`) is the standard fix for this problem —
-			// it is the transform AVPlayer/AVAssetExportSession apply
-			// internally, not a hand-derived reinterpretation of it.
-			orientationTransform: transform,
-			scaleTransform: scaleTransform,
-			durationSeconds: durationSeconds,
-			onProgress: onProgress
-		)
-
+		// The two track loops MUST drain concurrently: AVAssetReader buffers
+		// samples for every attached output, and an unconsumed output
+		// eventually blocks the other's reads. The original sequential
+		// video-then-audio order survived only because passthrough AAC
+		// packets are tiny; with the audio output decoding to PCM (see
+		// above) the buffer fills within seconds and the video phase crawls
+		// to a stall (observed live: 27% after 4 minutes on a 6s clip,
+		// #/autotest 2026-08-19). Concurrent draining is the standard
+		// AVAssetWriter pattern.
 		if let audioReaderOutput, let audioWriterInput {
-			try await runAudioPhase(
+			async let videoDone: Void = runVideoPhase(
+				reader: reader,
+				readerOutput: videoReaderOutput,
+				writerInput: videoWriterInput,
+				adaptor: adaptor,
+				ciContext: ciContext,
+				// Applying the SAME matrix AVFoundation itself reports as
+				// "the transform that makes this track display upright"
+				// (`preferredTransform`) is the standard fix for this
+				// problem — it is the transform AVPlayer/
+				// AVAssetExportSession apply internally.
+				orientationTransform: transform,
+				scaleTransform: scaleTransform,
+				durationSeconds: durationSeconds,
+				onProgress: onProgress
+			)
+			async let audioDone: Void = runAudioPhase(
 				reader: reader,
 				readerOutput: audioReaderOutput,
 				writerInput: audioWriterInput
+			)
+			try await videoDone
+			try await audioDone
+		} else {
+			try await runVideoPhase(
+				reader: reader,
+				readerOutput: videoReaderOutput,
+				writerInput: videoWriterInput,
+				adaptor: adaptor,
+				ciContext: ciContext,
+				orientationTransform: transform,
+				scaleTransform: scaleTransform,
+				durationSeconds: durationSeconds,
+				onProgress: onProgress
 			)
 		}
 

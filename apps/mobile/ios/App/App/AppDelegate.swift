@@ -1,4 +1,5 @@
 import UIKit
+import AVFAudio
 import Capacitor
 
 @UIApplicationMain
@@ -7,7 +8,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // A video editor's preview must be audible with the RING/SILENT
+        // switch on silent: the default session category (.soloAmbient)
+        // mutes ALL WebAudio output under the mute switch, which reads as
+        // "audio doesn't play" on any phone that's habitually silenced
+        // (founder's iPhone, 2026-08-19). .playback is what every media
+        // app sets; .moviePlayback routes/duckes appropriately for video.
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        try? AVAudioSession.sharedInstance().setActive(true)
         return true
     }
 

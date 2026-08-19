@@ -445,6 +445,27 @@ export class AudioManager {
 		});
 	}
 
+	/** Read-only diagnostics (apps/mobile's #/autotest audio verdict —
+	 *  speakers can't be heard headlessly, but "context running + sinks
+	 *  opened + none failed" is the strongest in-page audio evidence). */
+	getStats(): {
+		contextState: AudioContextState | "none";
+		activeSinks: number;
+		failedSinks: number;
+		decodedBuffers: number;
+		scheduledClips: number;
+		activeClips: number;
+	} {
+		return {
+			contextState: this.audioContext?.state ?? "none",
+			activeSinks: this.sinks.size,
+			failedSinks: this.failedSinkSources.size,
+			decodedBuffers: this.decodedBuffers.size,
+			scheduledClips: this.clips.length,
+			activeClips: this.activeClipIds.size,
+		};
+	}
+
 	private disposeSinks(): void {
 		for (const iterator of this.clipIterators.values()) {
 			void iterator.return();

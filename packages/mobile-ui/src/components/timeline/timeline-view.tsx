@@ -73,6 +73,11 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	 *  so the M7 dev harness renders the bare surface unchanged. */
 	/** "00:00 / 00:34" readout pinned top-left over the ruler. */
 	currentTimeLabel?: string;
+	/** Playback-follow inputs: while `isPlaying`, the strip scrolls so the
+	 *  fixed centered playhead tracks `playbackTimeSec` (the engine clock).
+	 *  See the follow effect below. */
+	playbackTimeSec?: number;
+	isPlaying?: boolean;
 	/** The white "+" square after the main track's last clip (add media). */
 	onAddClip?: () => void;
 	/** The "+ Add audio" strip below the main track; hidden when the project
@@ -92,6 +97,8 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 		onZoomChange,
 		onSelectClip,
 		currentTimeLabel,
+		playbackTimeSec,
+		isPlaying,
 		onAddClip,
 		onAddAudio,
 		showAddAudio,
@@ -134,8 +141,15 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 		(timeSec: number) => {
 			const node = scrollRef.current;
 			if (!node) return;
+			const target = Math.max(0, timeToPixels({ timeSec, pixelsPerSecond }));
+			// No-op sets must not arm the programmatic-scroll flag: a set that
+			// doesn't move scrollLeft fires no scroll event, so the flag would
+			// stay armed and silently swallow the user's NEXT real scroll
+			// (frequent under per-frame playback-follow, where sub-pixel time
+			// steps round to the same scrollLeft).
+			if (Math.abs(node.scrollLeft - target) < 0.5) return;
 			isProgrammaticScrollRef.current = true;
-			node.scrollLeft = Math.max(0, timeToPixels({ timeSec, pixelsPerSecond }));
+			node.scrollLeft = target;
 		},
 		[pixelsPerSecond, scrollRef],
 	);
@@ -146,6 +160,21 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 		syncScrollToTime(currentTimeSec);
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally NOT depending on currentTimeSec: user scrubbing (native scroll -> setCurrentTimeSec) must not trigger a re-sync that would fight the scroll it just produced. Only zoom/viewport changes and imperative seek() re-anchor.
 	}, [pixelsPerSecond, viewportWidthPx]);
+
+	// Playback-follow: while the engine clock is running, the strip tracks it
+	// (CapCut's fixed-center-playhead model — the STRIP moves, the playhead
+	// doesn't). This is the reverse binding of scrub (scroll -> time); it was
+	// never wired in the touch rebuild, so the timecode ticked while the
+	// timeline sat frozen (founder's iPhone, 2026-08-19). Engine-driven sets
+	// go through syncScrollToTime's programmatic flag, so they don't echo
+	// back through handleScroll as a seek; a user scrub DURING playback still
+	// wins — it lands a real seek, and the next follow tick continues from
+	// the sought time.
+	useEffect(() => {
+		if (!isPlaying || playbackTimeSec == null) return;
+		setCurrentTimeSec(playbackTimeSec);
+		syncScrollToTime(playbackTimeSec);
+	}, [isPlaying, playbackTimeSec, syncScrollToTime]);
 
 	useImperativeHandle(
 		ref,
