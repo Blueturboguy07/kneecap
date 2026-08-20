@@ -90,6 +90,14 @@ Founder: "audio doesn't play and the timeline doesn't track." Both real, both en
 
 Residual: audible-through-speakers not verifiable headlessly (stats say running+scheduled); reopen-phase proxies transcoded by OLDER builds remain mute — re-import once on the new build.
 
+## Round 9 (2026-08-19): the jetsam kill named itself + clip-selection UX (2dc1724b)
+
+Founder's Xcode screenshot settled the crash-during-import mystery: **"killed by the operating system because it is using too much memory"** — jetsam, exactly the class the simulator can never reproduce (Mac RAM). Root cause: the proxy transcoder decoded every frame at SOURCE resolution to 32BGRA (~33MB/frame at 4K) plus per-frame CoreImage. Now `AVAssetReaderVideoCompositionOutput` — VideoToolbox delivers upright, proxy-scaled ~2MB frames appended directly, zero CoreImage. Measured (4K60 10-bit HLG import in sim): **51MB → 98MB peak footprint**, with `[kneecap-mem]` watermark logs bracketing every transcode for future triage.
+
+Selection ("options don't change / delete not popping up"): the contextual row was one subtle "Edit" chip, Delete two taps deep. Now CapCut-style direct Split / Delete / Duplicate on the row + "Edit" for the sheet. #/autotest drives the real gesture path (dispatched pointerdown/up) end to end: select → Delete visible → press → element removed → undo restores. Note for the "did you retain OpenCut" question: yes — editor-core IS OpenCut's engine; the selection/actions all existed (M8, browser-verified for text); the gap was surfacing them per CapCut's one-tap pattern.
+
+Full fresh-import verdict: `PASS … fonts=ok audio=ok timeline=ok(0→128px) select=ok(sel=1 delete 1→0)`. invariants 12/12 checked before push.
+
 ## Test sweep (2026-08-18, Fable fork agent) — see docs/TEST-REPORT.md
 
 All three CRITICALs found by the sweep are fixed and re-verified live in the browser harness: (C1) GPU init now gates the preview renderer (plus boot-time `ensurePreviewGpu` + font atlas bundled into apps/mobile, so text renders with real fonts); (C2) the home project list re-renders via a selector subscription — the engine always had the data, the UI never re-subscribed (verified: engine 1 / DOM 0 before, 1/1 after; reopen-after-reload rehydrates); (C3) a CrashBoundary paints any React render crash on screen instead of silent black. HIGHs still open, in priority order: Android's EDL parser missing ~12 field families that TS emits and iOS parses (must parse-or-reject, never silently drop); split-at-boundary silently no-ops; audio waveforms never populated (mock-only).
