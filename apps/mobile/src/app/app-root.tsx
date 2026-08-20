@@ -150,11 +150,26 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 						className="kc-home__soundcheck"
 						onClick={() => {
 							const state = EditorCore.getInstance().audio.playTestTone({});
-							setSoundCheck(`beep sent (${state})`);
+							setSoundCheck(`web beep sent (${state})`);
 							window.setTimeout(() => setSoundCheck(null), 2500);
 						}}
 					>
-						🔊 Test
+						🔊 Web
+					</button>
+					<button
+						type="button"
+						className="kc-home__soundcheck"
+						onClick={() => {
+							void getNativeBridge()
+								.then((bridge) => bridge.playTestTone())
+								.then((ok) => {
+									console.error(`[soundcheck] native tone ok=${ok}`);
+									setSoundCheck(ok ? "native beep sent" : "native tone unavailable");
+									window.setTimeout(() => setSoundCheck(null), 2500);
+								});
+						}}
+					>
+						🔊 Native
 					</button>
 					<button
 						type="button"

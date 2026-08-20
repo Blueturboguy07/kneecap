@@ -208,7 +208,7 @@ export class AudioManager {
 			console.error("[soundcheck] tone failed:", error);
 		}
 		console.error(
-			`[soundcheck] state=${audioContext.state} sampleRate=${audioContext.sampleRate}`,
+			`[soundcheck] state=${audioContext.state} sampleRate=${audioContext.sampleRate} AudioDecoder=${typeof (globalThis as { AudioDecoder?: unknown }).AudioDecoder !== "undefined"} ua=${typeof navigator !== "undefined" ? navigator.userAgent : "?"}`,
 		);
 		return audioContext.state;
 	}

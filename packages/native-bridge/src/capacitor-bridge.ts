@@ -187,6 +187,7 @@ interface NativeTranscribeResult {
 interface NativeBridgePluginSpec {
 	getDeviceInfo(): Promise<NativeDeviceInfo>;
 	getMediaRoot(): Promise<{ root: string }>;
+	playTestTone(): Promise<{ ok: boolean }>;
 	pickMedia(opts: {
 		kinds: MediaKind[];
 		allowMultiple: boolean;
@@ -435,6 +436,16 @@ export function createCapacitorBridge({
 				// "not implemented" — degrade to absolute-path persistence
 				// rather than failing the import flow.
 				return null;
+			}
+		},
+
+		async playTestTone(): Promise<boolean> {
+			try {
+				const { ok } = await plugin.playTestTone();
+				return ok === true;
+			} catch {
+				// Old native build without the method — report un-playable.
+				return false;
 			}
 		},
 

@@ -81,6 +81,25 @@ class NativeBridgePlugin : Plugin() {
 	 * platforms. */
 	private var activeExportId: String? = null
 
+	/** Native tone bisector — parity with iOS playTestTone (see the iOS
+	 *  pluginMethods comment). */
+	@PluginMethod
+	fun playTestTone(call: PluginCall) {
+		Thread {
+			try {
+				val tone = android.media.ToneGenerator(android.media.AudioManager.STREAM_MUSIC, 80)
+				tone.startTone(android.media.ToneGenerator.TONE_DTMF_1, 800)
+				Thread.sleep(900)
+				tone.release()
+			} catch (_: Exception) {
+				// Best effort — the bisector's answer is audible or not.
+			}
+		}.start()
+		val ret = JSObject()
+		ret.put("ok", true)
+		call.resolve(ret)
+	}
+
 	/** The media-custody root, so the webview persists container-RELATIVE
 	 *  media paths. On iOS the data-container UUID rotates every
 	 *  update/reinstall, killing persisted absolute paths; Android's data

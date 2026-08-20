@@ -276,6 +276,10 @@ export interface NativeBridge {
 	 * playback broke after an Xcode reinstall).
 	 */
 	getMediaRoot(): Promise<string | null>;
+	/** Dogfood audio bisector: a native-rendered 440Hz tone, NO webview
+	 *  involved (2026-08-19 device-silence campaign). Resolves false when
+	 *  the platform can't play one (web fallback / old native build). */
+	playTestTone(): Promise<boolean>;
 	pickMedia(opts: PickMediaOptions): Promise<MediaHandle[]>;
 	// `AsyncGenerator`, not the plan sketch's `AsyncIterable`: every
 	// implementation IS an async generator function, and callers (including

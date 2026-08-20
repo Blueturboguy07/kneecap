@@ -165,6 +165,10 @@ export function createWebFallbackBridge(): NativeBridge {
 		// relative-path persistence has nothing to anchor to here.
 		getMediaRoot: async () => null,
 
+		// No native audio stack on the web — the WebAudio side of the
+		// bisector already covers this platform.
+		playTestTone: async () => false,
+
 		async pickMedia(opts) {
 			const files = await openFilePicker(opts);
 			const handles: MediaHandle[] = [];

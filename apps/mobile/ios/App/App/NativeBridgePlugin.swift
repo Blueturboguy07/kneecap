@@ -1,4 +1,5 @@
 import Foundation
+import AVFAudio
 import Capacitor
 import UIKit
 
@@ -39,6 +40,12 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         // absolute path dies with the next install (found live 2026-08-19 —
         // every saved project's playback broke after an Xcode reinstall).
         CAPPluginMethod(name: "getMediaRoot", returnType: CAPPluginReturnPromise),
+        // Dogfood audio bisector (2026-08-19 device-silence campaign): a
+        // 440Hz tone rendered by AVAudioEngine — NO webview involved. Web
+        // beep silent + native beep audible = the webview's audio output is
+        // broken on this device and preview audio must route natively;
+        // neither audible = device volume/output-route, not app code.
+        CAPPluginMethod(name: "playTestTone", returnType: CAPPluginReturnPromise),
         // kneecap M4 — see NativeBridgePlugin+Media.swift for the
         // implementations. `pickMedia` is a normal promise call (resolves
         // once, with the picked+probed handles). `generateProxy` resolves
@@ -100,6 +107,44 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
             return UIDevice.current.model
         }
         return identifier
+    }
+
+    /// Retains the test-tone engine for the tone's duration (AVAudioEngine
+    /// stops the moment it deallocates).
+    var testToneEngine: AVAudioEngine?
+
+    @objc func playTestTone(_ call: CAPPluginCall) {
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+            let sampleRate = 44_100.0
+            let duration = 0.8
+            let frameCount = AVAudioFrameCount(sampleRate * duration)
+            guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
+                  let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
+                  let channel = buffer.floatChannelData?[0] else {
+                call.reject("test tone: buffer setup failed")
+                return
+            }
+            buffer.frameLength = frameCount
+            for frame in 0..<Int(frameCount) {
+                channel[frame] = Float(sin(2.0 * Double.pi * 440.0 * Double(frame) / sampleRate)) * 0.4
+            }
+            let engine = AVAudioEngine()
+            let player = AVAudioPlayerNode()
+            engine.attach(player)
+            engine.connect(player, to: engine.mainMixerNode, format: format)
+            try engine.start()
+            player.scheduleBuffer(buffer)
+            player.play()
+            self.testToneEngine = engine
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.3) { [weak self] in
+                engine.stop()
+                if self?.testToneEngine === engine { self?.testToneEngine = nil }
+            }
+            call.resolve(["ok": true])
+        } catch {
+            call.reject("test tone failed: \(error.localizedDescription)")
+        }
     }
 
     @objc func getMediaRoot(_ call: CAPPluginCall) {
