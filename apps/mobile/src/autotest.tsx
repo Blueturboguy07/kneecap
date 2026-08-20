@@ -268,6 +268,49 @@ async function driveAndSample({
 	const t1 = editor.playback.getCurrentTime();
 	const scroll1 = timelineScroller?.scrollLeft ?? -1;
 	const audio = editor.audio.getStats();
+
+	// Selection + delete flow, via the REAL gesture path (pointerdown/up on
+	// the clip node — plain click() does not select, per the M-sweep):
+	// select the video clip, assert the contextual row's direct Delete
+	// button appears, press it, assert the element left the track, undo.
+	let selectOk = false;
+	let selectDetail = "no video clip node";
+	const clipNode = document.querySelector<HTMLElement>(
+		".cc-timeline__clip--video",
+	);
+	if (clipNode) {
+		const rect = clipNode.getBoundingClientRect();
+		const pointerOpts = {
+			bubbles: true,
+			cancelable: true,
+			pointerId: 7,
+			pointerType: "touch",
+			clientX: rect.left + rect.width / 2,
+			clientY: rect.top + rect.height / 2,
+		};
+		clipNode.dispatchEvent(new PointerEvent("pointerdown", pointerOpts));
+		clipNode.dispatchEvent(new PointerEvent("pointerup", pointerOpts));
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		const selectedCount = editor.selection.getSelectedElements().length;
+		const deleteButton = [...document.querySelectorAll("button")].find(
+			(b) => b.textContent?.trim() === "Delete",
+		);
+		if (selectedCount === 1 && deleteButton) {
+			const mainBefore =
+				editor.scenes.getActiveSceneOrNull()?.tracks.main.elements.length ?? -1;
+			deleteButton.click();
+			await new Promise((resolve) => setTimeout(resolve, 400));
+			const mainAfter =
+				editor.scenes.getActiveSceneOrNull()?.tracks.main.elements.length ?? -1;
+			selectOk = mainAfter === mainBefore - 1;
+			selectDetail = `sel=${selectedCount} delete ${mainBefore}->${mainAfter}`;
+			// Restore the clip so later reopen phases still have media to play.
+			editor.command.undo();
+			await new Promise((resolve) => setTimeout(resolve, 200));
+		} else {
+			selectDetail = `sel=${selectedCount} deleteBtn=${Boolean(deleteButton)}`;
+		}
+	}
 	// Bisect the audio-sink hang: same asset URL, (a) mediabunny audio
 	// demux over UrlSource (the hanging production path), (b) over a
 	// whole-file Blob (transport removed). TIMEOUT on (a) + ok on (b)
@@ -349,9 +392,9 @@ async function driveAndSample({
 		audio.failedSinks === 0 &&
 		audio.activeSinks + audio.decodedBuffers > 0;
 	const timelineOk = scroll0 >= 0 && scroll1 > scroll0;
-	const pass = advanced && decoded && fontsOk && audioOk && timelineOk;
+	const pass = advanced && decoded && fontsOk && audioOk && timelineOk && selectOk;
 	log(
-		`VERDICT phase=${phase} ${pass ? "PASS" : "FAIL"} advanced=${advanced} sinks=${stats.totalSinks} decodedFrames=${stats.cachedFrames} fonts=${fontsOk ? "ok" : "FAIL"} audio=${audioOk ? "ok" : `FAIL(${audio.contextState},clips=${audio.scheduledClips},active=${audio.activeClips},sinks=${audio.activeSinks},failed=${audio.failedSinks},buffers=${audio.decodedBuffers})`} timeline=${timelineOk ? `ok(${scroll0}->${scroll1}px)` : `FAIL(${scroll0}->${scroll1}px)`} lit=${lit.toFixed(3)} (t ${String(t0)} -> ${String(t1)})`,
+		`VERDICT phase=${phase} ${pass ? "PASS" : "FAIL"} advanced=${advanced} sinks=${stats.totalSinks} decodedFrames=${stats.cachedFrames} fonts=${fontsOk ? "ok" : "FAIL"} audio=${audioOk ? "ok" : `FAIL(${audio.contextState},clips=${audio.scheduledClips},active=${audio.activeClips},sinks=${audio.activeSinks},failed=${audio.failedSinks},buffers=${audio.decodedBuffers})`} timeline=${timelineOk ? `ok(${scroll0}->${scroll1}px)` : `FAIL(${scroll0}->${scroll1}px)`} select=${selectOk ? `ok(${selectDetail})` : `FAIL(${selectDetail})`} lit=${lit.toFixed(3)} (t ${String(t0)} -> ${String(t1)})`,
 	);
 }
 

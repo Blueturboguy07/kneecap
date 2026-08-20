@@ -128,10 +128,39 @@ public enum ProxyTranscoder {
 			throw ProxyTranscodeError.readerSetupFailed(error.localizedDescription)
 		}
 
-		let videoReaderOutput = AVAssetReaderTrackOutput(
-			track: videoTrack,
-			outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+		// Decode AT PROXY RESOLUTION via a video composition — never at
+		// source resolution. The previous shape (AVAssetReaderTrackOutput
+		// decoding full frames to 32BGRA + CoreImage downscale per frame)
+		// held a 4K working set of ~33MB/frame uncompressed BGRA plus CI
+		// intermediates, and on-device imports of real iPhone footage were
+		// JETSAM-KILLED — Xcode: "killed by the operating system because it
+		// is using too much memory" (founder's iPhone, 2026-08-19). With the
+		// composition, VideoToolbox hands us upright, already-scaled ~540p
+		// frames (~2MB) that are appended directly, no CoreImage at all.
+		let frameRate = try await videoTrack.load(.nominalFrameRate)
+		let composition = AVMutableVideoComposition()
+		composition.renderSize = CGSize(width: outW, height: outH)
+		composition.frameDuration = CMTime(
+			value: 1,
+			timescale: CMTimeScale(max(1, Int32(frameRate.rounded())))
 		)
+		let instruction = AVMutableVideoCompositionInstruction()
+		instruction.timeRange = CMTimeRange(start: .zero, duration: duration)
+		let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
+		// Upright first (the same preferredTransform AVPlayer applies), then
+		// scale display-space into the proxy's render size.
+		layer.setTransform(
+			transform.concatenating(CGAffineTransform(scaleX: scale, y: scale)),
+			at: .zero
+		)
+		instruction.layerInstructions = [layer]
+		composition.instructions = [instruction]
+
+		let videoReaderOutput = AVAssetReaderVideoCompositionOutput(
+			videoTracks: [videoTrack],
+			videoSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+		)
+		videoReaderOutput.videoComposition = composition
 		videoReaderOutput.alwaysCopiesSampleData = false
 		guard reader.canAdd(videoReaderOutput) else {
 			throw ProxyTranscodeError.readerSetupFailed("cannot add video track output")
@@ -222,9 +251,8 @@ public enum ProxyTranscoder {
 		}
 		writer.startSession(atSourceTime: .zero)
 
-		let ciContext = CIContext()
 		let durationSeconds = max(duration.seconds, 0.001)
-		let scaleTransform = CGAffineTransform(scaleX: scale, y: scale)
+		print("[kneecap-mem] transcode start footprint=\(physFootprintMB())MB")
 
 		// The two track loops MUST drain concurrently: AVAssetReader buffers
 		// samples for every attached output, and an unconsumed output
@@ -241,14 +269,6 @@ public enum ProxyTranscoder {
 				readerOutput: videoReaderOutput,
 				writerInput: videoWriterInput,
 				adaptor: adaptor,
-				ciContext: ciContext,
-				// Applying the SAME matrix AVFoundation itself reports as
-				// "the transform that makes this track display upright"
-				// (`preferredTransform`) is the standard fix for this
-				// problem — it is the transform AVPlayer/
-				// AVAssetExportSession apply internally.
-				orientationTransform: transform,
-				scaleTransform: scaleTransform,
 				durationSeconds: durationSeconds,
 				onProgress: onProgress
 			)
@@ -265,9 +285,6 @@ public enum ProxyTranscoder {
 				readerOutput: videoReaderOutput,
 				writerInput: videoWriterInput,
 				adaptor: adaptor,
-				ciContext: ciContext,
-				orientationTransform: transform,
-				scaleTransform: scaleTransform,
 				durationSeconds: durationSeconds,
 				onProgress: onProgress
 			)
@@ -281,17 +298,34 @@ public enum ProxyTranscoder {
 		}
 
 		onProgress?(1.0)
+		print("[kneecap-mem] transcode end footprint=\(physFootprintMB())MB")
 		return ProxyResult(outputURL: outputURL, width: outW, height: outH)
+	}
+
+	/// Resident memory footprint in MB — the number jetsam judges. Logged
+	/// around the transcode so a future on-device memory kill names its
+	/// spike in the console instead of needing another guessing round
+	/// (2026-08-19: real iPhone imports were jetsam-killed, invisible in
+	/// the RAM-rich simulator).
+	private static func physFootprintMB() -> Int {
+		var info = task_vm_info_data_t()
+		var count = mach_msg_type_number_t(
+			MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size
+		)
+		let result = withUnsafeMutablePointer(to: &info) {
+			$0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+				task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+			}
+		}
+		guard result == KERN_SUCCESS else { return -1 }
+		return Int(info.phys_footprint / (1024 * 1024))
 	}
 
 	private static func runVideoPhase(
 		reader: AVAssetReader,
-		readerOutput: AVAssetReaderTrackOutput,
+		readerOutput: AVAssetReaderOutput,
 		writerInput: AVAssetWriterInput,
 		adaptor: AVAssetWriterInputPixelBufferAdaptor,
-		ciContext: CIContext,
-		orientationTransform: CGAffineTransform,
-		scaleTransform: CGAffineTransform,
 		durationSeconds: Double,
 		onProgress: (@Sendable (Double) -> Void)?
 	) async throws {
@@ -324,29 +358,14 @@ public enum ProxyTranscoder {
 							: nil)
 						return
 					}
+					// Frames arrive from AVAssetReaderVideoCompositionOutput
+					// already upright and at the proxy's render size — append
+					// directly. (The old per-frame CoreImage transform+render
+					// at SOURCE resolution is what got the app jetsam-killed
+					// on device — see the reader-setup comment.)
 					guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { continue }
 					let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-
-					var image = CIImage(cvPixelBuffer: imageBuffer)
-					image = image.transformed(by: orientationTransform)
-					image = image.transformed(by: scaleTransform)
-					// Rotation/scale can leave a non-zero-origin extent (Core
-					// Image tracks extent independent of a fixed canvas);
-					// normalize back to the origin before rendering into a
-					// fixed-size pixel buffer, or the frame renders offset/clipped.
-					if image.extent.origin != .zero {
-						image = image.transformed(by: CGAffineTransform(
-							translationX: -image.extent.origin.x,
-							y: -image.extent.origin.y
-						))
-					}
-
-					guard let pool = adaptor.pixelBufferPool else { continue }
-					var outBuffer: CVPixelBuffer?
-					CVPixelBufferPoolCreatePixelBuffer(nil, pool, &outBuffer)
-					guard let outBuffer else { continue }
-					ciContext.render(image, to: outBuffer)
-					_ = adaptor.append(outBuffer, withPresentationTime: pts)
+					_ = adaptor.append(imageBuffer, withPresentationTime: pts)
 
 					if durationSeconds > 0 {
 						onProgress?(min(0.999, CMTimeGetSeconds(pts) / durationSeconds))

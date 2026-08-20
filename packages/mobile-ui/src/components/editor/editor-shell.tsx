@@ -44,7 +44,7 @@ import {
 	setProjectResolution,
 	setProjectBackground,
 } from "../../editor/actions";
-import { Scissors, VolumeX, WandSparkles, ImagePlus } from "lucide-react";
+import { Scissors, Trash2, CopyPlus, SlidersHorizontal, VolumeX, WandSparkles, ImagePlus } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
@@ -73,7 +73,17 @@ interface EditorShellProps {
 	bootstrap?: () => Promise<unknown>;
 }
 
-const CONTEXTUAL_ITEMS: ToolbarItemDef[] = [{ id: "edit", label: "Edit", icon: Scissors }];
+/** Selected-clip actions, CapCut-style: the frequent verbs live DIRECTLY
+ *  on the contextual row — Delete especially must never be two taps deep
+ *  behind a sheet (founder feedback 2026-08-19: "delete not popping up is
+ *  the most critical thing"). "Edit" still opens the full sheet for the
+ *  rest (trim readouts, per-clip params). */
+const CONTEXTUAL_ITEMS: ToolbarItemDef[] = [
+	{ id: "split", label: "Split", icon: Scissors },
+	{ id: "delete", label: "Delete", icon: Trash2 },
+	{ id: "duplicate", label: "Duplicate", icon: CopyPlus },
+	{ id: "edit", label: "Edit", icon: SlidersHorizontal },
+];
 
 const VISUAL_ONLY_SHEETS = new Set<SheetId>(["effects", "filters", "adjust"]);
 
@@ -299,7 +309,26 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 			)}
 
 			{selectedRef && selectedElement && (
-				<SubToolbar items={CONTEXTUAL_ITEMS} activeId={activeSheet} onSelect={(id) => setActiveSheet(id as SheetId)} />
+				<SubToolbar
+					items={CONTEXTUAL_ITEMS}
+					activeId={activeSheet}
+					onSelect={(id) => {
+						// Direct verbs act immediately; only "edit" opens a sheet.
+						if (id === "split") {
+							splitAtPlayhead({ editor, ref: selectedRef });
+							return;
+						}
+						if (id === "delete") {
+							deleteSelected({ editor, refs: [selectedRef] });
+							return;
+						}
+						if (id === "duplicate") {
+							duplicateSelected({ editor, refs: [selectedRef] });
+							return;
+						}
+						setActiveSheet(id as SheetId);
+					}}
+				/>
 			)}
 
 			<BottomToolbar items={PRIMARY_TOOLBAR_ITEMS} activeId={activeSheet} onSelect={(id) => setActiveSheet(id as SheetId)} />
