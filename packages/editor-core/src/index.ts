@@ -80,6 +80,11 @@ export {
 	resolveNativeMediaPath,
 	relativeMediaPathFromPlaybackUrl,
 } from "./media/native-paths";
+export {
+	registerNativeAudioRouter,
+	type NativeAudioRouter,
+	type NativeAudioRouterClip,
+} from "./media/native-audio-router";
 // Read-only diagnostics surface (apps/mobile's #/autotest verdict): WebKit
 // clears WebGPU canvases after present, so on-screen pixels cannot be read
 // back in-page — decode-side stats are the honest in-page playback signal.

@@ -20,7 +20,7 @@ import "@kneecap/mobile-ui/components.css";
 import "./app-root.css";
 import { Component, StrictMode, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { EditorCore, registerNativeMediaPathResolver } from "@kneecap/editor-core";
+import { EditorCore, registerNativeMediaPathResolver, registerNativeAudioRouter } from "@kneecap/editor-core";
 import { getNativeBridge } from "@kneecap/native-bridge";
 import { loadFontAtlas } from "@kneecap/editor-core/fonts/local-fonts";
 import { useEditor } from "@kneecap/editor-core/react";
@@ -249,6 +249,20 @@ export function mountApp() {
 				toPlaybackUri: bridge.toPlaybackUri,
 			});
 		}
+		// Native preview-audio routing (2026-08-20): the device bisect proved
+		// this webview's WebAudio output is silent while native audio works —
+		// see editor-core media/native-audio-router.ts. The Capacitor file
+		// marker reversal is the inverse of convertFileSrc's rewrite.
+		registerNativeAudioRouter({
+			start: (params) => bridge.audioStart(params),
+			stop: () => bridge.audioStop(),
+			level: () => bridge.audioLevel(),
+			toNativePath: (url) => {
+				const marker = "/_capacitor_file_";
+				const index = url.indexOf(marker);
+				return index === -1 ? null : url.slice(index + marker.length);
+			},
+		});
 	});
 	container.innerHTML = "";
 	createRoot(container).render(

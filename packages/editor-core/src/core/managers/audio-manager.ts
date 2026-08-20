@@ -28,6 +28,10 @@ import {
 	createPlayableSource,
 	readPlayableBytes,
 } from "@/media/playable-source";
+import {
+	getNativeAudioRouter,
+	type NativeAudioRouterClip,
+} from "@/media/native-audio-router";
 
 export class AudioManager {
 	private audioContext: AudioContext | null = null;
@@ -58,6 +62,10 @@ export class AudioManager {
 	private lastIsPlaying = false;
 	private lastVolume = 1;
 	private playbackLatencyCompensationSeconds = 0;
+	/** True while the current playback session's audio is mixed NATIVELY
+	 *  (media/native-audio-router.ts) — the WebAudio scheduling below is
+	 *  skipped entirely for the session. */
+	private routedNatively = false;
 	private unsubscribers: Array<() => void> = [];
 
 	constructor(private editor: EditorCore) {
@@ -213,6 +221,55 @@ export class AudioManager {
 		return audioContext.state;
 	}
 
+	/** Maps the session's audible clips into the native router's schedule
+	 *  and starts it. False (→ WebAudio fallback) when no router is
+	 *  registered, any clip has no native-backed path, or the platform
+	 *  declines. All-or-nothing on purpose: half-native half-web mixing
+	 *  would double-play whichever clips both sides can handle. */
+	private async tryStartNativeRoute({
+		atSec,
+	}: {
+		atSec: number;
+	}): Promise<boolean> {
+		const router = getNativeAudioRouter();
+		if (!router) return false;
+
+		const schedule: NativeAudioRouterClip[] = [];
+		for (const clip of this.clips) {
+			if (clip.muted) continue;
+			const url = clip.url;
+			if (!url) return false;
+			const path = router.toNativePath(url);
+			if (!path) return false;
+			schedule.push({
+				path,
+				startSec: clip.startTime,
+				durationSec: clip.duration,
+				sourceOffsetSec: clip.trimStart,
+				volume: clip.volume,
+				rate: clampRetimeRate({ rate: clip.retime?.rate ?? 1 }),
+			});
+		}
+		if (schedule.length === 0) return false;
+		try {
+			return await router.start({ clips: schedule, atSec });
+		} catch (error) {
+			console.warn("native audio route failed — WebAudio fallback:", error);
+			return false;
+		}
+	}
+
+	/** Measured output level regardless of route: native mix RMS when
+	 *  routed, WebAudio analyser RMS otherwise. The #/autotest sound
+	 *  assertion uses this. */
+	async getOutputLevel(): Promise<number> {
+		if (this.routedNatively) {
+			const router = getNativeAudioRouter();
+			if (router) return router.level();
+		}
+		return this.getOutputRms();
+	}
+
 	/** RMS of the master bus right now (0 when idle/silent). Diagnostics —
 	 *  see the #/autotest sound assertion. */
 	getOutputRms(): number {
@@ -260,6 +317,18 @@ export class AudioManager {
 		this.playbackStartTime = time;
 		this.playbackStartContextTime = audioContext.currentTime;
 
+		// Native routing first (see media/native-audio-router.ts): on the
+		// platform where WebAudio output is broken, the whole schedule is
+		// mixed natively and the WebAudio path below never runs.
+		this.routedNatively = await this.tryStartNativeRoute({ atSec: time });
+		if (this.routedNatively) {
+			if (!this.editor.playback.getIsPlaying()) {
+				void getNativeAudioRouter()?.stop();
+				this.routedNatively = false;
+			}
+			return;
+		}
+
 		this.scheduleUpcomingClips();
 
 		if (typeof window !== "undefined") {
@@ -301,6 +370,10 @@ export class AudioManager {
 	}
 
 	private stopPlayback(): void {
+		if (this.routedNatively) {
+			this.routedNatively = false;
+			void getNativeAudioRouter()?.stop();
+		}
 		if (this.scheduleTimer && typeof window !== "undefined") {
 			window.clearInterval(this.scheduleTimer);
 		}
@@ -541,6 +614,7 @@ export class AudioManager {
 		scheduledClips: number;
 		activeClips: number;
 		queuedSources: number;
+		routedNatively: boolean;
 	} {
 		return {
 			contextState: this.audioContext?.state ?? "none",
@@ -550,6 +624,7 @@ export class AudioManager {
 			scheduledClips: this.clips.length,
 			activeClips: this.activeClipIds.size,
 			queuedSources: this.queuedSources.size,
+			routedNatively: this.routedNatively,
 		};
 	}
 

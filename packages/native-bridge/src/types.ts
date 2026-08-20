@@ -45,6 +45,19 @@ export interface PickProgress {
 	error?: string;
 }
 
+/** One audible clip in the native preview-audio schedule. `path` is a RAW
+ *  native filesystem path (the bridge reverses its own playback-URL
+ *  conversion), seconds are plain doubles — this schedule never crosses the
+ *  EDL tick boundary. */
+export interface NativeAudioClip {
+	path: string;
+	startSec: number;
+	durationSec: number;
+	sourceOffsetSec: number;
+	volume: number;
+	rate: number;
+}
+
 export interface PickMediaOptions {
 	kinds: MediaKind[];
 	allowMultiple: boolean;
@@ -280,6 +293,21 @@ export interface NativeBridge {
 	 *  involved (2026-08-19 device-silence campaign). Resolves false when
 	 *  the platform can't play one (web fallback / old native build). */
 	playTestTone(): Promise<boolean>;
+	/**
+	 * Native preview-audio router (2026-08-20): the iOS device bisect proved
+	 * WKWebView renders WebAudio silently while native audio works, so the
+	 * engine hands its audible-clip schedule here and iOS mixes it natively
+	 * (NativeAudioPreview.swift). `audioStart` rebuilds the whole schedule
+	 * (also used for seeks); rejects/false on platforms without it
+	 * (web, Android for now) — callers keep their WebAudio path there.
+	 */
+	audioStart(params: {
+		clips: NativeAudioClip[];
+		atSec: number;
+	}): Promise<boolean>;
+	audioStop(): Promise<void>;
+	/** Measured RMS of the native mix output (autotest signal assertion). */
+	audioLevel(): Promise<number>;
 	pickMedia(opts: PickMediaOptions): Promise<MediaHandle[]>;
 	// `AsyncGenerator`, not the plan sketch's `AsyncIterable`: every
 	// implementation IS an async generator function, and callers (including

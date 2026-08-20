@@ -169,6 +169,11 @@ export function createWebFallbackBridge(): NativeBridge {
 		// bisector already covers this platform.
 		playTestTone: async () => false,
 
+		// No native mixer on the web — the engine's WebAudio path applies.
+		audioStart: async () => false,
+		audioStop: async () => {},
+		audioLevel: async () => 0,
+
 		async pickMedia(opts) {
 			const files = await openFilePicker(opts);
 			const handles: MediaHandle[] = [];

@@ -81,6 +81,27 @@ class NativeBridgePlugin : Plugin() {
 	 * platforms. */
 	private var activeExportId: String? = null
 
+	/** Native preview-audio router — iOS-only for now: the webview-silence
+	 *  bug is device-verified on iOS, while Android WebView WebAudio is
+	 *  expected functional (untested on hardware). Android reports
+	 *  available:false so the JS AudioManager keeps its WebAudio path. */
+	@PluginMethod
+	fun audioStart(call: PluginCall) {
+		call.reject("native preview audio not implemented on android", "UNSUPPORTED")
+	}
+
+	@PluginMethod
+	fun audioStop(call: PluginCall) {
+		call.resolve(JSObject())
+	}
+
+	@PluginMethod
+	fun audioLevel(call: PluginCall) {
+		val ret = JSObject()
+		ret.put("rms", 0.0)
+		call.resolve(ret)
+	}
+
 	/** Native tone bisector — parity with iOS playTestTone (see the iOS
 	 *  pluginMethods comment). */
 	@PluginMethod

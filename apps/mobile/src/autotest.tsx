@@ -42,6 +42,7 @@ import {
 	EditorCore,
 	importMediaFromNative,
 	registerNativeMediaPathResolver,
+	registerNativeAudioRouter,
 	mediaTimeFromSeconds,
 	videoCache,
 	type NativeMediaHandle,
@@ -269,7 +270,7 @@ async function driveAndSample({
 	// driver, the furthest a headless run can hear.
 	let rmsMax = 0;
 	for (let i = 0; i < 8; i++) {
-		rmsMax = Math.max(rmsMax, editor.audio.getOutputRms());
+		rmsMax = Math.max(rmsMax, await editor.audio.getOutputLevel());
 		await new Promise((resolve) => setTimeout(resolve, 100));
 	}
 	const litB = sampleLitFraction(canvas);
@@ -395,16 +396,17 @@ async function driveAndSample({
 	// clip has an audio track). Timeline follow: the strip must have
 	// scrolled while the clock ran (CapCut fixed-playhead model — the strip
 	// IS the tracking).
-	const audioOk =
-		audio.contextState === "running" &&
-		audio.failedSinks === 0 &&
-		audio.activeSinks + audio.decodedBuffers > 0;
+	const audioOk = audio.routedNatively
+		? audio.failedSinks === 0
+		: audio.contextState === "running" &&
+			audio.failedSinks === 0 &&
+			audio.activeSinks + audio.decodedBuffers > 0;
 	const timelineOk = scroll0 >= 0 && scroll1 > scroll0;
 	const soundOk = rmsMax > 0.0005;
 	const pass =
 		advanced && decoded && fontsOk && audioOk && timelineOk && selectOk && soundOk;
 	log(
-		`VERDICT phase=${phase} ${pass ? "PASS" : "FAIL"} advanced=${advanced} sinks=${stats.totalSinks} decodedFrames=${stats.cachedFrames} fonts=${fontsOk ? "ok" : "FAIL"} audio=${audioOk ? "ok" : `FAIL(${audio.contextState},clips=${audio.scheduledClips},active=${audio.activeClips},sinks=${audio.activeSinks},failed=${audio.failedSinks},buffers=${audio.decodedBuffers})`} timeline=${timelineOk ? `ok(${scroll0}->${scroll1}px)` : `FAIL(${scroll0}->${scroll1}px)`} select=${selectOk ? `ok(${selectDetail})` : `FAIL(${selectDetail})`} sound=${soundOk ? `ok(rms=${rmsMax.toFixed(4)})` : `FAIL(rms=${rmsMax.toFixed(4)},queued=${audio.queuedSources},AudioDecoder=${typeof (globalThis as { AudioDecoder?: unknown }).AudioDecoder !== "undefined"})`} lit=${lit.toFixed(3)} (t ${String(t0)} -> ${String(t1)})`,
+		`VERDICT phase=${phase} ${pass ? "PASS" : "FAIL"} advanced=${advanced} sinks=${stats.totalSinks} decodedFrames=${stats.cachedFrames} fonts=${fontsOk ? "ok" : "FAIL"} audio=${audioOk ? `ok(${audio.routedNatively ? "native" : "web"})` : `FAIL(${audio.contextState},routed=${audio.routedNatively},clips=${audio.scheduledClips},active=${audio.activeClips},sinks=${audio.activeSinks},failed=${audio.failedSinks},buffers=${audio.decodedBuffers})`} timeline=${timelineOk ? `ok(${scroll0}->${scroll1}px)` : `FAIL(${scroll0}->${scroll1}px)`} select=${selectOk ? `ok(${selectDetail})` : `FAIL(${selectDetail})`} sound=${soundOk ? `ok(rms=${rmsMax.toFixed(4)})` : `FAIL(rms=${rmsMax.toFixed(4)},queued=${audio.queuedSources},AudioDecoder=${typeof (globalThis as { AudioDecoder?: unknown }).AudioDecoder !== "undefined"})`} lit=${lit.toFixed(3)} (t ${String(t0)} -> ${String(t1)})`,
 	);
 }
 
@@ -424,6 +426,16 @@ export async function mountAutotest(): Promise<void> {
 		return;
 	}
 	registerNativeMediaPathResolver({ root, toPlaybackUri: bridge.toPlaybackUri });
+	registerNativeAudioRouter({
+		start: (params) => bridge.audioStart(params),
+		stop: () => bridge.audioStop(),
+		level: () => bridge.audioLevel(),
+		toNativePath: (url) => {
+			const marker = "/_capacitor_file_";
+			const index = url.indexOf(marker);
+			return index === -1 ? null : url.slice(index + marker.length);
+		},
+	});
 	log("media root", root);
 
 	// Opt-in device-profile mode: a runner-planted `<root>/autotest-fallback.flag`

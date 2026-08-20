@@ -90,6 +90,7 @@ import type {
 	MediaKind,
 	NativeBridge,
 	NativeBridgeErrorCode,
+	NativeAudioClip,
 	PickMediaOptions,
 	PickProgress,
 	Platform,
@@ -188,6 +189,9 @@ interface NativeBridgePluginSpec {
 	getDeviceInfo(): Promise<NativeDeviceInfo>;
 	getMediaRoot(): Promise<{ root: string }>;
 	playTestTone(): Promise<{ ok: boolean }>;
+	audioStart(params: { clips: unknown[]; atSec: number }): Promise<{ ok: boolean }>;
+	audioStop(): Promise<{ ok: boolean }>;
+	audioLevel(): Promise<{ rms: number }>;
 	pickMedia(opts: {
 		kinds: MediaKind[];
 		allowMultiple: boolean;
@@ -436,6 +440,33 @@ export function createCapacitorBridge({
 				// "not implemented" — degrade to absolute-path persistence
 				// rather than failing the import flow.
 				return null;
+			}
+		},
+
+		async audioStart({ clips, atSec }: { clips: NativeAudioClip[]; atSec: number }): Promise<boolean> {
+			try {
+				const { ok } = await plugin.audioStart({ clips, atSec });
+				return ok === true;
+			} catch {
+				// Unimplemented platform / old native build: caller keeps WebAudio.
+				return false;
+			}
+		},
+
+		async audioStop(): Promise<void> {
+			try {
+				await plugin.audioStop();
+			} catch {
+				// Nothing to stop on platforms without the router.
+			}
+		},
+
+		async audioLevel(): Promise<number> {
+			try {
+				const { rms } = await plugin.audioLevel();
+				return typeof rms === "number" ? rms : 0;
+			} catch {
+				return 0;
 			}
 		},
 

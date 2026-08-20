@@ -46,6 +46,14 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         // broken on this device and preview audio must route natively;
         // neither audible = device volume/output-route, not app code.
         CAPPluginMethod(name: "playTestTone", returnType: CAPPluginReturnPromise),
+        // Native preview-audio router (2026-08-20): the device bisect proved
+        // this webview renders WebAudio silently while native audio works —
+        // see NativeAudioPreview.swift. The JS AudioManager hands the whole
+        // audible-clip schedule over on play/seek; audioLevel exposes the
+        // mix's measured RMS for the #/autotest signal assertion.
+        CAPPluginMethod(name: "audioStart", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "audioStop", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "audioLevel", returnType: CAPPluginReturnPromise),
         // kneecap M4 — see NativeBridgePlugin+Media.swift for the
         // implementations. `pickMedia` is a normal promise call (resolves
         // once, with the picked+probed handles). `generateProxy` resolves
@@ -107,6 +115,45 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
             return UIDevice.current.model
         }
         return identifier
+    }
+
+    /// The native preview-audio mixer — see NativeAudioPreview.swift.
+    let audioPreview = NativeAudioPreview()
+
+    @objc func audioStart(_ call: CAPPluginCall) {
+        guard let clipsArray = call.getArray("clips") else {
+            call.reject("audioStart requires {clips, atSec}")
+            return
+        }
+        let atSec = call.getDouble("atSec") ?? 0
+        var clips: [NativeAudioPreview.ClipSchedule] = []
+        for entry in clipsArray {
+            guard let dict = entry as? [String: Any],
+                  let path = dict["path"] as? String else { continue }
+            clips.append(NativeAudioPreview.ClipSchedule(
+                path: path,
+                startSec: (dict["startSec"] as? Double) ?? 0,
+                durationSec: (dict["durationSec"] as? Double) ?? 0,
+                sourceOffsetSec: (dict["sourceOffsetSec"] as? Double) ?? 0,
+                volume: (dict["volume"] as? Double) ?? 1,
+                rate: (dict["rate"] as? Double) ?? 1
+            ))
+        }
+        do {
+            try audioPreview.start(clips: clips, atSec: atSec)
+            call.resolve(["ok": true])
+        } catch {
+            call.reject("audioStart failed: \(error.localizedDescription)")
+        }
+    }
+
+    @objc func audioStop(_ call: CAPPluginCall) {
+        audioPreview.stop()
+        call.resolve(["ok": true])
+    }
+
+    @objc func audioLevel(_ call: CAPPluginCall) {
+        call.resolve(["rms": audioPreview.outputLevel])
     }
 
     /// Retains the test-tone engine for the tone's duration (AVAudioEngine

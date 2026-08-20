@@ -33,6 +33,7 @@
 		DA2645C5A696F811B0F30D32 /* NativeBridgePlugin+Export.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26870475DC6164B19F87D7F6 /* NativeBridgePlugin+Export.swift */; };
 		E7853237CE3EE88834CC5DDA /* MediaProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E4AF30061CAD06771641C2 /* MediaProbe.swift */; };
 		EAA9A16D6D45CE0F8AC1F317 /* ProxyTranscoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62F5C60B9D68F1E648F2029D /* ProxyTranscoder.swift */; };
+		BB10AE10AE10AE10AE10AE10 /* NativeAudioPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10AE10AE10AE10AE10AE10 /* NativeAudioPreview.swift */; };
 		F4E28BDF2E5CF34A1EC39DC1 /* NativeBridgePlugin+Media.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82FAE7E1DF147549BC77C247 /* NativeBridgePlugin+Media.swift */; };
 /* End PBXBuildFile section */
 
@@ -53,6 +54,7 @@
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		5C29089217A122709B9713B2 /* NativeBridgePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeBridgePlugin.swift; sourceTree = "<group>"; };
 		62F5C60B9D68F1E648F2029D /* ProxyTranscoder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProxyTranscoder.swift; sourceTree = "<group>"; };
+		AA10AE10AE10AE10AE10AE10 /* NativeAudioPreview.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeAudioPreview.swift; sourceTree = "<group>"; };
 		638A6FC5ACDE6FBAB50CDDD7 /* Fixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Fixtures; sourceTree = "<group>"; };
 		654B51BD8EE303BA97EE40EA /* EdlModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EdlModel.swift; sourceTree = "<group>"; };
 		73AFEFD04E3E867B0DA1B10A /* ThumbnailStripGenerator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ThumbnailStripGenerator.swift; sourceTree = "<group>"; };
@@ -126,6 +128,7 @@
 			children = (
 				A9E4AF30061CAD06771641C2 /* MediaProbe.swift */,
 				62F5C60B9D68F1E648F2029D /* ProxyTranscoder.swift */,
+				AA10AE10AE10AE10AE10AE10 /* NativeAudioPreview.swift */,
 				73AFEFD04E3E867B0DA1B10A /* ThumbnailStripGenerator.swift */,
 				9E62365C080407BB6E97B7C3 /* MediaSandbox.swift */,
 			);
@@ -237,6 +240,7 @@
 				DA2645C5A696F811B0F30D32 /* NativeBridgePlugin+Export.swift in Sources */,
 				E7853237CE3EE88834CC5DDA /* MediaProbe.swift in Sources */,
 				EAA9A16D6D45CE0F8AC1F317 /* ProxyTranscoder.swift in Sources */,
+				BB10AE10AE10AE10AE10AE10 /* NativeAudioPreview.swift in Sources */,
 				7EDD4B23018CD79F34FD25FF /* ThumbnailStripGenerator.swift in Sources */,
 				8E23AC98F1F78DE1DD275274 /* MediaSandbox.swift in Sources */,
 				7B4826CBA5B6613A9717F384 /* EdlModel.swift in Sources */,
