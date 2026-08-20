@@ -37,10 +37,42 @@ import { getNativeBridge } from "@kneecap/native-bridge";
 import {
 	importMediaFromNative,
 	mediaTimeFromSeconds,
+	resolveNativeMediaRawPath,
 	ZERO_MEDIA_TIME,
 	type MediaTime,
 	type NativeImportProgress,
 } from "@kneecap/editor-core";
+import type { EdlAssetResolver } from "@kneecap/editor-core/edl";
+
+/**
+ * The EDL asset resolver for native exports (2026-08-20, fixes the on-device
+ * "asset could not be resolved to a readable URL" failure): maps each
+ * asset's persisted custody-relative paths back to RAW absolute sandbox
+ * paths for the native exporter. Prefers the full-resolution ORIGINAL
+ * (export quality never depends on the 540p preview proxy); falls back to
+ * the proxy for assets imported before source-path persistence — degraded
+ * output beats a failed export. Returns null (asset skipped/erred by
+ * buildEdl) only when neither path is known.
+ */
+export function buildNativeEdlAssetResolver(): EdlAssetResolver {
+	return ({ asset }) => {
+		const source = asset.sourceNativeRelativePath
+			? resolveNativeMediaRawPath(asset.sourceNativeRelativePath)
+			: null;
+		const proxy = asset.nativeRelativePath
+			? resolveNativeMediaRawPath(asset.nativeRelativePath)
+			: null;
+		const sourceUri = source ?? proxy;
+		if (!sourceUri) return null;
+		return {
+			sourceUri,
+			proxyUri: proxy,
+			// The proxy is baked upright; only the original needs its
+			// display rotation applied at export time.
+			rotationDegrees: source ? (asset.sourceRotationDegrees ?? 0) : 0,
+		};
+	};
+}
 
 export type NativeImportProgressHandler = (
 	progress: NativeImportProgress,
@@ -421,6 +453,12 @@ export function toEdlMediaAssets({ assets }: { assets: MediaAsset[] }): EdlMedia
 		hasAudio: asset.hasAudio,
 		ephemeral: asset.ephemeral,
 		thumbnailUrl: asset.thumbnailUrl,
+		// Custody identities — the EDL asset resolver
+		// (buildNativeEdlAssetResolver) reads these; dropping them here
+		// starved the resolver and re-broke export (caught 2026-08-20).
+		nativeRelativePath: asset.nativeRelativePath,
+		sourceNativeRelativePath: asset.sourceNativeRelativePath,
+		sourceRotationDegrees: asset.sourceRotationDegrees,
 	}));
 }
 

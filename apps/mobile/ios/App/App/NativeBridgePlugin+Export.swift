@@ -78,21 +78,26 @@ extension NativeBridgePlugin {
 
                 self.emitExportProgress(exportId: exportId, stage: "muxing", fraction: 0.99)
 
-                // Plan M9 item 8: "Save to Photos / Gallery, then the
-                // system share sheet." Best-effort — a denied/undetermined
-                // Photos permission does not fail the export itself (the
-                // file is already a real, valid deliverable in sandbox
-                // custody at `result.outputURL`); it only skips the
-                // library copy. The share sheet itself is a UI-layer
-                // concern (M6-M8), not this bridge method's job.
-                await Self.saveToPhotosLibraryBestEffort(url: result.outputURL)
-
+                // DONE FIRST: the file is already a real, valid deliverable
+                // at result.outputURL. The previous order awaited the Photos
+                // save BEFORE emitting done, and the Photos permission
+                // prompt made export completion hang indefinitely (caught
+                // by the headless #/autotest export phase, 2026-08-20:
+                // encode+mux+integrity all finished, "done" never arrived).
                 self.emitExportProgress(
                     exportId: exportId,
                     stage: "done",
                     fraction: 1,
                     outputUri: result.outputURL.path
                 )
+
+                // Plan M9 item 8: "Save to Photos / Gallery" — best-effort
+                // AND fire-and-forget: a denied/undetermined/prompting
+                // Photos permission only affects the library copy, never
+                // the export's completion.
+                Task {
+                    await Self.saveToPhotosLibraryBestEffort(url: result.outputURL)
+                }
             } catch {
                 self.emitExportProgress(
                     exportId: exportId,

@@ -134,7 +134,11 @@
 	background: var(--cc-bg-scrim);
 	/* Explicit, not load-bearing on its own — see .cc-sheet's z-index
 	   comment below for why BOTH need an explicit value. */
-	z-index: 0;
+	/* Above ALL editor chrome: the timeline's playhead (z 5) and timecode
+	   painted straight through the round-1 z-index of 0/1 — the founder's
+	   export-sheet screenshot showed the white playhead line and the
+	   timecode overlapping the sheet's controls (2026-08-20). */
+	z-index: 10;
 }
 .cc-sheet {
 	background: var(--cc-bg-panel);
@@ -185,7 +189,7 @@
 	left: 0;
 	right: 0;
 	bottom: 0;
-	z-index: 1;
+	z-index: 11; /* one above its scrim — see the scrim's z-index comment */
 }
 .cc-sheet__body {
 	overflow-y: auto;
@@ -1206,6 +1210,33 @@
 }
 .cc-panel-actions__btn:disabled {
 	color: var(--cc-text-disabled);
+	cursor: default;
+}
+
+/* Export sheet's real action buttons (2026-08-20 — these previously wore
+   .cc-panel-actions__btn, an ICON-ROW style with background:none, and read
+   as bare words on device). */
+.cc-export-sheet__action {
+	display: block;
+	width: 100%;
+	padding: 12px 16px;
+	margin-top: var(--cc-space-3);
+	border-radius: 12px;
+	border: 1px solid var(--cc-border, rgba(255, 255, 255, 0.18));
+	background: transparent;
+	color: var(--cc-text-primary);
+	font-family: inherit;
+	font-size: var(--cc-text-body, 15px);
+	font-weight: 600;
+	cursor: pointer;
+}
+.cc-export-sheet__action--primary {
+	background: var(--cc-accent);
+	border-color: var(--cc-accent);
+	color: #000;
+}
+.cc-export-sheet__action:disabled {
+	opacity: 0.5;
 	cursor: default;
 }
 

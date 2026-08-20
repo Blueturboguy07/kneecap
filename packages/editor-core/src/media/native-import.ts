@@ -1,7 +1,10 @@
 import { AddMediaAssetCommand } from "@/commands/media/add-media-asset";
 import type { EditorCore } from "@/core";
 import { toast } from "@/core/notifications";
-import { relativeMediaPathFromPlaybackUrl } from "@/media/native-paths";
+import {
+	relativeMediaPathFromPlaybackUrl,
+	relativeMediaPathFromRawPath,
+} from "@/media/native-paths";
 import type { MediaAsset, MediaType } from "@/media/types";
 
 /**
@@ -39,6 +42,10 @@ export interface NativeMediaHandle {
 	hasAudio: boolean;
 	codec: string;
 	frameRate: NativeFrameRate | null;
+	/** Display rotation off the native probe — present on the real wire
+	 *  handle (pickMedia supplies it); optional here because hand-built
+	 *  handles (tests, autotest) may omit it. */
+	rotationDegrees?: number;
 }
 
 /** Structural subset of `@kneecap/native-bridge`'s `ProxyProgress`. */
@@ -179,7 +186,26 @@ export function buildMediaAssetFromNativeImport({
 			url: thumbnailUrl,
 			root: mediaRoot,
 		}),
+		// The ORIGINAL custody file — what native EXPORT reads at full
+		// resolution (handle.uri is the raw sandbox path by contract). Its
+		// display rotation rides along: the proxy is baked upright, but the
+		// source needs the transform applied at export time.
+		sourceNativeRelativePath: relativeMediaPathFromRawPath({
+			path: handle.uri,
+			root: mediaRoot,
+		}),
+		sourceRotationDegrees: readHandleRotation(handle),
 	};
+}
+
+/** Validates the probe's rotation into the EDL's closed union. */
+function readHandleRotation(
+	handle: NativeMediaHandle,
+): 0 | 90 | 180 | 270 | undefined {
+	const value = handle.rotationDegrees;
+	return value === 90 || value === 180 || value === 270 || value === 0
+		? value
+		: undefined;
 }
 
 /**

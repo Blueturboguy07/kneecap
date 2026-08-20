@@ -7,7 +7,8 @@ import type { EditorCore } from "@kneecap/editor-core";
 import { buildEdl, type Edl } from "@kneecap/editor-core/edl";
 import type { ExportFormat, ExportQuality } from "@kneecap/editor-core/export";
 import { getNativeBridge, type ExportProgress } from "@kneecap/native-bridge";
-import { setProjectFps, setProjectResolution, toEdlMediaAssets } from "../../editor/actions";
+import {
+	buildNativeEdlAssetResolver, setProjectFps, setProjectResolution, toEdlMediaAssets } from "../../editor/actions";
 import type { FrameRate } from "opencut-wasm";
 
 interface ExportSheetProps {
@@ -138,6 +139,10 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 			// demo-project.ts's header). The moment that lands, this keeps
 			// working with no change here.
 			mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
+			// Native custody paths for the exporter — without this every
+			// asset built with sourceUri:null and the on-device export died
+			// with "could not be resolved to a readable URL" (2026-08-20).
+			resolveAsset: buildNativeEdlAssetResolver(),
 			output: {
 				container: format,
 				videoCodec: "h264",
@@ -249,8 +254,8 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 						}}
 					/>
 				</div>
-				<button type="button" className="cc-panel-actions__btn" onClick={previewEdl}>
-					<span>Preview EDL output</span>
+				<button type="button" className="cc-export-sheet__action" onClick={previewEdl}>
+					Preview EDL output
 				</button>
 				{previewResult && (
 					<p className="cc-panel-note">
@@ -261,11 +266,11 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 
 				<button
 					type="button"
-					className="cc-panel-actions__btn"
+					className="cc-export-sheet__action cc-export-sheet__action--primary"
 					onClick={() => void startExport()}
 					disabled={runState === "exporting"}
 				>
-					<span>Export video</span>
+					Export video
 				</button>
 				{runState === "error" && exportError && <p className="cc-panel-note">Export failed: {exportError}</p>}
 				{runState === "done" && (

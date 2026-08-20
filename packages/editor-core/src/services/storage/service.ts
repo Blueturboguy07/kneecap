@@ -321,6 +321,8 @@ class StorageService {
 			url: mediaAsset.file.size === 0 ? mediaAsset.url : undefined,
 			nativeRelativePath: mediaAsset.nativeRelativePath,
 			thumbnailNativeRelativePath: mediaAsset.thumbnailNativeRelativePath,
+			sourceNativeRelativePath: mediaAsset.sourceNativeRelativePath,
+			sourceRotationDegrees: mediaAsset.sourceRotationDegrees,
 		};
 
 		try {
@@ -442,6 +444,8 @@ class StorageService {
 			ephemeral: metadata.ephemeral,
 			nativeRelativePath: metadata.nativeRelativePath,
 			thumbnailNativeRelativePath: metadata.thumbnailNativeRelativePath,
+			sourceNativeRelativePath: metadata.sourceNativeRelativePath,
+			sourceRotationDegrees: metadata.sourceRotationDegrees,
 		};
 	}
 

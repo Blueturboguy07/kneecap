@@ -78,7 +78,9 @@ export {
 export {
 	registerNativeMediaPathResolver,
 	resolveNativeMediaPath,
+	resolveNativeMediaRawPath,
 	relativeMediaPathFromPlaybackUrl,
+	relativeMediaPathFromRawPath,
 } from "./media/native-paths";
 export {
 	registerNativeAudioRouter,

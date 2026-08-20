@@ -2,6 +2,8 @@ import type { CSSProperties } from "react";
 import { cn } from "../../lib/cn";
 
 interface PreviewStageProps {
+	/** Fired on a tap/click anywhere on the stage (CapCut: toggles play). */
+	onTap?: () => void;
 	canvasWidth: number;
 	canvasHeight: number;
 	backgroundColor: string;
@@ -40,10 +42,10 @@ interface PreviewStageProps {
  * `.cc-preview-stage` / `.cc-preview-stage__canvas` for the full
  * before/after measurements.
  */
-export function PreviewStage({ canvasWidth, canvasHeight, backgroundColor, children, className }: PreviewStageProps) {
+export function PreviewStage({ canvasWidth, canvasHeight, backgroundColor, children, className, onTap }: PreviewStageProps) {
 	const aspectRatio = canvasWidth / canvasHeight;
 	return (
-		<div className={cn("cc-preview-stage", className)}>
+		<div className={cn("cc-preview-stage", className)} onPointerUp={onTap ? () => onTap() : undefined}>
 			<div
 				className="cc-preview-stage__canvas"
 				style={

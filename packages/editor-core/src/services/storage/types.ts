@@ -44,6 +44,14 @@ export interface MediaAssetData {
 	nativeRelativePath?: string;
 	/** Same, for the persisted thumbnail. */
 	thumbnailNativeRelativePath?: string;
+	/** Custody-root-relative path of the ORIGINAL imported file — what the
+	 *  native EXPORT pipeline reads (full resolution; the proxy is
+	 *  preview-only). Missing on assets imported before 2026-08-20; export
+	 *  falls back to the proxy for those (degraded, but not a failure). */
+	sourceNativeRelativePath?: string;
+	/** The original's display rotation (EXIF/track transform), needed when
+	 *  exporting from the source (the proxy is already baked upright). */
+	sourceRotationDegrees?: 0 | 90 | 180 | 270;
 }
 
 export type SerializedScene = Omit<TScene, "createdAt" | "updatedAt"> & {

@@ -97,6 +97,30 @@ export function salvageRelativeMediaPathFromStaleUrl(
 	return undefined;
 }
 
+/** Relativizes a RAW native filesystem path against the custody root
+ *  (the raw-path sibling of `relativeMediaPathFromPlaybackUrl`). */
+export function relativeMediaPathFromRawPath({
+	path,
+	root,
+}: {
+	path: string | undefined;
+	root: string | null;
+}): string | undefined {
+	if (!path || !root) return undefined;
+	const cleanRoot = root.replace(/\/+$/, "");
+	return path.startsWith(`${cleanRoot}/`)
+		? path.slice(cleanRoot.length + 1)
+		: undefined;
+}
+
+/** Re-anchors a persisted relative path to the CURRENT custody root as a
+ *  RAW absolute path (for native consumers — the export pipeline), unlike
+ *  `resolveNativeMediaPath` which returns a webview playback URL. */
+export function resolveNativeMediaRawPath(relativePath: string): string | null {
+	if (!registeredRoot) return null;
+	return `${registeredRoot}/${relativePath}`;
+}
+
 /** Test hook: clears registration so suites don't leak state. */
 export function __resetNativeMediaPathResolverForTests(): void {
 	resolvePath = null;

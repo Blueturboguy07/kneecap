@@ -401,12 +401,80 @@ async function driveAndSample({
 		: audio.contextState === "running" &&
 			audio.failedSinks === 0 &&
 			audio.activeSinks + audio.decodedBuffers > 0;
+	// EXPORT: build the real EDL with the native asset resolver, drive the
+	// native exporter, then verify the output file has bytes AND a decodable
+	// video track — the founder-device failure was "asset could not be
+	// resolved to a readable URL" (missing source-path persistence,
+	// 2026-08-20).
+	let exportOk = false;
+	let exportDetail = "not-run";
+	try {
+		const { buildEdl } = await import("@kneecap/editor-core/edl");
+		const { toEdlMediaAssets, buildNativeEdlAssetResolver } = await import(
+			"@kneecap/mobile-ui"
+		);
+		const bridge = await getNativeBridge();
+		const edl = buildEdl({
+			project: editor.project.getActive(),
+			scene: editor.scenes.getActiveScene(),
+			mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
+			resolveAsset: buildNativeEdlAssetResolver(),
+			output: {
+				container: "mp4",
+				videoCodec: "h264",
+				audioCodec: "aac",
+				bitrate: 8_000_000,
+				includeAudio: true,
+			},
+		});
+		let outputUri: string | null = null;
+		for await (const p of bridge.exportProject({ edl })) {
+			if (p.stage === "error") throw new Error(p.error ?? "export error");
+			if (p.stage === "done") outputUri = p.outputUri ?? null;
+		}
+		if (!outputUri) throw new Error("export finished without an outputUri");
+		// exportProject's outputUri is ALREADY a converted playback URL (the
+		// bridge maps it through toPlaybackUri) — converting again produced a
+		// double-marker dead URL (caught by this assertion's own detail log).
+		const outputUrl = outputUri;
+		let bytes: ArrayBuffer | null = null;
+		let lastFetchError = "";
+		// A just-finalized file can race the scheme handler's first read —
+		// retry briefly before declaring the output unreadable.
+		for (let attempt = 0; attempt < 4; attempt++) {
+			try {
+				bytes = await fetch(outputUrl).then((r) => r.arrayBuffer());
+				break;
+			} catch (e) {
+				lastFetchError = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+			}
+		}
+		if (!bytes) {
+			throw new Error(`output fetch failed (${lastFetchError}) url=${outputUrl}`);
+		}
+		if (bytes.byteLength < 10_000) {
+			throw new Error(`suspiciously small output (${bytes.byteLength}B)`);
+		}
+		const { Input, ALL_FORMATS, BlobSource } = await import("mediabunny");
+		const probe = new Input({
+			source: new BlobSource(new Blob([bytes])),
+			formats: ALL_FORMATS,
+		});
+		const track = await probe.getPrimaryVideoTrack();
+		if (!track) throw new Error("output has no video track");
+		exportOk = true;
+		exportDetail = `${Math.round(bytes.byteLength / 1024)}KB`;
+	} catch (error) {
+		exportDetail = error instanceof Error ? error.message : String(error);
+	}
+
 	const timelineOk = scroll0 >= 0 && scroll1 > scroll0;
 	const soundOk = rmsMax > 0.0005;
 	const pass =
-		advanced && decoded && fontsOk && audioOk && timelineOk && selectOk && soundOk;
+		advanced && decoded && fontsOk && audioOk && timelineOk && selectOk && soundOk && exportOk;
 	log(
-		`VERDICT phase=${phase} ${pass ? "PASS" : "FAIL"} advanced=${advanced} sinks=${stats.totalSinks} decodedFrames=${stats.cachedFrames} fonts=${fontsOk ? "ok" : "FAIL"} audio=${audioOk ? `ok(${audio.routedNatively ? "native" : "web"})` : `FAIL(${audio.contextState},routed=${audio.routedNatively},clips=${audio.scheduledClips},active=${audio.activeClips},sinks=${audio.activeSinks},failed=${audio.failedSinks},buffers=${audio.decodedBuffers})`} timeline=${timelineOk ? `ok(${scroll0}->${scroll1}px)` : `FAIL(${scroll0}->${scroll1}px)`} select=${selectOk ? `ok(${selectDetail})` : `FAIL(${selectDetail})`} sound=${soundOk ? `ok(rms=${rmsMax.toFixed(4)})` : `FAIL(rms=${rmsMax.toFixed(4)},queued=${audio.queuedSources},AudioDecoder=${typeof (globalThis as { AudioDecoder?: unknown }).AudioDecoder !== "undefined"})`} lit=${lit.toFixed(3)} (t ${String(t0)} -> ${String(t1)})`,
+		`VERDICT phase=${phase} ${pass ? "PASS" : "FAIL"} advanced=${advanced} sinks=${stats.totalSinks} decodedFrames=${stats.cachedFrames} fonts=${fontsOk ? "ok" : "FAIL"} audio=${audioOk ? `ok(${audio.routedNatively ? "native" : "web"})` : `FAIL(${audio.contextState},routed=${audio.routedNatively},clips=${audio.scheduledClips},active=${audio.activeClips},sinks=${audio.activeSinks},failed=${audio.failedSinks},buffers=${audio.decodedBuffers})`} timeline=${timelineOk ? `ok(${scroll0}->${scroll1}px)` : `FAIL(${scroll0}->${scroll1}px)`} select=${selectOk ? `ok(${selectDetail})` : `FAIL(${selectDetail})`} export=${exportOk ? `ok(${exportDetail})` : `FAIL(${exportDetail})`} sound=${soundOk ? `ok(rms=${rmsMax.toFixed(4)})` : `FAIL(rms=${rmsMax.toFixed(4)},queued=${audio.queuedSources},AudioDecoder=${typeof (globalThis as { AudioDecoder?: unknown }).AudioDecoder !== "undefined"})`} lit=${lit.toFixed(3)} (t ${String(t0)} -> ${String(t1)})`,
 	);
 }
 
