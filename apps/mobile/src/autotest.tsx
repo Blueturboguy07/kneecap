@@ -263,7 +263,15 @@ async function driveAndSample({
 		}),
 	);
 	const litA = sampleLitFraction(canvas);
-	await new Promise((resolve) => setTimeout(resolve, 800));
+	// Sound: sample the master-bus RMS while playing — "sinks opened" is not
+	// "audio flows" (founder heard silence while all open/decode stats
+	// passed, 2026-08-19). Non-zero RMS proves signal up to the speaker
+	// driver, the furthest a headless run can hear.
+	let rmsMax = 0;
+	for (let i = 0; i < 8; i++) {
+		rmsMax = Math.max(rmsMax, editor.audio.getOutputRms());
+		await new Promise((resolve) => setTimeout(resolve, 100));
+	}
 	const litB = sampleLitFraction(canvas);
 	const t1 = editor.playback.getCurrentTime();
 	const scroll1 = timelineScroller?.scrollLeft ?? -1;
@@ -392,9 +400,11 @@ async function driveAndSample({
 		audio.failedSinks === 0 &&
 		audio.activeSinks + audio.decodedBuffers > 0;
 	const timelineOk = scroll0 >= 0 && scroll1 > scroll0;
-	const pass = advanced && decoded && fontsOk && audioOk && timelineOk && selectOk;
+	const soundOk = rmsMax > 0.0005;
+	const pass =
+		advanced && decoded && fontsOk && audioOk && timelineOk && selectOk && soundOk;
 	log(
-		`VERDICT phase=${phase} ${pass ? "PASS" : "FAIL"} advanced=${advanced} sinks=${stats.totalSinks} decodedFrames=${stats.cachedFrames} fonts=${fontsOk ? "ok" : "FAIL"} audio=${audioOk ? "ok" : `FAIL(${audio.contextState},clips=${audio.scheduledClips},active=${audio.activeClips},sinks=${audio.activeSinks},failed=${audio.failedSinks},buffers=${audio.decodedBuffers})`} timeline=${timelineOk ? `ok(${scroll0}->${scroll1}px)` : `FAIL(${scroll0}->${scroll1}px)`} select=${selectOk ? `ok(${selectDetail})` : `FAIL(${selectDetail})`} lit=${lit.toFixed(3)} (t ${String(t0)} -> ${String(t1)})`,
+		`VERDICT phase=${phase} ${pass ? "PASS" : "FAIL"} advanced=${advanced} sinks=${stats.totalSinks} decodedFrames=${stats.cachedFrames} fonts=${fontsOk ? "ok" : "FAIL"} audio=${audioOk ? "ok" : `FAIL(${audio.contextState},clips=${audio.scheduledClips},active=${audio.activeClips},sinks=${audio.activeSinks},failed=${audio.failedSinks},buffers=${audio.decodedBuffers})`} timeline=${timelineOk ? `ok(${scroll0}->${scroll1}px)` : `FAIL(${scroll0}->${scroll1}px)`} select=${selectOk ? `ok(${selectDetail})` : `FAIL(${selectDetail})`} sound=${soundOk ? `ok(rms=${rmsMax.toFixed(4)})` : `FAIL(rms=${rmsMax.toFixed(4)},queued=${audio.queuedSources},AudioDecoder=${typeof (globalThis as { AudioDecoder?: unknown }).AudioDecoder !== "undefined"})`} lit=${lit.toFixed(3)} (t ${String(t0)} -> ${String(t1)})`,
 	);
 }
 

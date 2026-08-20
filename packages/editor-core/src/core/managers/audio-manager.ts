@@ -19,11 +19,15 @@ import {
 	Input,
 	type WrappedAudioBuffer,
 } from "mediabunny";
-import { createPlayableSource } from "@/media/playable-source";
+import {
+	createPlayableSource,
+	readPlayableBytes,
+} from "@/media/playable-source";
 
 export class AudioManager {
 	private audioContext: AudioContext | null = null;
 	private masterGain: GainNode | null = null;
+	private outputAnalyser: AnalyserNode | null = null;
 	private playbackStartTime = 0;
 	private playbackStartContextTime = 0;
 	private scheduleTimer: number | null = null;
@@ -75,6 +79,7 @@ export class AudioManager {
 			void this.audioContext.close();
 			this.audioContext = null;
 			this.masterGain = null;
+			this.outputAnalyser = null;
 		}
 	}
 
@@ -136,7 +141,24 @@ export class AudioManager {
 		});
 		this.masterGain = input;
 		this.masterGain.gain.value = this.lastVolume;
+		// Parallel analyser tap on the master bus: getOutputRms() below is
+		// the strongest headless evidence that audio actually FLOWS ("sinks
+		// opened" passed while the founder heard silence, 2026-08-19).
+		this.outputAnalyser = this.audioContext.createAnalyser();
+		this.outputAnalyser.fftSize = 2048;
+		this.masterGain.connect(this.outputAnalyser);
 		return this.audioContext;
+	}
+
+	/** RMS of the master bus right now (0 when idle/silent). Diagnostics —
+	 *  see the #/autotest sound assertion. */
+	getOutputRms(): number {
+		if (!this.outputAnalyser) return 0;
+		const data = new Float32Array(this.outputAnalyser.fftSize);
+		this.outputAnalyser.getFloatTimeDomainData(data);
+		let sum = 0;
+		for (const v of data) sum += v * v;
+		return Math.sqrt(sum / data.length);
 	}
 
 	private updateGain(): void {
@@ -455,6 +477,7 @@ export class AudioManager {
 		decodedBuffers: number;
 		scheduledClips: number;
 		activeClips: number;
+		queuedSources: number;
 	} {
 		return {
 			contextState: this.audioContext?.state ?? "none",
@@ -463,6 +486,7 @@ export class AudioManager {
 			decodedBuffers: this.decodedBuffers.size,
 			scheduledClips: this.clips.length,
 			activeClips: this.activeClipIds.size,
+			queuedSources: this.queuedSources.size,
 		};
 	}
 
@@ -489,6 +513,13 @@ export class AudioManager {
 		clip: AudioClipSource;
 	}): boolean {
 		return (
+			// WebKit shipped WebCodecs AudioDecoder YEARS after VideoDecoder —
+			// on iOS versions without it the streaming sink can never produce
+			// a single buffer (silence, no error). The prepared path decodes
+			// through WebAudio's own decoder instead (see decodeClipBuffer's
+			// fallback), which every iOS version has.
+			typeof (globalThis as { AudioDecoder?: unknown }).AudioDecoder ===
+				"undefined" ||
 			this.hasCurveRetime({ clip }) ||
 			hasAnimatedVolume({ element: clip.timelineElement }) ||
 			shouldMaintainPitch({
@@ -613,6 +644,30 @@ export class AudioManager {
 		return promise;
 	}
 
+	/** Whole-clip decode through WebAudio's OWN decoder — the fallback for
+	 *  WebKit builds without WebCodecs AudioDecoder (mediabunny's sink can
+	 *  never yield there), and for any mediabunny decode that comes back
+	 *  empty. decodeAudioData handles mp4/AAC (the proxy's format) on every
+	 *  iOS version. */
+	private async decodeClipBufferViaWebAudio({
+		clip,
+		audioContext,
+	}: {
+		clip: AudioClipSource;
+		audioContext: AudioContext;
+	}): Promise<AudioBuffer | null> {
+		try {
+			const bytes = await readPlayableBytes({
+				file: clip.file,
+				url: clip.url ?? null,
+			});
+			return await audioContext.decodeAudioData(bytes.slice(0));
+		} catch (error) {
+			console.warn("WebAudio fallback decode failed:", error);
+			return null;
+		}
+	}
+
 	private async decodeClipBuffer({
 		clip,
 	}: {
@@ -621,6 +676,13 @@ export class AudioManager {
 		const audioContext = this.ensureAudioContext();
 		if (!audioContext) {
 			return null;
+		}
+
+		if (
+			typeof (globalThis as { AudioDecoder?: unknown }).AudioDecoder ===
+			"undefined"
+		) {
+			return this.decodeClipBufferViaWebAudio({ clip, audioContext });
 		}
 
 		let input: Input;
@@ -650,7 +712,7 @@ export class AudioManager {
 			}
 
 			if (chunks.length === 0) {
-				return null;
+				return this.decodeClipBufferViaWebAudio({ clip, audioContext });
 			}
 
 			const targetSampleRate = audioContext.sampleRate;
@@ -697,8 +759,8 @@ export class AudioManager {
 
 			return await offlineContext.startRendering();
 		} catch (error) {
-			console.warn("Failed to decode clip audio:", error);
-			return null;
+			console.warn("Failed to decode clip audio (mediabunny) — trying WebAudio fallback:", error);
+			return this.decodeClipBufferViaWebAudio({ clip, audioContext });
 		} finally {
 			input.dispose();
 		}
