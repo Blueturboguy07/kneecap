@@ -155,6 +155,64 @@ export class AudioManager {
 		return this.audioContext;
 	}
 
+	/**
+	 * The canonical iOS WebAudio unlock ritual, to be called SYNCHRONOUSLY
+	 * inside a user-gesture handler (no awaits before it): ensures the
+	 * context exists, kicks resume(), and starts a one-sample silent buffer.
+	 * WKWebView blesses audio-session activation by gesture affinity; the
+	 * engine's own resume happens after async hops in startPlayback, which
+	 * is the last known silent-on-device-only failure shape (2026-08-19).
+	 * Idempotent and cheap — safe on every play tap.
+	 */
+	unlock(): void {
+		const audioContext = this.ensureAudioContext();
+		if (!audioContext) return;
+		if (audioContext.state === "suspended") {
+			void audioContext.resume();
+		}
+		try {
+			const silent = audioContext.createBuffer(1, 1, audioContext.sampleRate);
+			const node = audioContext.createBufferSource();
+			node.buffer = silent;
+			node.connect(audioContext.destination);
+			node.start(0);
+		} catch {
+			// Best-effort — a failure here changes nothing about playback.
+		}
+	}
+
+	/**
+	 * Plays a short raw test tone straight through the SAME context and
+	 * destination the editor uses — the device-side bisector for "is
+	 * WebAudio output working at all in this webview" vs "our graph is
+	 * silent". Returns the post-start context state for display.
+	 */
+	playTestTone({ seconds = 0.8 }: { seconds?: number } = {}): string {
+		const audioContext = this.ensureAudioContext();
+		if (!audioContext) return "none";
+		this.unlock();
+		try {
+			const oscillator = audioContext.createOscillator();
+			oscillator.frequency.value = 440;
+			const gain = audioContext.createGain();
+			gain.gain.value = 0.3;
+			oscillator.connect(gain);
+			gain.connect(audioContext.destination);
+			oscillator.start();
+			oscillator.stop(audioContext.currentTime + seconds);
+			oscillator.addEventListener("ended", () => {
+				oscillator.disconnect();
+				gain.disconnect();
+			});
+		} catch (error) {
+			console.error("[soundcheck] tone failed:", error);
+		}
+		console.error(
+			`[soundcheck] state=${audioContext.state} sampleRate=${audioContext.sampleRate}`,
+		);
+		return audioContext.state;
+	}
+
 	/** RMS of the master bus right now (0 when idle/silent). Diagnostics —
 	 *  see the #/autotest sound assertion. */
 	getOutputRms(): number {

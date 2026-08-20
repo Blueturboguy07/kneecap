@@ -455,6 +455,10 @@ export function togglePlayback({ editor }: { editor: EditorCore }): void {
 	if (editor.playback.getIsPlaying()) {
 		editor.playback.pause();
 	} else {
+		// SYNCHRONOUS, first thing in the gesture stack — the iOS WebAudio
+		// unlock ritual (see AudioManager.unlock). The engine's own resume
+		// runs after async hops and can miss gesture affinity on device.
+		editor.audio.unlock();
 		editor.playback.play();
 	}
 }
