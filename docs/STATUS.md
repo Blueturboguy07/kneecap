@@ -98,6 +98,12 @@ Selection ("options don't change / delete not popping up"): the contextual row w
 
 Full fresh-import verdict: `PASS … fonts=ok audio=ok timeline=ok(0→128px) select=ok(sel=1 delete 1→0)`. invariants 12/12 checked before push.
 
+## Round 10 (2026-08-19): "no audio I hear" — measured signal + the AudioDecoder fallback (f43d183c)
+
+The round-8 audio verdict was necessary-but-insufficient ("sinks opened" is not "audio flows"). Now measured: an AnalyserNode taps the master bus and #/autotest gates on non-zero RMS during playback — sim shows `sound=ok(rms=0.0895)`, i.e. real signal to the speaker driver. The device-silence candidate now closed: WebKit shipped WebCodecs **AudioDecoder years after VideoDecoder**; without it mediabunny's streaming audio sink yields nothing — no error, pure silence, all open/decode stats healthy. AudioManager now falls back to `audioContext.decodeAudioData` (native WebAudio, every iOS version) when AudioDecoder is absent, when a mediabunny decode errors, or when it comes back empty.
+
+Founder reminders: (a) proxies transcoded by pre-AAC builds are PERMANENTLY mute — re-import clips once on the current build; (b) the "audio track visible under the clip" expectation = clip waveforms, which are still mock-only (H3) — the next visibility gap to close.
+
 ## Test sweep (2026-08-18, Fable fork agent) — see docs/TEST-REPORT.md
 
 All three CRITICALs found by the sweep are fixed and re-verified live in the browser harness: (C1) GPU init now gates the preview renderer (plus boot-time `ensurePreviewGpu` + font atlas bundled into apps/mobile, so text renders with real fonts); (C2) the home project list re-renders via a selector subscription — the engine always had the data, the UI never re-subscribed (verified: engine 1 / DOM 0 before, 1/1 after; reopen-after-reload rehydrates); (C3) a CrashBoundary paints any React render crash on screen instead of silent black. HIGHs still open, in priority order: Android's EDL parser missing ~12 field families that TS emits and iOS parses (must parse-or-reject, never silently drop); split-at-boundary silently no-ops; audio waveforms never populated (mock-only).
