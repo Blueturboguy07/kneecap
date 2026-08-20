@@ -426,6 +426,24 @@ export async function mountAutotest(): Promise<void> {
 	registerNativeMediaPathResolver({ root, toPlaybackUri: bridge.toPlaybackUri });
 	log("media root", root);
 
+	// Opt-in device-profile mode: a runner-planted `<root>/autotest-fallback.flag`
+	// deletes WebCodecs AudioDecoder so the WebAudio remux fallback (the path
+	// older-WebKit iPhones take) is what gets exercised and asserted. This
+	// caught two real bugs on 2026-08-19: decodeAudioData rejecting movie
+	// containers, and readPlayableBytes throwing on Capacitor's status-0
+	// media responses.
+	try {
+		const flag = await fetch(
+			bridge.toPlaybackUri(`file://${root}/autotest-fallback.flag`),
+		);
+		if (flag.ok || flag.status === 0) {
+			delete (globalThis as { AudioDecoder?: unknown }).AudioDecoder;
+			log("device-profile mode: AudioDecoder removed — fallback path under test");
+		}
+	} catch {
+		// No flag — native WebCodecs path runs (the simulator default).
+	}
+
 	await editor.project.loadAllProjects();
 	const phase: "import" | "reopen" = editor.project
 		.getSavedProjects()

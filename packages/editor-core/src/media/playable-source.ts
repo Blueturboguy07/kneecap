@@ -63,7 +63,11 @@ export async function readPlayableBytes({
 	}
 	if (url) {
 		const response = await fetch(url);
-		if (!response.ok) {
+		// Capacitor's iOS scheme handler serves media files with a statusless
+		// URLResponse — `status` is 0 and `ok` is false while the bytes are
+		// perfectly good (seam-verified 2026-08-19: status=0, full length).
+		// Only a real HTTP error status is a failure.
+		if (!response.ok && response.status !== 0) {
 			throw new Error(`Fetching media bytes failed: HTTP ${response.status}`);
 		}
 		return response.arrayBuffer();

@@ -16,7 +16,12 @@ import {
 import {
 	ALL_FORMATS,
 	AudioBufferSink,
+	BlobSource,
+	BufferTarget,
+	Conversion,
 	Input,
+	Mp4OutputFormat,
+	Output,
 	type WrappedAudioBuffer,
 } from "mediabunny";
 import {
@@ -656,14 +661,59 @@ export class AudioManager {
 		clip: AudioClipSource;
 		audioContext: AudioContext;
 	}): Promise<AudioBuffer | null> {
+		let bytes: ArrayBuffer;
 		try {
-			const bytes = await readPlayableBytes({
+			bytes = await readPlayableBytes({
 				file: clip.file,
 				url: clip.url ?? null,
 			});
-			return await audioContext.decodeAudioData(bytes.slice(0));
 		} catch (error) {
-			console.warn("WebAudio fallback decode failed:", error);
+			console.warn(
+				`WebAudio fallback: no bytes to decode (file.size=${clip.file.size}, url=${clip.url ?? "(none)"}):`,
+				error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+			);
+			return null;
+		}
+
+		// Audio-only assets (m4a/mp3/wav) decode directly.
+		try {
+			return await audioContext.decodeAudioData(bytes.slice(0));
+		} catch {
+			// Fall through — WebKit's decodeAudioData REJECTS movie
+			// containers outright (proven in the forced-fallback sim run,
+			// 2026-08-19: the video proxy failed here and the device would
+			// have stayed silent). Extract the audio track below.
+		}
+
+		// Remux the audio track into an audio-only mp4 — a pure PACKET COPY
+		// via mediabunny's Conversion (no decoding, so it needs no
+		// WebCodecs), then decode that.
+		try {
+			const input = new Input({
+				source: new BlobSource(new Blob([bytes])),
+				formats: ALL_FORMATS,
+			});
+			const target = new BufferTarget();
+			const output = new Output({
+				format: new Mp4OutputFormat({ fastStart: "in-memory" }),
+				target,
+			});
+			const conversion = await Conversion.init({
+				input,
+				output,
+				video: { discard: true },
+			});
+			await conversion.execute();
+			if (!target.buffer) {
+				console.warn("WebAudio fallback: audio remux produced no buffer");
+				return null;
+			}
+			return await audioContext.decodeAudioData(target.buffer);
+		} catch (error) {
+			console.warn(
+				"WebAudio fallback decode failed (audio remux path):",
+				error,
+			);
 			return null;
 		}
 	}

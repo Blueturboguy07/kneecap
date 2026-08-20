@@ -14,8 +14,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // "audio doesn't play" on any phone that's habitually silenced
         // (founder's iPhone, 2026-08-19). .playback is what every media
         // app sets; .moviePlayback routes/duckes appropriately for video.
+        // Category only — no eager setActive(true): Apple's guidance is to
+        // let the system activate the session when audio actually starts,
+        // and WKWebView manages its own activation; an eager activation at
+        // launch is at best redundant and at worst competes with the
+        // WebContent process's audio setup (the AudioComponentRegistrar
+        // noise seen in the 2026-08-19 device log).
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
-        try? AVAudioSession.sharedInstance().setActive(true)
         return true
     }
 
