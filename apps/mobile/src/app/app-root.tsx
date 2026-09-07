@@ -18,9 +18,15 @@
 import "@kneecap/mobile-ui/tokens.css";
 import "@kneecap/mobile-ui/components.css";
 import "./app-root.css";
-import { Component, StrictMode, useEffect, useRef, useState, type ReactNode } from "react";
+import { Component, StrictMode, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { EditorCore, registerNativeMediaPathResolver, registerNativeAudioRouter } from "@kneecap/editor-core";
+import {
+	EditorCore,
+	mediaTimeToSeconds,
+	registerNativeMediaPathResolver,
+	registerNativeAudioRouter,
+	type MediaTime,
+} from "@kneecap/editor-core";
 import { getNativeBridge } from "@kneecap/native-bridge";
 import { loadFontAtlas, loadFonts } from "@kneecap/editor-core/fonts/local-fonts";
 import { useEditor } from "@kneecap/editor-core/react";
@@ -120,13 +126,17 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 		void editor.project.loadAllProjects();
 	}, []);
 
-	const run = async (task: () => Promise<unknown>) => {
+	/** Runs an engine task with the busy/error plumbing. `open` decides
+	 *  whether the editor is entered afterwards: creating/loading a project
+	 *  does, deleting one must NOT (the row-era code routed Delete through
+	 *  the same helper and landed in the editor with no active project). */
+	const run = async (task: () => Promise<unknown>, { open }: { open: boolean }) => {
 		if (busy) return;
 		setBusy(true);
 		setError(null);
 		try {
 			await task();
-			onOpenEditor();
+			if (open) onOpenEditor();
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Something went wrong");
 		} finally {
@@ -175,7 +185,12 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 						type="button"
 						className="kc-home__new"
 						disabled={busy}
-						onClick={() => void run(() => editor.project.createNewProject({ name: nextProjectName(projects.map((p) => p.name)) }))}
+						onClick={() =>
+							void run(
+								() => editor.project.createNewProject({ name: nextProjectName(projects.map((p) => p.name)) }),
+								{ open: true },
+							)
+						}
 					>
 						+ New project
 					</button>
@@ -186,18 +201,19 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 			{projects.length === 0 ? (
 				<p className="kc-home__empty">No projects yet — tap “New project” to start editing.</p>
 			) : (
-				<ul className="kc-home__list">
+				<ul className="kc-home__grid">
 					{projects.map((p) => (
-						<SwipeableProjectRow
+						<ProjectCard
 							key={p.id}
 							name={p.name}
 							thumbnail={p.thumbnail}
+							duration={p.duration}
 							updatedAt={p.updatedAt}
 							disabled={busy}
-							onOpen={() => void run(() => editor.project.loadProject({ id: p.id }))}
+							onOpen={() => void run(() => editor.project.loadProject({ id: p.id }), { open: true })}
 							onDelete={() => {
 								if (!window.confirm(`Delete “${p.name}”? This can’t be undone.`)) return;
-								void run(() => editor.project.deleteProjects({ ids: [p.id] }));
+								void run(() => editor.project.deleteProjects({ ids: [p.id] }), { open: false });
 							}}
 						/>
 					))}
@@ -208,17 +224,20 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 }
 
 /**
- * Round 21 (founder: "there should be a slide to delete projects on
- * home"): CapCut-style swipe-left reveals a Delete button behind the row.
- * Plain pointer events (works for touch and the dev harness's mouse),
- * `touch-action: pan-y` so vertical list scrolling stays native. A tap on
- * a swiped-open row closes it instead of opening the project; Delete
- * confirms before calling the engine's real `deleteProjects` (permanent —
- * it removes the project AND its media custody).
+ * Thumbnail-first project card for the two-column home grid (2026-09-07,
+ * founder: "make it thumbnail based not row based… 2 videos next to each
+ * other"). The whole card is the open tap; the "⋯" chip in the thumbnail's
+ * corner is a SIBLING of that button (a button inside a button is invalid
+ * HTML and WebKit un-nests it) and is the delete affordance that replaced
+ * round 21's swipe-to-delete — a swipe gesture has no natural home on a
+ * grid cell, and swipe-left on a two-up grid fights horizontal wobble
+ * while scrolling. Delete still confirms before calling the engine's
+ * permanent `deleteProjects` (it removes the project AND its media custody).
  */
-function SwipeableProjectRow({
+function ProjectCard({
 	name,
 	thumbnail,
+	duration,
 	updatedAt,
 	disabled,
 	onOpen,
@@ -226,83 +245,55 @@ function SwipeableProjectRow({
 }: {
 	name: string;
 	thumbnail?: string;
+	duration: MediaTime;
 	updatedAt: Date | string;
 	disabled: boolean;
 	onOpen: () => void;
 	onDelete: () => void;
 }) {
-	const [offsetX, setOffsetX] = useState(0);
-	const dragRef = useRef<{ startX: number; startOffset: number; dragging: boolean } | null>(null);
-	// A real swipe's pointerup is followed by a synthetic click on the item —
-	// without this one-shot suppressor that click instantly re-closed the
-	// row the swipe just opened.
-	const suppressClickRef = useRef(false);
-	const OPEN_X = -88;
-
 	return (
-		<li
-			className="kc-home__row"
-			style={{ touchAction: "pan-y" }}
-			onPointerDown={(event) => {
-				dragRef.current = { startX: event.clientX, startOffset: offsetX, dragging: false };
-			}}
-			onPointerMove={(event) => {
-				const drag = dragRef.current;
-				if (!drag) return;
-				const dx = event.clientX - drag.startX;
-				if (!drag.dragging && Math.abs(dx) < 8) return;
-				drag.dragging = true;
-				setOffsetX(Math.min(0, Math.max(OPEN_X - 16, drag.startOffset + dx)));
-			}}
-			onPointerUp={() => {
-				const drag = dragRef.current;
-				dragRef.current = null;
-				if (!drag) return;
-				if (drag.dragging) {
-					suppressClickRef.current = true;
-					setOffsetX((current) => (current < OPEN_X / 2 ? OPEN_X : 0));
-				}
-			}}
-			onPointerCancel={() => {
-				dragRef.current = null;
-				setOffsetX(0);
-			}}
-		>
-			{offsetX !== 0 && (
-				<button type="button" className="kc-home__delete" onClick={onDelete}>
-					Delete
-				</button>
-			)}
-			<button
-				type="button"
-				className="kc-home__item"
-				style={{ transform: `translateX(${offsetX}px)`, transition: dragRef.current ? "none" : "transform 160ms ease" }}
-				disabled={disabled}
-				onClick={() => {
-					if (suppressClickRef.current) {
-						suppressClickRef.current = false;
-						return; // the click that trails the swipe gesture itself
-					}
-					// A tap while swiped open closes the row; only a resting row opens.
-					if (offsetX !== 0) {
-						setOffsetX(0);
-						return;
-					}
-					onOpen();
-				}}
-			>
-				{thumbnail ? (
-					<img src={thumbnail} alt="" className="kc-home__thumb" />
-				) : (
-					<span className="kc-home__thumb kc-home__thumb--empty" />
-				)}
+		<li className="kc-home__card">
+			<button type="button" className="kc-home__card-open" disabled={disabled} onClick={onOpen}>
+				<span className="kc-home__thumb-frame">
+					{thumbnail ? (
+						<img src={thumbnail} alt="" className="kc-home__thumb" draggable={false} />
+					) : (
+						<span className="kc-home__thumb kc-home__thumb--empty" aria-hidden="true">
+							<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.6">
+								<rect x="3" y="5" width="18" height="14" rx="2.5" />
+								<path d="M10 9.5v5l4.5-2.5z" fill="currentColor" stroke="none" />
+							</svg>
+						</span>
+					)}
+					<span className="kc-home__duration">{formatDuration(duration)}</span>
+				</span>
 				<span className="kc-home__meta">
 					<span className="kc-home__name">{name}</span>
 					<span className="kc-home__date">{new Date(updatedAt).toLocaleDateString()}</span>
 				</span>
 			</button>
+			<button
+				type="button"
+				className="kc-home__more"
+				aria-label={`Delete ${name}`}
+				disabled={disabled}
+				onClick={onDelete}
+			>
+				⋯
+			</button>
 		</li>
 	);
+}
+
+/** Project length as CapCut's project cards show it: `m:ss` under an
+ *  hour, `h:mm:ss` past it. Metadata duration is in ticks. */
+function formatDuration(duration: MediaTime): string {
+	const total = Math.max(0, Math.floor(mediaTimeToSeconds({ time: duration })));
+	const h = Math.floor(total / 3600);
+	const m = Math.floor((total % 3600) / 60);
+	const s = total % 60;
+	const ss = String(s).padStart(2, "0");
+	return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
 }
 
 /** "Project 1", "Project 2", ... skipping names already taken. */

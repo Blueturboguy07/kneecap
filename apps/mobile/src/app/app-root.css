@@ -13,7 +13,7 @@ body,
 	/* This is a fixed full-screen app surface, not a document: never let
 	   the WebView page-scroll or rubber-band (on device, any layout
 	   overflow otherwise becomes a scrollable page — 2026-08-19). Screens
-	   that need scrolling own it internally (.kc-home__list,
+	   that need scrolling own it internally (.kc-home__grid,
 	   .kc-crash__detail). */
 	overflow: hidden;
 	overscroll-behavior: none;
@@ -118,43 +118,96 @@ body {
 	transform: translateY(-50%);
 }
 
-.kc-home__list {
+/* Two-up thumbnail grid (2026-09-07). The screen is fixed-height; a long
+   project list scrolls here, not the page. `align-content: start` keeps a
+   single row of cards at the top instead of stretching it to fill. */
+.kc-home__grid {
 	list-style: none;
 	margin: 0;
-	padding: 0;
-	display: flex;
-	flex-direction: column;
-	gap: 10px;
-	/* The screen is fixed-height; a long project list scrolls here. */
+	padding: 0 0 8px;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 14px 12px;
+	align-content: start;
 	overflow-y: auto;
 	min-height: 0;
 }
 
-.kc-home__item {
+.kc-home__card {
+	position: relative;
+	min-width: 0;
+}
+
+/* The whole card is the open tap. `touch-action: manipulation` drops the
+   double-tap-to-zoom delay WebKit adds to a tap on a button. */
+.kc-home__card-open {
 	font-family: inherit;
 	width: 100%;
 	display: flex;
-	align-items: center;
-	gap: 12px;
-	background: var(--cc-surface, #1a1a1a);
+	flex-direction: column;
+	gap: 8px;
+	background: none;
 	border: none;
-	border-radius: 10px;
-	padding: 10px;
+	padding: 0;
 	color: inherit;
 	text-align: left;
+	touch-action: manipulation;
+	-webkit-tap-highlight-color: transparent;
 }
 
-.kc-home__item:disabled {
+.kc-home__card-open:disabled {
 	opacity: 0.5;
 }
 
+.kc-home__card-open:active .kc-home__thumb-frame {
+	transform: scale(0.98);
+}
+
+/* 3:4 thumbnail frame. Project thumbnails render at canvas size — mostly
+   9:16 on mobile — so `cover` trims a sliver top/bottom rather than
+   letterboxing; a landscape project gets centre-cropped, like CapCut. */
+.kc-home__thumb-frame {
+	position: relative;
+	display: block;
+	width: 100%;
+	aspect-ratio: 3 / 4;
+	border-radius: var(--cc-radius-card, 12px);
+	overflow: hidden;
+	background: var(--cc-surface, #1a1a1a);
+	transition: transform 120ms ease;
+}
+
 .kc-home__thumb {
-	width: 64px;
-	height: 40px;
-	border-radius: 6px;
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
 	object-fit: cover;
+	display: block;
+}
+
+.kc-home__thumb--empty {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--cc-text-secondary, #8b8a90);
 	background: var(--cc-surface-raised, #262626);
-	flex: none;
+}
+
+/* CapCut's duration pill: bottom-left of the thumbnail. */
+.kc-home__duration {
+	position: absolute;
+	left: 8px;
+	bottom: 8px;
+	padding: 2px 6px;
+	border-radius: var(--cc-radius-chip, 8px);
+	background: rgb(0 0 0 / 60%);
+	color: #fff;
+	font-size: 11px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	line-height: 1.4;
+	pointer-events: none;
 }
 
 .kc-home__meta {
@@ -162,6 +215,7 @@ body {
 	flex-direction: column;
 	gap: 2px;
 	min-width: 0;
+	padding: 0 2px;
 }
 
 .kc-home__name {
@@ -175,6 +229,34 @@ body {
 .kc-home__date {
 	font-size: 12px;
 	opacity: 0.55;
+}
+
+/* "⋯" chip over the thumbnail's top-right corner — the delete affordance
+   (sibling of the open button, see ProjectCard). 32px hit target on a
+   28px visual. */
+.kc-home__more {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	width: 32px;
+	height: 32px;
+	border: none;
+	border-radius: var(--cc-radius-pill, 999px);
+	background: rgb(0 0 0 / 55%);
+	color: #fff;
+	font-size: 18px;
+	font-weight: 700;
+	line-height: 1;
+	padding: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	touch-action: manipulation;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.kc-home__more:disabled {
+	opacity: 0.5;
 }
 
 .kc-home__header-actions {
@@ -198,31 +280,4 @@ body {
 	color: var(--cc-accent, #00cae0);
 	font-size: 13px;
 	margin: 0;
-}
-
-/* Round 21: swipe-to-delete on the project list. The row is a positioning
-   context; Delete sits behind the sliding item, revealed by swipe-left. */
-.kc-home__row {
-	position: relative;
-	overflow: hidden;
-	border-radius: 12px;
-}
-.kc-home__row .kc-home__item {
-	position: relative;
-	z-index: 1;
-	width: 100%;
-	background: inherit;
-}
-.kc-home__delete {
-	position: absolute;
-	top: 0;
-	right: 0;
-	bottom: 0;
-	width: 84px;
-	border: none;
-	background: #d1435b;
-	color: #fff;
-	font-size: 14px;
-	font-weight: 600;
-	border-radius: 0 12px 12px 0;
 }
