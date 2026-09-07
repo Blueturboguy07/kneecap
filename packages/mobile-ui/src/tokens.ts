@@ -56,7 +56,9 @@ export const CONTRAST_PAIRS: Array<{
 	// use --cc-text-primary for their labels, never --cc-text-secondary —
 	// which also matches every screenshot actually reviewed (the gray was
 	// only ever seen on the panel surface, never on a raised chip).
-	{ name: "accent-contrast ink / accent (export CTA)", fg: ccColor.accentContrast, bg: ccColor.accent, minRatio: 4.5 },
+	// Covers every filled-accent button: the export sheet's primary action and
+	// `.cc-panel-cta` (the Captions sheet's Generate button, 2026-08-27).
+	{ name: "accent-contrast ink / accent (filled CTAs)", fg: ccColor.accentContrast, bg: ccColor.accent, minRatio: 4.5 },
 	{ name: "accent / panel (icon-on-panel, non-text UI)", fg: ccColor.accent, bg: ccColor.bgPanel, minRatio: 3 },
 	{ name: "accent / base (underline indicator, non-text UI)", fg: ccColor.accent, bg: ccColor.bgBase, minRatio: 3 },
 ];

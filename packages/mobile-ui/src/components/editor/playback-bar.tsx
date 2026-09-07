@@ -1,4 +1,4 @@
-import { Copy, Maximize2, Pause, Play, Redo2, Undo2 } from "lucide-react";
+import { Copy, Maximize2, Minimize2, Pause, Play, Redo2, Undo2 } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 import { cn } from "../../lib/cn";
 
@@ -9,6 +9,9 @@ interface PlaybackBarProps {
 	onRedo?: () => void;
 	canUndo?: boolean;
 	canRedo?: boolean;
+	/** True while the preview is expanded to fill the editor. */
+	isPreviewFullscreen?: boolean;
+	onToggleFullscreen?: () => void;
 	className?: string;
 }
 
@@ -21,9 +24,14 @@ interface PlaybackBarProps {
  * pinned top-left of the timeline area (see TimelineView's timecode
  * overlay), which is where this kit moved it in the same pass.
  *
- * Fullscreen and compare are parity chrome: the real bar has them, but
- * fullscreen-preview and view-original need features outside v1 scope —
- * tracked in docs/STATUS.md, deliberately inert rather than fake-wired.
+ * Fullscreen is REAL as of 2026-08-27 (founder: "fullscreen button doesnt
+ * actually fullscreen the preview lol"). It was `<span aria-hidden>` parity
+ * chrome — deliberately inert rather than fake-wired, which is the right
+ * call for an unimplemented control but reads as a broken button once
+ * someone taps it.
+ *
+ * Compare/view-original is still inert chrome, and still a span rather than
+ * a dead button for that reason.
  */
 export function PlaybackBar({
 	isPlaying,
@@ -32,13 +40,25 @@ export function PlaybackBar({
 	onRedo,
 	canUndo,
 	canRedo,
+	isPreviewFullscreen = false,
+	onToggleFullscreen,
 	className,
 }: PlaybackBarProps) {
 	return (
 		<div className={cn("cc-playbackbar", className)}>
-			<span className="cc-topbar__icon-btn cc-topbar__icon-btn--chrome" aria-hidden="true">
-				<Maximize2 size={19} strokeWidth={CC_ICON_STROKE} />
-			</span>
+			<button
+				type="button"
+				className="cc-topbar__icon-btn"
+				onClick={onToggleFullscreen}
+				aria-pressed={isPreviewFullscreen}
+				aria-label={isPreviewFullscreen ? "Exit fullscreen preview" : "Fullscreen preview"}
+			>
+				{isPreviewFullscreen ? (
+					<Minimize2 size={19} strokeWidth={CC_ICON_STROKE} />
+				) : (
+					<Maximize2 size={19} strokeWidth={CC_ICON_STROKE} />
+				)}
+			</button>
 			<button
 				type="button"
 				className="cc-playbackbar__play"

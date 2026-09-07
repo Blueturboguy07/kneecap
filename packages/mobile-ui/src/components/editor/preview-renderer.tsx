@@ -15,6 +15,14 @@
  *      neither the frame index nor the tree changed (same guard as web).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	NO_SNAP,
+	SNAP_CAPTURE_PX,
+	SNAP_RELEASE_PX,
+	pulseSnapHaptic,
+	snapToCenterAxes,
+	type AxisSnapFlags,
+} from "../../editor/axis-snap";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
 import { TICKS_PER_SECOND } from "@kneecap/editor-core";
 import { useEditor } from "@kneecap/editor-core/react";
@@ -169,13 +177,32 @@ function PreviewRendererInner() {
 		canvasWidth: width,
 	});
 
+	const { snapGuides, ...pointerHandlers } = gestureHandlers;
+
 	return (
 		<div
 			ref={mountRef}
 			className="cc-preview-stage__render"
 			style={{ touchAction: "none" }}
-			{...gestureHandlers}
-		/>
+			{...pointerHandlers}
+		>
+			{/* The detent has to be SEEN, not just felt: without a line on
+			    screen a snapped element just looks like it stopped tracking
+			    the finger. Drawn only while a drag holds the axis, and marked
+			    inert so it can never intercept the gesture that spawned it. */}
+			{snapGuides.x && (
+				<div
+					className="cc-preview-guide cc-preview-guide--v"
+					aria-hidden="true"
+				/>
+			)}
+			{snapGuides.y && (
+				<div
+					className="cc-preview-guide cc-preview-guide--h"
+					aria-hidden="true"
+				/>
+			)}
+		</div>
 	);
 }
 
@@ -218,6 +245,9 @@ function usePreviewTransformGesture({
 }) {
 	const editor = useEditor();
 	const [selectedRef, selectedElement] = useSelectedElement();
+	/** Which centre lines to draw. React state (not the session ref) because
+	 *  this one piece of gesture state has to reach the render. */
+	const [snapGuides, setSnapGuides] = useState<AxisSnapFlags>(NO_SNAP);
 
 	// Anchor values are the element's transform at the LAST pointer-topology
 	// change (gesture start, finger added, finger lifted); deltas are always
@@ -233,6 +263,10 @@ function usePreviewTransformGesture({
 		anchorScaleX: number;
 		anchorScaleY: number;
 		dragging: boolean;
+		/** Which axes are currently held by the centre-line detent. Lives on
+		 *  the session because the snap decision is hysteretic: it depends on
+		 *  whether the axis was ALREADY snapped a frame ago. */
+		snapped: AxisSnapFlags;
 		target: { trackId: string; elementId: string };
 		/** Non-null when the target is a caption: every caption element in
 		 *  the scene (target included), each with its own base params — the
@@ -267,7 +301,15 @@ function usePreviewTransformGesture({
 
 	type Session = NonNullable<typeof sessionRef.current>;
 
-	/** The element's effective transform under the current pointer deltas. */
+	/**
+	 * The element's effective transform under the current pointer deltas,
+	 * with the centre-axis detent applied.
+	 *
+	 * The snap is applied HERE rather than at commit time on purpose: the
+	 * whole point is that the element visibly leaves the finger and sits on
+	 * the axis during the drag. Snapping only on release would land in the
+	 * same place while showing the user nothing.
+	 */
 	const currentTransform = (session: Session) => {
 		const scale = pxToCanvas();
 		const { centroid, distance } = centroidAndDistance(session.pointers);
@@ -275,11 +317,24 @@ function usePreviewTransformGesture({
 			distance !== null && session.startDistance && session.startDistance > 0
 				? distance / session.startDistance
 				: 1;
+		const rawX = session.anchorPositionX + (centroid.x - session.startCentroid.x) * scale;
+		const rawY = session.anchorPositionY + (centroid.y - session.startCentroid.y) * scale;
+		// Thresholds are authored in CSS px and converted with the same
+		// px -> canvas factor the drag itself uses, so the detent is the same
+		// physical size on any preview size or project resolution.
+		const snap = snapToCenterAxes({
+			x: rawX,
+			y: rawY,
+			wasSnapped: session.snapped,
+			capture: SNAP_CAPTURE_PX * scale,
+			release: SNAP_RELEASE_PX * scale,
+		});
 		return {
-			positionX: session.anchorPositionX + (centroid.x - session.startCentroid.x) * scale,
-			positionY: session.anchorPositionY + (centroid.y - session.startCentroid.y) * scale,
+			positionX: snap.x,
+			positionY: snap.y,
 			scaleX: session.anchorScaleX * factor,
 			scaleY: session.anchorScaleY * factor,
+			snapped: snap.snapped,
 		};
 	};
 
@@ -300,6 +355,16 @@ function usePreviewTransformGesture({
 		const session = sessionRef.current;
 		if (!session || session.pointers.size === 0 || pxToCanvas() === 0) return;
 		const current = currentTransform(session);
+		// Feedback fires on the RISING edge only — a tick every frame while
+		// the element rides the line would be a buzz, not a detent.
+		if (
+			(current.snapped.x && !session.snapped.x) ||
+			(current.snapped.y && !session.snapped.y)
+		) {
+			pulseSnapHaptic();
+		}
+		session.snapped = current.snapped;
+		setSnapGuides(current.snapped);
 		const transformPatch: ParamValues = {
 			"transform.positionX": current.positionX,
 			"transform.positionY": current.positionY,
@@ -322,6 +387,7 @@ function usePreviewTransformGesture({
 		const session = sessionRef.current;
 		if (!session) return null;
 		sessionRef.current = null;
+		setSnapGuides(NO_SNAP);
 		if (session.dragging && commit) {
 			editor.timeline.commitPreview();
 		} else if (session.dragging) {
@@ -368,6 +434,7 @@ function usePreviewTransformGesture({
 			anchorScaleX: readNumber(params, "transform.scaleX", 1),
 			anchorScaleY: readNumber(params, "transform.scaleY", 1),
 			dragging: false,
+			snapped: NO_SNAP,
 			target,
 			fanout: isCaption ? collectCaptionFanout() : null,
 		};
@@ -379,6 +446,7 @@ function usePreviewTransformGesture({
 		isVisualElement(selectedElement);
 
 	return {
+		snapGuides,
 		onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => {
 			const point = { x: event.clientX, y: event.clientY };
 			const existing = sessionRef.current;

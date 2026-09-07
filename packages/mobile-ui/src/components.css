@@ -1311,6 +1311,119 @@
 	cursor: default;
 }
 
+/* Fullscreen preview (2026-08-27, founder: "fullscreen button doesnt
+ * actually fullscreen the preview lol").
+ *
+ * A LAYOUT state, not `Element.requestFullscreen` — see the note on
+ * `isPreviewFullscreen` in editor-shell.tsx for why the real API is not an
+ * option on iOS. Everything except the preview and the playback bar is
+ * removed from the flex column, so the stage inherits the whole height and
+ * the aspect-ratio sizing already in `.cc-preview-stage__canvas` grows the
+ * frame to fit on its own — nothing here has to know the project's ratio.
+ *
+ * The playback bar deliberately SURVIVES: it carries the button that got
+ * you here, and it is the only way back out. A fullscreen mode whose exit
+ * is hidden behind a guessed gesture is a trap on a phone.
+ */
+.cc-editor-shell--preview-fullscreen .cc-editor-shell__timeline,
+.cc-editor-shell--preview-fullscreen .cc-toolbar,
+.cc-editor-shell--preview-fullscreen .cc-topbar {
+	display: none;
+}
+.cc-editor-shell--preview-fullscreen .cc-preview-stage {
+	/* Edge to edge: the padding that frames the preview against the timeline
+	   is exactly what you are trying to get rid of in fullscreen. */
+	padding: 0;
+}
+.cc-editor-shell--preview-fullscreen .cc-preview-stage__canvas {
+	border-radius: 0;
+}
+
+/* Centre-axis snap guides (2026-08-27).
+ *
+ * Drawn across the whole preview so the line reads as an AXIS OF THE
+ * CANVAS, not a decoration attached to the element — a short tick beside
+ * the element would not tell you what it is aligned TO.
+ *
+ * `pointer-events: none` is load-bearing, not hygiene: the guide only
+ * exists during a drag, sits directly under the finger, and would otherwise
+ * become a hit-test target for the very gesture that created it. The
+ * renderer mount is not positioned by default, so it gets `position:
+ * relative` here to be these absolutes' containing block.
+ */
+.cc-preview-stage__render {
+	position: relative;
+}
+.cc-preview-guide {
+	position: absolute;
+	background: var(--cc-accent);
+	pointer-events: none;
+	/* Above the composited frame, below nothing else — the preview mount has
+	   no other children. */
+	z-index: 2;
+}
+.cc-preview-guide--v {
+	top: 0;
+	bottom: 0;
+	left: 50%;
+	width: 1px;
+	transform: translateX(-0.5px);
+}
+.cc-preview-guide--h {
+	left: 0;
+	right: 0;
+	top: 50%;
+	height: 1px;
+	transform: translateY(-0.5px);
+}
+
+/* A panel's PRIMARY action — the one thing the sheet exists to do.
+ *
+ * Second instance of the same mistake the export sheet hit on 2026-08-20
+ * (founder, 2026-08-27: the Generate button "just looks like text rn").
+ * `.cc-panel-actions__btn` is an ICON-ROW style: `background: none`, no
+ * border, a small label stacked under a glyph. It reads correctly in the
+ * Edit sheet's row of Split / Duplicate / Delete verbs because each of those
+ * has an icon carrying the affordance. Reuse it for a lone label and there
+ * is nothing left that looks pressable — just a word in the middle of a
+ * sheet.
+ *
+ * So: filled accent, full width, real target height. Not the export sheet's
+ * outlined variant — this one is the whole point of the tab, and it competes
+ * with a textarea and two control rows for attention.
+ */
+.cc-panel-cta {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--cc-space-2);
+	width: 100%;
+	/* 44px minimum: the smallest touch target that is reliably hittable. */
+	min-height: 44px;
+	padding: 12px 16px;
+	margin: var(--cc-space-2) 0;
+	border: none;
+	border-radius: 12px;
+	background: var(--cc-accent);
+	color: var(--cc-accent-contrast);
+	font-family: inherit;
+	font-size: var(--cc-text-body, 15px);
+	font-weight: 600;
+	cursor: pointer;
+}
+.cc-panel-cta:active {
+	background: var(--cc-accent-active);
+}
+.cc-panel-cta:disabled {
+	/* Dimmed, but still obviously the button — a run in progress should look
+	   like the same control busy, not like a different control. */
+	opacity: 0.6;
+	cursor: default;
+}
+.cc-panel-cta__icon {
+	flex: none;
+}
+
 .cc-panel-note {
 	display: flex;
 	align-items: center;

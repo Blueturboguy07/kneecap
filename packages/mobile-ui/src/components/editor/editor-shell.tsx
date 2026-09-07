@@ -192,6 +192,15 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	const editor = useLiveEditor();
 	const [ready, setReady] = useState(false);
 	const [activeSheet, setActiveSheet] = useState<SheetId | null>(null);
+	/**
+	 * Fullscreen preview is an IN-APP expansion, not the Fullscreen API.
+	 * `Element.requestFullscreen` is unimplemented in WKWebView for anything
+	 * but a <video>, so on iOS — half this app's target — the real API
+	 * cannot expand a composited canvas at all. A layout state works
+	 * identically on both platforms, keeps the playback bar reachable so
+	 * there is always a way back out, and is what CapCut itself does.
+	 */
+	const [isPreviewFullscreen, setIsPreviewFullscreen] = useState(false);
 	/** Transient error strip for chrome-level actions that have no panel of
 	 *  their own to show failure in (the timeline's "+" import button —
 	 *  panels like Export/Captions render their own error states). A failed
@@ -321,7 +330,14 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	const closeSheet = () => setActiveSheet(null);
 
 	return (
-		<div className={cn("cc-editor-shell", className)} data-kneecap-theme="capcut-mobile">
+		<div
+			className={cn(
+				"cc-editor-shell",
+				isPreviewFullscreen && "cc-editor-shell--preview-fullscreen",
+				className,
+			)}
+			data-kneecap-theme="capcut-mobile"
+		>
 			<TopBar
 				onClose={onBack}
 				resolutionLabel={resolutionLabelFor(project.settings.canvasSize)}
@@ -352,6 +368,8 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 				onRedo={() => editor.command.redo()}
 				canUndo={editor.command.canUndo()}
 				canRedo={editor.command.canRedo()}
+				isPreviewFullscreen={isPreviewFullscreen}
+				onToggleFullscreen={() => setIsPreviewFullscreen((on) => !on)}
 			/>
 
 			{timelineProject && (

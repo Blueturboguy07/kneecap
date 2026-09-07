@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { WandSparkles } from "lucide-react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { ChipRow } from "../chip-row";
@@ -122,12 +123,17 @@ export function CaptionsPanel({ editor, onClose, onInserted, selectedCaption }: 
 					/>
 				</div>
 			)}
+			{/* Round 45 (founder: the button "just looks like text rn") — this
+			    wore `.cc-panel-actions__btn`, which is the Edit sheet's
+			    ICON-ROW style: no background, no border, label under a glyph.
+			    With no glyph above it, it rendered as a bare word. */}
 			<button
 				type="button"
-				className="cc-panel-actions__btn"
+				className="cc-panel-cta"
 				disabled={state === "generating"}
 				onClick={handleGenerate}
 			>
+				<WandSparkles className="cc-panel-cta__icon" size={18} aria-hidden="true" />
 				<span>
 					{state === "generating"
 						? "Generating…"
