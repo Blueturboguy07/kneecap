@@ -116,7 +116,6 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 	const projects = useEditor((e) => e.project.getSavedProjects());
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [soundCheck, setSoundCheck] = useState<string | null>(null);
 
 	useEffect(() => {
 		// Run once per mount; `editor` is the process-wide singleton and never
@@ -149,38 +148,6 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 			<header className="kc-home__header">
 				<h1>kneecap</h1>
 				<div className="kc-home__header-actions">
-					{/* Dogfood diagnostics (2026-08-19 device-silence campaign): a
-					    raw 440Hz tone through the SAME AudioContext the editor
-					    uses. Audible beep = WebAudio output works and any
-					    remaining silence is in the clip pipeline; no beep = the
-					    webview's audio output itself is broken on this device.
-					    Remove before public listing. */}
-					<button
-						type="button"
-						className="kc-home__soundcheck"
-						onClick={() => {
-							const state = EditorCore.getInstance().audio.playTestTone({});
-							setSoundCheck(`web beep sent (${state})`);
-							window.setTimeout(() => setSoundCheck(null), 2500);
-						}}
-					>
-						🔊 Web
-					</button>
-					<button
-						type="button"
-						className="kc-home__soundcheck"
-						onClick={() => {
-							void getNativeBridge()
-								.then((bridge) => bridge.playTestTone())
-								.then((ok) => {
-									console.error(`[soundcheck] native tone ok=${ok}`);
-									setSoundCheck(ok ? "native beep sent" : "native tone unavailable");
-									window.setTimeout(() => setSoundCheck(null), 2500);
-								});
-						}}
-					>
-						🔊 Native
-					</button>
 					<button
 						type="button"
 						className="kc-home__new"
@@ -196,7 +163,6 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 					</button>
 				</div>
 			</header>
-			{soundCheck && <p className="kc-home__soundcheck-note">{soundCheck} — did you hear a beep?</p>}
 			{error && <p className="kc-home__error">{error}</p>}
 			{projects.length === 0 ? (
 				<p className="kc-home__empty">No projects yet — tap “New project” to start editing.</p>

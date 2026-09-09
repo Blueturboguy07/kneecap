@@ -265,19 +265,3 @@ body {
 	gap: 8px;
 }
 
-/* Dogfood sound-check chip (see app-root.tsx) — remove before listing. */
-.kc-home__soundcheck {
-	font-family: inherit;
-	background: var(--cc-surface, #1a1a1a);
-	color: var(--cc-text-primary, #f5f5f5);
-	border: 1px solid var(--cc-surface-raised, #262626);
-	border-radius: 8px;
-	padding: 10px 12px;
-	font-size: 13px;
-}
-
-.kc-home__soundcheck-note {
-	color: var(--cc-accent, #00cae0);
-	font-size: 13px;
-	margin: 0;
-}
