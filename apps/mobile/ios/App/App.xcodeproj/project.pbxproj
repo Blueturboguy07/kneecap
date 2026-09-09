@@ -30,6 +30,7 @@
 		B1B6DAA7B25AA50E9BD00EC7 /* EdlTime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4619E70AC601E4143415169A /* EdlTime.swift */; };
 		BB99AD77BABC7E36C2D9E72A /* SpikeDiagnosticsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD54DF527E15EA673D177402 /* SpikeDiagnosticsPlugin.swift */; };
 		BD0339D4AAB4FB8E5F05A675 /* OverlayLayerBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E242529A2E93A53C29E6E4F /* OverlayLayerBuilder.swift */; };
+		AE8275AD82BC77F03CA22B8E /* KeyframeEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34C0C777E8F513C14A98B498 /* KeyframeEvaluator.swift */; };
 		DA2645C5A696F811B0F30D32 /* NativeBridgePlugin+Export.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26870475DC6164B19F87D7F6 /* NativeBridgePlugin+Export.swift */; };
 		E7853237CE3EE88834CC5DDA /* MediaProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E4AF30061CAD06771641C2 /* MediaProbe.swift */; };
 		EAA9A16D6D45CE0F8AC1F317 /* ProxyTranscoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62F5C60B9D68F1E648F2029D /* ProxyTranscoder.swift */; };
@@ -68,6 +69,7 @@
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		9E242529A2E93A53C29E6E4F /* OverlayLayerBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OverlayLayerBuilder.swift; sourceTree = "<group>"; };
+		34C0C777E8F513C14A98B498 /* KeyframeEvaluator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KeyframeEvaluator.swift; sourceTree = "<group>"; };
 		9E62365C080407BB6E97B7C3 /* MediaSandbox.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaSandbox.swift; sourceTree = "<group>"; };
 		A9E4AF30061CAD06771641C2 /* MediaProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaProbe.swift; sourceTree = "<group>"; };
 		C6B2E1A60BA1BB6E454F011C /* CompositionBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompositionBuilder.swift; sourceTree = "<group>"; };
@@ -153,6 +155,7 @@
 				C6B2E1A60BA1BB6E454F011C /* CompositionBuilder.swift */,
 				4C840156D640101F8C4DCE1D /* TransitionCompositor.swift */,
 				9E242529A2E93A53C29E6E4F /* OverlayLayerBuilder.swift */,
+				34C0C777E8F513C14A98B498 /* KeyframeEvaluator.swift */,
 				D85BDC04331F7C007EDB97B7 /* VideoCompositionBuilder.swift */,
 				FDD463A5948B39971E5D18B5 /* EdlExporter.swift */,
 			);
@@ -261,6 +264,7 @@
 				0F15913DD17235ED9C2F2677 /* CompositionBuilder.swift in Sources */,
 				A9F633FA8D2B7D03F460B2D9 /* TransitionCompositor.swift in Sources */,
 				BD0339D4AAB4FB8E5F05A675 /* OverlayLayerBuilder.swift in Sources */,
+				AE8275AD82BC77F03CA22B8E /* KeyframeEvaluator.swift in Sources */,
 				736D0ACF30ECDCA55A7384B0 /* VideoCompositionBuilder.swift in Sources */,
 				313BE0D3291C4FA86B9D538E /* EdlExporter.swift in Sources */,
 				306E70E3B3B4F1E17C8E53EA /* FirstRunView.swift in Sources */,
