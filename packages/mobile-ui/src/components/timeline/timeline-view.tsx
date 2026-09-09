@@ -138,6 +138,13 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 		edge: TrimEdge;
 		boundarySec: number;
 	}) => void;
+	/** Round 47: a diamond drawn on a clip was tapped — the shell seeks the
+	 *  playhead onto that keyframe (`TimelineKeyframeVM.timeTicks`). */
+	onKeyframeTap?: (params: { clipId: string; trackId: string; keyframeId: string }) => void;
+	/** Round 47: the keyframe diamond + ‹ › control, pinned top-right of the
+	 *  timeline area (the timecode's mirror). Rendered by the shell only
+	 *  while a visual clip is selected. */
+	keyframeControl?: React.ReactNode;
 	/** ENGINE-BACKED move commit: fired once per finished clip-body drag
 	 *  with the snapped/clamped start time the preview last showed. */
 	onMoveClip?: (params: {
@@ -176,6 +183,8 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 		onTrimScrub,
 		onMoveClip,
 		onReorderMainTrack,
+		onKeyframeTap,
+		keyframeControl,
 	},
 	ref,
 ) {
@@ -751,6 +760,11 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 							}
 							snapTargets={snapTargets}
 							snapThresholdSec={snapThresholdSec}
+							onKeyframeTap={
+								onKeyframeTap
+									? ({ clipId, keyframeId }) => onKeyframeTap({ clipId, trackId: track.id, keyframeId })
+									: undefined
+							}
 							transitionAfterClipIds={
 								track.kind === "main"
 									? new Set(Object.keys(transitions))
@@ -787,6 +801,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 			</div>
 			<TimelinePlayhead />
 			{currentTimeLabel && <div className="cc-timeline__timecode">{currentTimeLabel}</div>}
+			{keyframeControl && <div className="cc-timeline__keyframe-control">{keyframeControl}</div>}
 
 			{openTransitionNeighbors && openTransitionAfterClipId && (
 				<TransitionSheet

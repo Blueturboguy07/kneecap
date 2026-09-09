@@ -55,6 +55,7 @@ import {
 	kickWaveform,
 	subscribeWaveforms,
 } from "./waveform-peaks";
+import { getClipKeyframeTimes } from "./keyframes";
 import type {
 	TimelineClipKind,
 	TimelineClipVM,
@@ -171,6 +172,16 @@ function audioClipPeaks({
 	});
 }
 
+function keyframeVMs({ element }: { element: TimelineElement }): TimelineClipVM["keyframes"] {
+	const times = getClipKeyframeTimes({ animations: element.animations });
+	if (times.length === 0) return undefined;
+	return times.map((ticks) => ({
+		id: `${element.id}:kf:${ticks}`,
+		timeSec: mediaTimeToSeconds({ time: ticks }),
+		timeTicks: ticks,
+	}));
+}
+
 function mapTrack({
 	track,
 	isMain,
@@ -204,6 +215,10 @@ function mapTrack({
 			element.type === "audio" && "mediaId" in element
 				? audioClipPeaks({ element, asset: assetById.get(element.mediaId) })
 				: undefined,
+		// Round 47: one diamond per clip-keyframe TIME (the group model in
+		// keyframes.ts), drawn on the clip by TimelineClip. Ticks ride along
+		// so a diamond tap seeks exactly.
+		keyframes: keyframeVMs({ element }),
 	}));
 	return {
 		id: track.id,

@@ -24,10 +24,18 @@ import {
 	type AxisSnapFlags,
 } from "../../editor/axis-snap";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import { TICKS_PER_SECOND } from "@kneecap/editor-core";
+import { TICKS_PER_SECOND, type MediaTime } from "@kneecap/editor-core";
 import { useEditor } from "@kneecap/editor-core/react";
-import { isVisualElement } from "@kneecap/editor-core/timeline";
+import { isVisualElement, type TimelineElement } from "@kneecap/editor-core/timeline";
 import type { ParamValues } from "@kneecap/editor-core/params";
+import {
+	clipLocalTime,
+	hasClipKeyframes,
+	resolveClipValuesAtTime,
+	snapLocalTimeToFrame,
+	upsertClipAnimationValues,
+	type ClipKeyframeValues,
+} from "../../editor/keyframes";
 import { useSelectedElement } from "../../editor/use-live-editor";
 import { CanvasRenderer } from "@kneecap/editor-core/services/renderer/canvas-renderer";
 import { buildScene } from "@kneecap/editor-core/services/renderer/scene-builder";
@@ -236,6 +244,26 @@ function PreviewRendererInner() {
  */
 const DRAG_SLOP_PX = 6;
 
+/** One element a preview gesture writes to: the selection, or every caption
+ *  when a caption is selected (they move as one). Round 47: a target that
+ *  already has clip keyframes is `keyed` — the gesture then writes a
+ *  keyframe at the playhead (CapCut's auto-add once a clip is keyed) instead
+ *  of the base params, which the animation would override anyway. */
+interface GestureTarget {
+	trackId: string;
+	elementId: string;
+	/** PRE-gesture element: every frame's params/animations build from it. */
+	element: TimelineElement;
+	keyed: boolean;
+	/** Frame-snapped clip-local playhead at gesture start. */
+	localTime: MediaTime;
+	/** The keyframe group's values at `localTime` — the drag anchors here
+	 *  (so a keyed clip is grabbed where it IS at this time, not at its base
+	 *  params) and rotate/opacity ride along unchanged so the keyframe the
+	 *  drag writes is complete. */
+	baseValues: ClipKeyframeValues;
+}
+
 function usePreviewTransformGesture({
 	mountRef,
 	canvasWidth,
@@ -257,7 +285,6 @@ function usePreviewTransformGesture({
 		pointers: Map<number, { x: number; y: number }>;
 		startCentroid: { x: number; y: number };
 		startDistance: number | null;
-		initialParams: ParamValues;
 		anchorPositionX: number;
 		anchorPositionY: number;
 		anchorScaleX: number;
@@ -267,17 +294,11 @@ function usePreviewTransformGesture({
 		 *  the session because the snap decision is hysteretic: it depends on
 		 *  whether the axis was ALREADY snapped a frame ago. */
 		snapped: AxisSnapFlags;
-		target: { trackId: string; elementId: string };
-		/** Non-null when the target is a caption: every caption element in
-		 *  the scene (target included), each with its own base params — the
-		 *  shared transform fans out to all of them per frame. */
-		fanout: Array<{ trackId: string; elementId: string; params: ParamValues }> | null;
+		/** The selection alone, or every caption in the scene when a caption
+		 *  is selected — the shared transform fans out to all of them per
+		 *  frame, each written its own way (params vs keyframe). */
+		targets: GestureTarget[];
 	} | null>(null);
-
-	const readNumber = (params: ParamValues, key: string, fallback: number) => {
-		const value = params[key];
-		return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-	};
 
 	const centroidAndDistance = (pointers: Map<number, { x: number; y: number }>) => {
 		const points = [...pointers.values()];
@@ -371,14 +392,28 @@ function usePreviewTransformGesture({
 			"transform.scaleX": current.scaleX,
 			"transform.scaleY": current.scaleY,
 		};
-		const targets = session.fanout ?? [
-			{ ...session.target, params: session.initialParams },
-		];
 		editor.timeline.previewElements({
-			updates: targets.map((t) => ({
+			updates: session.targets.map((t) => ({
 				trackId: t.trackId,
 				elementId: t.elementId,
-				updates: { params: { ...t.params, ...transformPatch } },
+				updates: t.keyed
+					? {
+							// Auto-keyframe: the whole group at the playhead, built
+							// from the PRE-gesture animations so re-writing the same
+							// time every frame replaces one key instead of stacking.
+							animations: upsertClipAnimationValues({
+								element: t.element,
+								localTime: t.localTime,
+								values: {
+									...t.baseValues,
+									"transform.positionX": current.positionX,
+									"transform.positionY": current.positionY,
+									"transform.scaleX": current.scaleX,
+									"transform.scaleY": current.scaleY,
+								},
+							}),
+						}
+					: { params: { ...t.element.params, ...transformPatch } },
 			})),
 		});
 	};
@@ -396,16 +431,33 @@ function usePreviewTransformGesture({
 		return session;
 	};
 
-	/** All caption elements in the active scene, each with its live base
-	 *  params — the "captions move as one" fan-out list. */
-	const collectCaptionFanout = () => {
+	/** Snapshot one element as a gesture target at the current playhead. */
+	const makeTarget = ({ trackId, element }: { trackId: string; element: TimelineElement }): GestureTarget => {
+		const localTime = snapLocalTimeToFrame({
+			localTime: clipLocalTime({ element, timelineTime: editor.playback.getCurrentTime() }),
+			fps: editor.project.getActive().settings.fps,
+			duration: element.duration,
+		});
+		return {
+			trackId,
+			elementId: element.id,
+			element,
+			keyed: hasClipKeyframes({ animations: element.animations }),
+			localTime,
+			baseValues: resolveClipValuesAtTime({ element, localTime }),
+		};
+	};
+
+	/** All caption elements in the active scene — the "captions move as one"
+	 *  fan-out list. */
+	const collectCaptionFanout = (): GestureTarget[] => {
 		const tracks = editor.scenes.getActiveScene().tracks;
-		const out: Array<{ trackId: string; elementId: string; params: ParamValues }> = [];
+		const out: GestureTarget[] = [];
 		for (const track of tracks.overlay) {
 			if (track.type !== "caption") continue;
 			for (const element of track.elements) {
 				if (element.type === "caption") {
-					out.push({ trackId: track.id, elementId: element.id, params: element.params });
+					out.push(makeTarget({ trackId: track.id, element }));
 				}
 			}
 		}
@@ -414,29 +466,35 @@ function usePreviewTransformGesture({
 
 	const openSession = ({
 		pointers,
-		params,
+		element,
 		target,
 		isCaption,
 	}: {
 		pointers: Map<number, { x: number; y: number }>;
-		params: ParamValues;
+		element: TimelineElement;
 		target: { trackId: string; elementId: string };
 		isCaption: boolean;
 	}) => {
 		const { centroid, distance } = centroidAndDistance(pointers);
+		const targets = isCaption ? collectCaptionFanout() : [];
+		if (!targets.some((t) => t.elementId === target.elementId)) {
+			targets.unshift(makeTarget({ trackId: target.trackId, element }));
+		}
+		const primary = targets.find((t) => t.elementId === target.elementId) ?? targets[0];
+		// Anchor on the RESOLVED values: for a keyed clip that is where the
+		// element is at the playhead (grabbing it must not snap it back to its
+		// base params); for an un-keyed clip it equals the params/defaults.
 		sessionRef.current = {
 			pointers,
 			startCentroid: centroid,
 			startDistance: distance,
-			initialParams: params,
-			anchorPositionX: readNumber(params, "transform.positionX", 0),
-			anchorPositionY: readNumber(params, "transform.positionY", 0),
-			anchorScaleX: readNumber(params, "transform.scaleX", 1),
-			anchorScaleY: readNumber(params, "transform.scaleY", 1),
+			anchorPositionX: primary.baseValues["transform.positionX"],
+			anchorPositionY: primary.baseValues["transform.positionY"],
+			anchorScaleX: primary.baseValues["transform.scaleX"],
+			anchorScaleY: primary.baseValues["transform.scaleY"],
 			dragging: false,
 			snapped: NO_SNAP,
-			target,
-			fanout: isCaption ? collectCaptionFanout() : null,
+			targets,
 		};
 	};
 
@@ -462,7 +520,7 @@ function usePreviewTransformGesture({
 			if (selectionIsManipulable && selectedRef && selectedElement) {
 				openSession({
 					pointers: new Map([[event.pointerId, point]]),
-					params: selectedElement.params,
+					element: selectedElement,
 					target: selectedRef,
 					isCaption: selectedElement.type === "caption",
 				});

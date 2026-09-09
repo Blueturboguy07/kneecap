@@ -134,7 +134,7 @@ class ExportGoldenFrameInstrumentedTest {
             opacity = 1.0,
             effects = emptyList(),
             hasMasks = false,
-            hasAnimations = false,
+            animations = emptyList(),
             params = emptyMap(),
         )
         val clipB = clipA.copy(
@@ -161,7 +161,7 @@ class ExportGoldenFrameInstrumentedTest {
             opacity = 1.0,
             effects = emptyList(),
             hasMasks = false,
-            hasAnimations = false,
+            animations = emptyList(),
             params = mapOf("content" to "kneecap", "fontSize" to 48, "color" to "#00CAE0"),
         )
 

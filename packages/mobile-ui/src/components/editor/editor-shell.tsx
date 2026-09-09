@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { TICKS_PER_SECOND, type EditorCore, type NativeImportProgress } from "@kneecap/editor-core";
 import { cn } from "../../lib/cn";
-import { isVisualElement, type ElementRef, type VisualElement } from "@kneecap/editor-core/timeline";
+import { isVisualElement, type ElementRef, type TimelineElement, type VisualElement } from "@kneecap/editor-core/timeline";
+import { mediaTime, mediaTimeToSeconds, type MediaTime } from "@kneecap/editor-core/wasm";
 import { TopBar } from "./top-bar";
 import { PlaybackBar } from "./playback-bar";
 import { PreviewStage } from "./preview-stage";
@@ -20,6 +21,9 @@ import { FiltersPanel } from "../panels/filters-panel";
 import { AdjustPanel } from "../panels/adjust-panel";
 import { CaptionsPanel } from "../panels/captions-panel";
 import { ExportSheet } from "../panels/export-sheet";
+import { KeyframeGraphSheet } from "../panels/keyframe-graph-sheet";
+import { KeyframeControl } from "../timeline/keyframe-control";
+import { getClipKeyframeEasing } from "../../editor/keyframes";
 import {
 	useLiveEditor,
 	useSelectedElement,
@@ -51,15 +55,20 @@ import {
 	commitElementMove,
 	commitMainTrackReorder,
 	cutDeadSpace,
+	readClipKeyframeState,
+	toggleClipKeyframeAtPlayhead,
+	seekToClipKeyframe,
+	seekToClipKeyframeTime,
+	setClipKeyframeEasing,
 	type DeadSpaceCutOutcome,
 } from "../../editor/actions";
-import { Scissors, ScissorsLineDashed, Trash2, CopyPlus, SlidersHorizontal, Type, VolumeX, WandSparkles, ImagePlus } from "lucide-react";
+import { Scissors, ScissorsLineDashed, Trash2, CopyPlus, SlidersHorizontal, Spline, Type, VolumeX, WandSparkles, ImagePlus } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { ProgressOverlay } from "../progress-overlay";
 
-type SheetId = PrimaryToolId | "export";
+type SheetId = PrimaryToolId | "export" | "graph";
 
 interface EditorShellProps {
 	className?: string;
@@ -132,6 +141,32 @@ function describeDeadSpaceCut({ outcome }: { outcome: DeadSpaceCutOutcome }): st
  *  when i select it"): text and caption clips get a direct Edit-text verb
  *  that opens the panel with their content field. */
 const EDIT_TEXT_ITEM: ToolbarItemDef = { id: "edit-text", label: "Edit text", icon: Type };
+
+/** Round 47: CapCut's "Graph" verb — keyframe easing presets — appears on
+ *  the contextual row once the selected clip has a keyframe. */
+const GRAPH_ITEM: ToolbarItemDef = { id: "graph", label: "Graph", icon: Spline };
+
+/** The contextual row for a selection: type-specific lead verb, the direct
+ *  verbs, then situational extras, with the sheet-opening "Edit" last. */
+function buildContextualItems({
+	element,
+	hasKeyframes,
+}: {
+	element: TimelineElement;
+	hasKeyframes: boolean;
+}): ToolbarItemDef[] {
+	const lead = element.type === "text" || element.type === "caption" ? [EDIT_TEXT_ITEM] : [];
+	const extras: ToolbarItemDef[] = [];
+	if (AUDIBLE_ELEMENT_TYPES.has(element.type)) extras.push(CUT_GAPS_ITEM);
+	if (hasKeyframes) extras.push(GRAPH_ITEM);
+	// Before "Edit": the direct verbs stay together and the sheet-opener
+	// stays last.
+	return [...lead, ...CONTEXTUAL_ITEMS.slice(0, -1), ...extras, ...CONTEXTUAL_ITEMS.slice(-1)];
+}
+
+function formatKeyframeTime(time: MediaTime): string {
+	return `${mediaTimeToSeconds({ time }).toFixed(2)}s`;
+}
 
 const VISUAL_ONLY_SHEETS = new Set<SheetId>(["effects", "filters", "adjust"]);
 
@@ -327,6 +362,24 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	const visualElement: VisualElement | null =
 		selectedElement && isVisualElement(selectedElement) ? selectedElement : null;
 
+	// Round 47: keyframe chrome reads the live playhead — the shell already
+	// re-renders per playback tick/seek via useCurrentTimeSeconds above.
+	const keyframeState =
+		selectedRef && visualElement
+			? readClipKeyframeState({ editor, ref: selectedRef, element: visualElement })
+			: null;
+	const keyframeSegmentEasing =
+		visualElement && keyframeState && keyframeState.segmentTime !== null
+			? getClipKeyframeEasing({ animations: visualElement.animations, time: keyframeState.segmentTime })
+			: null;
+	const keyframeSegmentLabel = (() => {
+		if (!keyframeState || keyframeState.segmentTime === null) return null;
+		const index = keyframeState.times.indexOf(keyframeState.segmentTime);
+		const next = keyframeState.times[index + 1];
+		if (next === undefined) return null;
+		return `${formatKeyframeTime(keyframeState.segmentTime)} → ${formatKeyframeTime(next)}`;
+	})();
+
 	const closeSheet = () => setActiveSheet(null);
 
 	return (
@@ -393,6 +446,29 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 						}
 						onReorderMainTrack={({ trackId, orderedClipIds }) =>
 							commitMainTrackReorder({ editor, trackId, orderedElementIds: orderedClipIds })
+						}
+						onKeyframeTap={({ clipId, trackId, keyframeId }) => {
+							const keyframe = timelineProject.tracks
+								.find((t) => t.id === trackId)
+								?.clips.find((c) => c.id === clipId)
+								?.keyframes?.find((k) => k.id === keyframeId);
+							const ref = { trackId, elementId: clipId };
+							selectElement({ editor, ref });
+							if (keyframe?.timeTicks !== undefined) {
+								seekToClipKeyframeTime({ editor, ref, time: mediaTime({ ticks: keyframe.timeTicks }) });
+							}
+						}}
+						keyframeControl={
+							selectedRef && visualElement && keyframeState ? (
+								<KeyframeControl
+									isOnKeyframe={keyframeState.onKeyframeTime !== null}
+									canPrevious={keyframeState.previousTime !== null}
+									canNext={keyframeState.nextTime !== null}
+									onToggle={() => toggleClipKeyframeAtPlayhead({ editor, ref: selectedRef })}
+									onPrevious={() => seekToClipKeyframe({ editor, ref: selectedRef, direction: "previous" })}
+									onNext={() => seekToClipKeyframe({ editor, ref: selectedRef, direction: "next" })}
+								/>
+							) : null
 						}
 						transitions={transitionsVM}
 						onTransitionCommit={({ afterClipId, kind, durationSec, applyToAll }) =>
@@ -467,19 +543,18 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 
 			{selectedRef && selectedElement && (
 				<SubToolbar
-					items={
-						selectedElement.type === "text" || selectedElement.type === "caption"
-							? [EDIT_TEXT_ITEM, ...CONTEXTUAL_ITEMS]
-							: AUDIBLE_ELEMENT_TYPES.has(selectedElement.type)
-								// Before "Edit": the direct verbs stay together and the
-								// sheet-opener stays last.
-								? [...CONTEXTUAL_ITEMS.slice(0, -1), CUT_GAPS_ITEM, ...CONTEXTUAL_ITEMS.slice(-1)]
-								: CONTEXTUAL_ITEMS
-					}
+					items={buildContextualItems({
+						element: selectedElement,
+						hasKeyframes: (keyframeState?.times.length ?? 0) > 0,
+					})}
 					activeId={activeSheet}
 					onSelect={(id) => {
 						if (id === "edit-text") {
 							setActiveSheet(selectedElement.type === "caption" ? "captions" : "text");
+							return;
+						}
+						if (id === "graph") {
+							setActiveSheet("graph");
 							return;
 						}
 						// Direct verbs act immediately; only "edit" opens a sheet.
@@ -669,6 +744,19 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 							: "Templates aren't in kneecap yet."}
 					</p>
 				</PanelSheet>
+			)}
+
+			{activeSheet === "graph" && selectedRef && visualElement && (
+				<KeyframeGraphSheet
+					current={keyframeSegmentEasing}
+					segmentLabel={keyframeSegmentLabel}
+					onSelect={(easing) => {
+						if (keyframeState && keyframeState.segmentTime !== null) {
+							setClipKeyframeEasing({ editor, ref: selectedRef, time: keyframeState.segmentTime, easing });
+						}
+					}}
+					onClose={closeSheet}
+				/>
 			)}
 
 			{activeSheet === "export" && <ExportSheet editor={editor} onClose={closeSheet} />}

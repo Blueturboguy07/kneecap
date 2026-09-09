@@ -45,6 +45,21 @@ import {
 import { registerDefaultGraphics } from "@kneecap/editor-core/graphics";
 import { buildElementFromMedia } from "@kneecap/editor-core/timeline";
 import { rewriteCaptionWords } from "./caption-text";
+import {
+	adjacentClipKeyframeTime,
+	applyClipKeyframeEasing,
+	buildClipKeyframeRemovals,
+	buildClipKeyframeUpserts,
+	clipLocalTime,
+	findClipKeyframeAtTime,
+	frameTicksFor,
+	getClipKeyframeTimes,
+	hasClipKeyframes,
+	isClipKeyframePath,
+	segmentKeyframeTimeAt,
+	snapLocalTimeToFrame,
+	type ClipKeyframeEasing,
+} from "./keyframes";
 import { getNativeBridge } from "@kneecap/native-bridge";
 import {
 	importMediaFromNative,
@@ -1261,3 +1276,183 @@ export async function cutDeadSpace({
 		removedSec: analysis.removedSec,
 	};
 }
+
+// -------------------------------- keyframes ---------------------------------
+// Round 47 (founder: "i want to add keyframes"). The CapCut-mobile diamond
+// over the engine's per-property keyframe commands — see editor/keyframes.ts
+// for the group model. Every mutation below is one undo step: the engine
+// batches a multi-path upsert/removal into a single BatchCommand, and easing
+// goes through one UpdateElementsCommand.
+
+/** Half a frame: "the playhead is on this keyframe" tolerance. A scrubbed
+ *  playhead lands on arbitrary ticks; the frame is the unit CapCut counts
+ *  in, and every keyframe this UI writes sits on the frame grid. */
+function keyframeToleranceTicks({ editor }: { editor: EditorCore }): number {
+	return frameTicksFor({ fps: editor.project.getActive().settings.fps }) / 2;
+}
+
+export interface ClipKeyframeState {
+	/** Every keyframe on the clip, clip-local ticks, ascending. */
+	times: MediaTime[];
+	/** The playhead as a clip-local, frame-snapped time. */
+	localTime: MediaTime;
+	/** The keyframe the playhead is on (± half a frame), else null. */
+	onKeyframeTime: MediaTime | null;
+	previousTime: MediaTime | null;
+	nextTime: MediaTime | null;
+	/** The keyframe whose outgoing segment the playhead is inside of — what
+	 *  the Graph sheet edits. Null with fewer than two keyframes. */
+	segmentTime: MediaTime | null;
+}
+
+/** Everything the diamond control and the Graph sheet render from, computed
+ *  off the live playhead. Pure read; safe to call during render. */
+export function readClipKeyframeState({
+	editor,
+	ref,
+	element = getElement({ editor, ref }),
+}: {
+	editor: EditorCore;
+	ref: ElementRef;
+	element?: TimelineElement | null;
+}): ClipKeyframeState | null {
+	if (!element) return null;
+	const fps = editor.project.getActive().settings.fps;
+	const toleranceTicks = frameTicksFor({ fps }) / 2;
+	const localTime = snapLocalTimeToFrame({
+		localTime: clipLocalTime({ element, timelineTime: editor.playback.getCurrentTime() }),
+		fps,
+		duration: element.duration,
+	});
+	const times = getClipKeyframeTimes({ animations: element.animations });
+	return {
+		times,
+		localTime,
+		onKeyframeTime: findClipKeyframeAtTime({ times, time: localTime, toleranceTicks }),
+		previousTime: adjacentClipKeyframeTime({ times, time: localTime, direction: "previous", toleranceTicks }),
+		nextTime: adjacentClipKeyframeTime({ times, time: localTime, direction: "next", toleranceTicks }),
+		segmentTime: segmentKeyframeTimeAt({ times, time: localTime, toleranceTicks }),
+	};
+}
+
+/** The diamond tap: on a keyframe → remove it (every group path keyed at
+ *  that time; the engine persists the value-at-playhead to the base params
+ *  when a channel empties, so nothing visibly jumps); otherwise → add one
+ *  holding the clip's current position/scale/rotation/opacity. */
+export function toggleClipKeyframeAtPlayhead({
+	editor,
+	ref,
+}: {
+	editor: EditorCore;
+	ref: ElementRef;
+}): "added" | "removed" | null {
+	const element = getElement({ editor, ref });
+	if (!element) return null;
+	const state = readClipKeyframeState({ editor, ref, element });
+	if (!state) return null;
+	if (state.onKeyframeTime !== null) {
+		const removals = buildClipKeyframeRemovals({ ref, element, time: state.onKeyframeTime });
+		if (removals.length === 0) return null;
+		editor.timeline.removeKeyframes({ keyframes: removals });
+		return "removed";
+	}
+	editor.timeline.upsertKeyframes({
+		keyframes: buildClipKeyframeUpserts({ ref, element, localTime: state.localTime }),
+	});
+	return "added";
+}
+
+/** ‹ › arrows: seek the playhead to the neighbouring keyframe. Returns
+ *  false when there is none in that direction. */
+export function seekToClipKeyframe({
+	editor,
+	ref,
+	direction,
+}: {
+	editor: EditorCore;
+	ref: ElementRef;
+	direction: "previous" | "next";
+}): boolean {
+	const element = getElement({ editor, ref });
+	if (!element) return false;
+	const state = readClipKeyframeState({ editor, ref, element });
+	const target = direction === "previous" ? state?.previousTime : state?.nextTime;
+	if (target === null || target === undefined) return false;
+	seekToClipKeyframeTime({ editor, ref, time: target });
+	return true;
+}
+
+/** Tap on a diamond drawn on the clip: land the playhead exactly on it. */
+export function seekToClipKeyframeTime({
+	editor,
+	ref,
+	time,
+}: {
+	editor: EditorCore;
+	ref: ElementRef;
+	time: MediaTime;
+}): void {
+	const element = getElement({ editor, ref });
+	if (!element) return;
+	editor.playback.seek({ time: mediaTime({ ticks: element.startTime + time }) });
+}
+
+/** Graph sheet: set how the value travels from the keyframe at `time` to the
+ *  next one, on every keyed group path, as ONE undoable command. Returns
+ *  false when nothing changed (no keyframe there, or it is the last one). */
+export function setClipKeyframeEasing({
+	editor,
+	ref,
+	time,
+	easing,
+}: {
+	editor: EditorCore;
+	ref: ElementRef;
+	time: MediaTime;
+	easing: ClipKeyframeEasing;
+}): boolean {
+	const element = getElement({ editor, ref });
+	if (!element) return false;
+	const animations = applyClipKeyframeEasing({ animations: element.animations, time, easing });
+	if (animations === element.animations) return false;
+	editor.timeline.updateElements({
+		updates: [{ trackId: ref.trackId, elementId: ref.elementId, patch: { animations } }],
+	});
+	return true;
+}
+
+/** Panel sliders for a group property (opacity today): once the clip has
+ *  keyframes, a change writes a keyframe at the playhead — CapCut's
+ *  auto-add — instead of the base param the animation would override
+ *  anyway. Un-keyed clips take the plain param write. Each slider tick is
+ *  one command either way, same as `setElementParam` already is. */
+export function setVisualParamKeyframeAware({
+	editor,
+	ref,
+	key,
+	value,
+}: {
+	editor: EditorCore;
+	ref: ElementRef;
+	key: string;
+	value: ParamValues[string];
+}): void {
+	const element = getElement({ editor, ref });
+	if (!element) return;
+	if (isClipKeyframePath(key) && typeof value === "number" && hasClipKeyframes({ animations: element.animations })) {
+		const state = readClipKeyframeState({ editor, ref, element });
+		if (!state) return;
+		editor.timeline.upsertKeyframes({
+			keyframes: buildClipKeyframeUpserts({
+				ref,
+				element,
+				localTime: state.localTime,
+				overrides: { [key]: value },
+			}),
+		});
+		return;
+	}
+	setElementParam({ editor, ref, key, value });
+}
+
+export { hasClipKeyframes };

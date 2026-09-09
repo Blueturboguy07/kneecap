@@ -38,11 +38,16 @@ public struct SourcePlacement {
 	/// uprights the coded frame.
 	public let rotationDegrees: Int
 	public let opacity: Double
+	/// Round 47: the clip's keyframe channels on the six visual paths, or
+	/// nil for a static clip. When set, `transform`/`opacity` above are the
+	/// BASE values and the per-frame values come from `resolved(at:)`.
+	public let animation: PlacementAnimation?
 
-	public init(transform: EdlTransform, rotationDegrees: Int, opacity: Double) {
+	public init(transform: EdlTransform, rotationDegrees: Int, opacity: Double, animation: PlacementAnimation? = nil) {
 		self.transform = transform
 		self.rotationDegrees = rotationDegrees
 		self.opacity = opacity
+		self.animation = animation
 	}
 
 	public static let identity = SourcePlacement(
@@ -50,6 +55,52 @@ public struct SourcePlacement {
 		rotationDegrees: 0,
 		opacity: 1
 	)
+
+	public var isAnimated: Bool { animation != nil }
+
+	/// The static placement for one output frame: keyframe channels
+	/// evaluated at the clip-local tick under `compositionTicks`. A static
+	/// placement returns itself.
+	public func resolved(atCompositionTicks compositionTicks: Int64) -> SourcePlacement {
+		guard let animation else { return self }
+		let localTicks = animation.localTicks(atCompositionTicks: compositionTicks)
+		return SourcePlacement(
+			transform: KeyframeEvaluator.resolveTransform(base: transform, channels: animation.channels, localTicks: localTicks),
+			rotationDegrees: rotationDegrees,
+			opacity: KeyframeEvaluator.resolveOpacity(base: opacity, channels: animation.channels, localTicks: localTicks),
+			animation: nil
+		)
+	}
+}
+
+/// Round 47: what turns composition time into a keyframe lookup. Keyframe
+/// times are CLIP-LOCAL (relative to the clip's start, exactly like the
+/// preview's `getElementLocalTime`, which also clamps to [0, duration]); the
+/// clip's start here is its OUTPUT-timeline start — `ClipPlacement
+/// .insertStartTicks` for a main-track clip (transitions pull clips earlier
+/// than their nominal `startTicks`), the remapped `startTicks` for overlays.
+public struct PlacementAnimation {
+	public let channels: [String: EdlAnimationChannel]
+	public let clipStartTicks: Int64
+	public let clipDurationTicks: Int64
+
+	public init(channels: [String: EdlAnimationChannel], clipStartTicks: Int64, clipDurationTicks: Int64) {
+		self.channels = channels
+		self.clipStartTicks = clipStartTicks
+		self.clipDurationTicks = clipDurationTicks
+	}
+
+	/// nil when the clip has no keyframes on a visual path — the common
+	/// case, so static clips never pay for a lookup.
+	public static func make(clip: EdlClip, clipStartTicks: Int64) -> PlacementAnimation? {
+		let channels = KeyframeEvaluator.visualChannels(clip: clip)
+		guard !channels.isEmpty else { return nil }
+		return PlacementAnimation(channels: channels, clipStartTicks: clipStartTicks, clipDurationTicks: clip.durationTicks)
+	}
+
+	func localTicks(atCompositionTicks compositionTicks: Int64) -> Int64 {
+		max(0, min(clipDurationTicks, compositionTicks - clipStartTicks))
+	}
 }
 
 /// One picture-in-picture layer composited ABOVE the main track (round 19:
@@ -247,6 +298,8 @@ public final class EdlVideoCompositionInstruction: NSObject, AVVideoCompositionI
 	/// range, ascending zIndex — composited ABOVE the PiP layers (text over
 	/// video overlays, same stacking the preview renders).
 	public let overlayBillboards: [OverlayBillboard]
+	/// `meta.ticksPerSecond` — composition time -> ticks for keyframe lookups.
+	public let ticksPerSecond: Int64
 
 	init(
 		timeRange: CMTimeRange,
@@ -270,7 +323,8 @@ public final class EdlVideoCompositionInstruction: NSObject, AVVideoCompositionI
 		secondaryPlacement: SourcePlacement = .identity,
 		backgroundColor: CIColor = CIColor(red: 0, green: 0, blue: 0, alpha: 1),
 		overlayVideoLayers: [OverlayVideoLayer] = [],
-		overlayBillboards: [OverlayBillboard] = []
+		overlayBillboards: [OverlayBillboard] = [],
+		ticksPerSecond: Int64 = 120_000
 	) {
 		self.timeRange = timeRange
 		self.primaryTrackID = primaryTrackID
@@ -289,8 +343,15 @@ public final class EdlVideoCompositionInstruction: NSObject, AVVideoCompositionI
 		self.backgroundColor = backgroundColor
 		self.overlayVideoLayers = overlayVideoLayers
 		self.overlayBillboards = overlayBillboards
+		self.ticksPerSecond = ticksPerSecond
+		// Round 47: a keyframed placement varies frame to frame exactly like a
+		// dissolve does — without `containsTweening` AVFoundation may reuse a
+		// composed frame across identical source frames (a still, a paused
+		// source) and the animation would stutter or freeze.
 		self.containsTweening =
 			secondaryTrackID != kCMPersistentTrackID_Invalid || secondaryStill != nil
+			|| primaryPlacement.isAnimated || secondaryPlacement.isAnimated
+			|| overlayVideoLayers.contains { $0.placement.isAnimated }
 		// `requiredSourceTrackIDs` is typed `[NSValue]?`, but AVFoundation's
 		// OWN validation (`-[AVVideoComposition
 		// isValidForTracks:assetDuration:timeRange:validationDelegate:]`)
@@ -368,6 +429,9 @@ public final class EdlTransitionCompositor: NSObject, AVVideoCompositing {
 			}
 			let renderRect = CGRect(origin: .zero, size: renderSize)
 			let background = CIImage(color: instruction.backgroundColor).cropped(to: renderRect)
+			// Round 47: keyframed placements resolve ONCE per frame here, in
+			// output ticks — the same tick space the instruction ranges use.
+			let compositionTicks = Int64((asyncVideoCompositionRequest.compositionTime.seconds * Double(instruction.ticksPerSecond)).rounded())
 
 			var image: CIImage
 			if var primaryImage = primarySource {
@@ -379,7 +443,7 @@ public final class EdlTransitionCompositor: NSObject, AVVideoCompositing {
 				}
 				image = Self.place(
 					image: primaryImage,
-					placement: instruction.primaryPlacement,
+					placement: instruction.primaryPlacement.resolved(atCompositionTicks: compositionTicks),
 					renderSize: renderSize
 				).composited(over: background)
 			} else {
@@ -403,7 +467,7 @@ public final class EdlTransitionCompositor: NSObject, AVVideoCompositing {
 				}
 				secondaryImage = Self.place(
 					image: secondaryImage,
-					placement: instruction.secondaryPlacement,
+					placement: instruction.secondaryPlacement.resolved(atCompositionTicks: compositionTicks),
 					renderSize: renderSize
 				).composited(over: background)
 				let progress = Self.progress(
@@ -437,7 +501,7 @@ public final class EdlTransitionCompositor: NSObject, AVVideoCompositing {
 				}
 				layerImage = Self.place(
 					image: layerImage,
-					placement: layer.placement,
+					placement: layer.placement.resolved(atCompositionTicks: compositionTicks),
 					renderSize: renderSize
 				)
 				image = layerImage.composited(over: image)

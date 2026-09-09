@@ -41,6 +41,10 @@ export interface TimelineKeyframeVM {
 	id: string;
 	/** Seconds relative to the CLIP's own start (matches EdlKeyframe's convention). */
 	timeSec: number;
+	/** The same time in the engine's integer ticks (round 47) — what the
+	 *  shell seeks to on a diamond tap, so landing on a keyframe is exact
+	 *  rather than a float-seconds round trip. Absent in mock data. */
+	timeTicks?: number;
 }
 
 export interface TimelineClipVM {

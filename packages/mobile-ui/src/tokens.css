@@ -110,6 +110,12 @@
 	   flat-fill swatch like --cc-accent above, hence one confidence tier
 	   down). Cluster centered on rgb(136,0,232)/rgb(136,8,224). */
 	--cc-badge-pro: #8800e8;
+	/* WEB-Secondary (round 47) — every 2026 keyframe tutorial describes
+	   CapCut's on-clip keyframe marker as "a small red diamond" and its
+	   armed keyframe button as red; no capture isolates the exact hex.
+	   [NEEDS-CAPTURE] real value; chosen as a saturated red that clears
+	   AA on both the raised and base surfaces (see contrast-audit). */
+	--cc-keyframe: #ff4b4b;
 
 	/* ================================ Radii ================================= */
 	/* [NEEDS-CAPTURE] — corpus 06 §5 already flagged this low-medium

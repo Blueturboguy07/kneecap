@@ -46,7 +46,8 @@ import dev.kneecap.app.edl.EdlTrackType
  *
  * WHAT THIS CLASS DELIBERATELY REFUSES (throws `ExportUnsupportedException`
  * rather than silently degrading — plan §2.3 rule 3's "cut, don't ship
- * inconsistent"): masks, keyframe animations, and any non-empty
+ * inconsistent"): masks, keyframes on anything but `transform.*`/`opacity`
+ * (round 47 made those real — `KeyframeEvaluator`), and any non-empty
  * `EdlClip.effects` (generic filter mapping is out of scope for this pass —
  * see the M9 handoff). An asset with `sourceUri == null` is also a hard
  * error: it means M4's media-custody import never ran for that asset, which
@@ -86,6 +87,7 @@ object EdlToComposition {
         val projectEndTicks = maxOf(edl.meta.durationTicks, mainEndTicks)
         val transitionWindows = mutableMapOf<Int, TransitionAlphaMath.Window>()
         val overlaySettingsByIndex = mutableMapOf<Int, StaticOverlaySettings>()
+        val animatedOverlayAlphaByIndex = mutableMapOf<Int, CrossfadeCompositorSettings.AnimatedOverlayAlpha>()
 
         // -- index 0: base sequence, hard-cut, always opaque -----------------
         // DECLARED track types, not inferred. media3 1.11.0 replaced the
@@ -103,6 +105,7 @@ object EdlToComposition {
                     clip = clip,
                     asset = requireAsset(edl, clip),
                     us = ::us,
+                    ticksPerSecond = tps,
                     canvasWidth = edl.meta.canvasWidth,
                     canvasHeight = edl.meta.canvasHeight,
                     frameRate = outputFrameRate,
@@ -171,6 +174,10 @@ object EdlToComposition {
                 clip = headClip,
                 asset = requireAsset(edl, headClip),
                 us = ::us,
+                ticksPerSecond = tps,
+                // The head plays the incoming clip's first `d` ticks starting
+                // at the window, so that is its keyframe-local zero.
+                itemStartTicks = windowStartTicks,
                 canvasWidth = edl.meta.canvasWidth,
                 canvasHeight = edl.meta.canvasHeight,
                 frameRate = outputFrameRate,
@@ -210,16 +217,22 @@ object EdlToComposition {
         for (track in overlayVisualTracks) {
             for (clip in track.clips.sortedBy { it.startTicks }) {
                 val asset = requireAsset(edl, clip)
+                val animated = KeyframeEvaluator.hasVisualAnimations(clip)
                 val item = buildEditedMediaItem(
                     clip = clip,
                     asset = asset,
                     us = ::us,
+                    ticksPerSecond = tps,
                     canvasWidth = edl.meta.canvasWidth,
                     canvasHeight = edl.meta.canvasHeight,
                     frameRate = outputFrameRate,
                     outputWidth = edl.output.resolutionWidth,
                     outputHeight = edl.output.resolutionHeight,
                     removeAudio = true, // PiP/overlay visual layers are silent in v1.
+                    // A keyframed PiP clip gets its per-frame alpha from the
+                    // compositor (it composites over video, so real alpha is
+                    // needed); the item itself carries no opacity effect.
+                    applyOpacity = !animated,
                 )
                 // Gap-first sequence, video-only — same rule as the
                 // transition sequence above.
@@ -231,11 +244,25 @@ object EdlToComposition {
                     .addItem(item)
                     .build()
                 sequences.add(seq)
-                overlaySettingsByIndex[nextIndex] = StaticOverlaySettings.Builder()
-                    .setAlphaScale(clip.opacity.toFloat())
-                    .setScale(clip.transform.scaleX.toFloat(), clip.transform.scaleY.toFloat())
-                    .setRotationDegrees(clip.transform.rotateDegrees.toFloat())
-                    .build()
+                if (animated) {
+                    // Round 47: geometry (position/scale/rotation, keyframed)
+                    // is applied ONCE, by the item's animated
+                    // `EdlTransformEffect`; the compositor only supplies the
+                    // evaluated alpha. NOTE the static path below applies
+                    // scale/rotation here AND (when non-identity) in the item
+                    // effect — that pre-existing double application is left
+                    // as-is for static clips and needs the emulator golden
+                    // frame to settle; animated clips deliberately do not
+                    // inherit it.
+                    animatedOverlayAlphaByIndex[nextIndex] =
+                        CrossfadeCompositorSettings.AnimatedOverlayAlpha(clip, us(clip.startTicks), tps)
+                } else {
+                    overlaySettingsByIndex[nextIndex] = StaticOverlaySettings.Builder()
+                        .setAlphaScale(clip.opacity.toFloat())
+                        .setScale(clip.transform.scaleX.toFloat(), clip.transform.scaleY.toFloat())
+                        .setRotationDegrees(clip.transform.rotateDegrees.toFloat())
+                        .build()
+                }
                 nextIndex++
             }
         }
@@ -283,6 +310,7 @@ object EdlToComposition {
                         clip = clip,
                         asset = requireAsset(edl, clip),
                         us = ::us,
+                        ticksPerSecond = tps,
                         canvasWidth = edl.meta.canvasWidth,
                         canvasHeight = edl.meta.canvasHeight,
                         frameRate = outputFrameRate,
@@ -342,6 +370,7 @@ object EdlToComposition {
         val compositorSettings = CrossfadeCompositorSettings(
             windowsByInputIndex = transitionWindows,
             overlayTrackSettingsByInputIndex = overlaySettingsByIndex,
+            animatedOverlayAlphaByInputIndex = animatedOverlayAlphaByIndex,
             outputSize = Size(edl.output.resolutionWidth, edl.output.resolutionHeight),
         )
 
@@ -389,6 +418,7 @@ object EdlToComposition {
         clip: EdlClip,
         asset: EdlAsset,
         us: (Long) -> Long,
+        ticksPerSecond: Long,
         canvasWidth: Int,
         canvasHeight: Int,
         removeAudio: Boolean,
@@ -396,15 +426,23 @@ object EdlToComposition {
         frameRate: Int = 30,
         outputWidth: Int = 0,
         outputHeight: Int = 0,
+        /** Composition-time start of this item = keyframe-local tick 0.
+         *  Every sequence is gap-padded from 0, so it is the clip's own
+         *  startTicks except for a transition head (see the caller). */
+        itemStartTicks: Long = clip.startTicks,
+        /** False when the compositor owns this item's opacity (animated PiP). */
+        applyOpacity: Boolean = true,
     ): EditedMediaItem {
         if (clip.hasMasks) {
             throw ExportUnsupportedException(
                 "clip ${clip.clipId} has masks; masks are explicitly post-v1 for native export (plan §2.3 rule 4)",
             )
         }
-        if (clip.hasAnimations) {
+        val unsupportedKeyframes = KeyframeEvaluator.unsupportedAnimationPaths(clip)
+        if (unsupportedKeyframes.isNotEmpty()) {
             throw ExportUnsupportedException(
-                "clip ${clip.clipId} has keyframe animations; unsupported by this native export pass",
+                "clip ${clip.clipId} has keyframes on ${unsupportedKeyframes.joinToString()}; native export " +
+                    "supports keyframes on transform.* and opacity only (round 47)",
             )
         }
         if (clip.effects.isNotEmpty()) {
@@ -439,11 +477,18 @@ object EdlToComposition {
         }
 
         val videoEffects = mutableListOf<Effect>()
-        if (!EdlTransformEffect.isIdentity(clip.transform)) {
-            videoEffects.add(EdlTransformEffect(clip.transform, canvasWidth, canvasHeight))
+        val itemStartUs = us(itemStartTicks)
+        val animated = KeyframeEvaluator.hasVisualAnimations(clip)
+        if (animated || !EdlTransformEffect.isIdentity(clip.transform)) {
+            videoEffects.add(EdlTransformEffect(clip, canvasWidth, canvasHeight, itemStartUs, ticksPerSecond))
         }
-        if (clip.opacity != 1.0) {
-            videoEffects.add(AlphaScale(clip.opacity.toFloat()))
+        if (applyOpacity) {
+            if (KeyframeEvaluator.hasOpacityAnimation(clip)) {
+                // Round 47: per-frame opacity over the black base — see the class doc.
+                videoEffects.add(AnimatedOpacityRgbMatrix(clip, itemStartUs, ticksPerSecond))
+            } else if (clip.opacity != 1.0) {
+                videoEffects.add(AlphaScale(clip.opacity.toFloat()))
+            }
         }
 
         // Normalize every visual item to the export resolution HERE, per

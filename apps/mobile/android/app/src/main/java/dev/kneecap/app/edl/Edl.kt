@@ -15,11 +15,11 @@ package dev.kneecap.app.edl
  * Deliberately NOT a 1:1 Kotlin data-class port of every TS field — v1's
  * exit criteria for M9 is filters/transform/opacity/crossfade+wipe-slide
  * transitions/text+sticker overlays/speed (plan §2.3 rule 4), so fields the
- * mapper does not yet consume (masks, keyframe animation curves) are parsed
- * only far enough to detect their presence (`EdlClip.hasMasks`,
- * `EdlClip.hasAnimations`) so `EdlToComposition` can refuse an export that
- * needs them rather than silently dropping them — same posture
- * `validateEdl()` takes on the TS side.
+ * mapper does not yet consume (masks) are parsed only far enough to detect
+ * their presence (`EdlClip.hasMasks`) so `EdlToComposition` can refuse an
+ * export that needs them rather than silently dropping them — same posture
+ * `validateEdl()` takes on the TS side. Keyframe animations ARE consumed
+ * since round 47 (`EdlClip.animations`, `KeyframeEvaluator`).
  */
 
 data class EdlRational(val numerator: Long, val denominator: Long) {
@@ -98,8 +98,35 @@ data class EdlClip(
     val opacity: Double,
     val effects: List<EdlEffect>,
     val hasMasks: Boolean,
-    val hasAnimations: Boolean,
+    /** Keyframe channels, `EdlAnimationChannel` per (propertyPath,
+     *  componentKey) — parsed in full since round 47, when native export
+     *  started evaluating transform/opacity keyframes per frame
+     *  (`KeyframeEvaluator`). */
+    val animations: List<EdlAnimationChannel>,
     val params: Map<String, Any?>,
+) {
+    val hasAnimations: Boolean get() = animations.isNotEmpty()
+}
+
+data class EdlCurveHandle(val dtTicks: Long, val dv: Double)
+
+data class EdlKeyframe(
+    val keyframeId: String,
+    val timeTicks: Long,
+    /** Null for a discrete (string/boolean) key — never on a visual path. */
+    val value: Double?,
+    /** "linear" | "hold" | "bezier": the SEGMENT leaving this key. */
+    val interpolation: String,
+    val leftHandle: EdlCurveHandle?,
+    val rightHandle: EdlCurveHandle?,
+)
+
+data class EdlAnimationChannel(
+    val propertyPath: String,
+    val componentKey: String?,
+    val extrapolationBefore: String,
+    val extrapolationAfter: String,
+    val keyframes: List<EdlKeyframe>,
 )
 
 data class EdlEffect(

@@ -80,16 +80,25 @@ public enum VideoCompositionBuilder {
 			return max(-1, min(1, amount))
 		}
 
+		// Round 47: keyframe times are clip-local; a main-track clip's local
+		// zero is where the composition actually placed it (`insertStartTicks`
+		// — earlier than nominal `startTicks` after a transition), not the
+		// EDL's nominal start.
+		var insertStartByClipId: [String: Int64] = [:]
+		for placement in built.mainPlacements { insertStartByClipId[placement.clipId] = placement.insertStartTicks }
+
 		/// Preview-parity source placement for a main-track clip: its EDL
 		/// transform plus the asset's container rotation (the compositor gets
-		/// RAW decoded buffers — `preferredTransform` does not apply there).
+		/// RAW decoded buffers — `preferredTransform` does not apply there),
+		/// plus its keyframe channels when it has any (round 47).
 		func sourcePlacement(_ clipId: String) -> SourcePlacement {
 			guard let clip = clipById[clipId] else { return .identity }
 			let rotation = clip.assetId.flatMap { assetById[$0]?.rotationDegrees } ?? 0
 			return SourcePlacement(
 				transform: clip.transform,
 				rotationDegrees: rotation,
-				opacity: clip.opacity
+				opacity: clip.opacity,
+				animation: PlacementAnimation.make(clip: clip, clipStartTicks: insertStartByClipId[clipId] ?? clip.startTicks)
 			)
 		}
 
@@ -116,7 +125,10 @@ public enum VideoCompositionBuilder {
 				let placement = SourcePlacement(
 					transform: clip.transform,
 					rotationDegrees: rotation,
-					opacity: clip.opacity
+					opacity: clip.opacity,
+					// Overlay clips in `edl` are already remapped to OUTPUT time
+					// (this is `built.remappedEdl`), so their startTicks is local zero.
+					animation: PlacementAnimation.make(clip: clip, clipStartTicks: clip.startTicks)
 				)
 				let range = EdlTime.cmTimeRange(
 					startTicks: clip.startTicks,
@@ -241,7 +253,8 @@ public enum VideoCompositionBuilder {
 				primaryPlacement: sourcePlacement(placement.clipId),
 				backgroundColor: backgroundColor,
 				overlayVideoLayers: pipLayersIntersecting(range),
-				overlayBillboards: billboardsIntersecting(range)
+				overlayBillboards: billboardsIntersecting(range),
+				ticksPerSecond: tps
 			)
 			segments.append(Segment(startTicks: solo.start, endTicks: solo.end, instruction: instruction))
 		}
@@ -280,7 +293,8 @@ public enum VideoCompositionBuilder {
 				secondaryPlacement: sourcePlacement(incomingId),
 				backgroundColor: backgroundColor,
 				overlayVideoLayers: pipLayersIntersecting(range),
-				overlayBillboards: billboardsIntersecting(range)
+				overlayBillboards: billboardsIntersecting(range),
+				ticksPerSecond: tps
 			)
 			segments.append(Segment(startTicks: window.startTicks, endTicks: window.endTicks, instruction: instruction))
 		}
@@ -300,7 +314,8 @@ public enum VideoCompositionBuilder {
 				pacerTrackID: built.stillPacerTrackID ?? kCMPersistentTrackID_Invalid,
 				backgroundColor: backgroundColor,
 				overlayVideoLayers: pipLayersIntersecting(range),
-				overlayBillboards: billboardsIntersecting(range)
+				overlayBillboards: billboardsIntersecting(range),
+				ticksPerSecond: tps
 			)
 			let startTicks = Int64((range.start.seconds * Double(tps)).rounded())
 			let endTicks = Int64((range.end.seconds * Double(tps)).rounded())

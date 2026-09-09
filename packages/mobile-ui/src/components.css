@@ -790,17 +790,114 @@
 	background: var(--cc-accent);
 }
 
+/* Round 47: keyframe markers sit at the clip's vertical centre in CapCut
+   (tutorials: "a small red diamond ... on the clip"); the pre-round-47
+   bottom-pinned cyan square was a placeholder. Hit target is padded well
+   past the 9px glyph via ::after so a fingertip can actually tap one. */
 .cc-timeline__keyframe-diamond {
 	position: absolute;
-	bottom: 2px;
-	width: 8px;
-	height: 8px;
-	transform: translateX(-50%) rotate(45deg);
-	background: var(--cc-accent);
-	border: 1px solid var(--cc-accent-contrast);
+	top: 50%;
+	width: 9px;
+	height: 9px;
+	padding: 0;
+	transform: translate(-50%, -50%) rotate(45deg);
+	background: var(--cc-keyframe);
+	border: 1px solid var(--cc-text-primary);
+	border-radius: 1px;
 	z-index: 3;
 	cursor: pointer;
 	touch-action: none;
+}
+.cc-timeline__keyframe-diamond::after {
+	content: "";
+	position: absolute;
+	inset: -8px;
+}
+
+/* ---- Keyframe control (round 47): top-right of the timeline area, the
+   timecode's mirror. ---- */
+.cc-timeline__keyframe-control {
+	position: absolute;
+	top: 0;
+	right: var(--cc-space-2);
+	z-index: 6;
+	/* Sits over the ruler like the timecode does; an opaque pill keeps the
+	   tick labels from showing through the glyphs. */
+	background: var(--cc-bg-base);
+	border-radius: var(--cc-radius-chip);
+	padding: 0 2px;
+}
+.cc-keyframe-control {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+.cc-keyframe-control__btn {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 26px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--cc-radius-chip);
+	background: transparent;
+	color: var(--cc-text-primary);
+	touch-action: manipulation;
+}
+.cc-keyframe-control__btn:disabled {
+	color: var(--cc-text-disabled);
+}
+.cc-keyframe-control__diamond--active {
+	color: var(--cc-keyframe);
+}
+.cc-keyframe-control__glyph {
+	position: absolute;
+	font-size: 11px;
+	line-height: 1;
+	font-weight: 700;
+	color: var(--cc-text-primary);
+	pointer-events: none;
+}
+
+/* ---- Graph sheet (round 47): easing presets. ---- */
+.cc-keyframe-easing {
+	display: flex;
+	flex-direction: column;
+	gap: var(--cc-space-2);
+	padding: var(--cc-space-2) 0;
+}
+.cc-keyframe-easing__item {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 2px;
+	width: 100%;
+	min-height: 44px;
+	padding: var(--cc-space-2) var(--cc-space-3);
+	border: 1px solid transparent;
+	border-radius: var(--cc-radius-chip);
+	background: var(--cc-bg-raised);
+	color: var(--cc-text-primary);
+	text-align: left;
+}
+.cc-keyframe-easing__item--active {
+	border-color: var(--cc-accent);
+}
+.cc-keyframe-easing__item:disabled {
+	color: var(--cc-text-disabled);
+}
+.cc-keyframe-easing__label {
+	font-size: 14px;
+	font-weight: 500;
+}
+.cc-keyframe-easing__hint {
+	font-size: 11px;
+	color: var(--cc-text-secondary);
+}
+.cc-keyframe-easing__item:disabled .cc-keyframe-easing__hint {
+	color: var(--cc-text-disabled);
 }
 
 .cc-timeline__waveform {

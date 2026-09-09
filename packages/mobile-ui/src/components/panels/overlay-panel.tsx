@@ -7,7 +7,7 @@ import { ParamRow } from "../editor/param-row";
 import type { EditorCore } from "@kneecap/editor-core";
 import type { ElementRef, VisualElement } from "@kneecap/editor-core/timeline";
 import { getBuiltInElementParams } from "@kneecap/editor-core/params/registry";
-import { setElementParam } from "../../editor/actions";
+import { setElementParam, setVisualParamKeyframeAware } from "../../editor/actions";
 
 interface OverlayPanelProps {
 	editor: EditorCore;
@@ -50,7 +50,10 @@ export function OverlayPanel({ editor, elementRef, element, onClose, onAddOverla
 						max={100}
 						step={1}
 						formatValue={(v) => `${v}%`}
-						onChange={(v) => setElementParam({ editor, ref: elementRef, key: "opacity", value: v / 100 })}
+						// Round 47: once the clip has keyframes this writes a
+						// keyframe at the playhead (CapCut auto-add), else the
+						// plain base param.
+						onChange={(v) => setVisualParamKeyframeAware({ editor, ref: elementRef, key: "opacity", value: v / 100 })}
 					/>
 					{blendOptions.length > 0 && (
 						<div className="cc-param-row">

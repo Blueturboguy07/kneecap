@@ -138,10 +138,34 @@ object EdlParser {
             opacity = o.getDouble("opacity"),
             effects = (o.optJSONArray("effects") ?: JSONArray()).map(::parseEffect),
             hasMasks = masks != null && masks.length() > 0,
-            hasAnimations = animations != null && animations.length() > 0,
+            animations = (animations ?: JSONArray()).map(::parseAnimationChannel),
             params = jsonObjectToMap(o.optJSONObject("params") ?: JSONObject()),
         )
     }
+
+    /** Public so `KeyframeEvaluatorTest` can feed the cross-language parity
+     *  fixture through the exact decoder the exporter uses. */
+    fun parseAnimationChannel(o: JSONObject): EdlAnimationChannel =
+        EdlAnimationChannel(
+            propertyPath = o.getString("propertyPath"),
+            componentKey = o.optStringOrNull("componentKey"),
+            extrapolationBefore = o.optString("extrapolationBefore", "hold"),
+            extrapolationAfter = o.optString("extrapolationAfter", "hold"),
+            keyframes = (o.optJSONArray("keyframes") ?: JSONArray()).map(::parseKeyframe),
+        )
+
+    private fun parseKeyframe(o: JSONObject): EdlKeyframe =
+        EdlKeyframe(
+            keyframeId = o.getString("keyframeId"),
+            timeTicks = o.getLong("timeTicks"),
+            value = if (o.isNull("value")) null else (o.opt("value") as? Number)?.toDouble(),
+            interpolation = o.optString("interpolation", "linear"),
+            leftHandle = parseCurveHandle(o.optJSONObject("leftHandle")),
+            rightHandle = parseCurveHandle(o.optJSONObject("rightHandle")),
+        )
+
+    private fun parseCurveHandle(o: JSONObject?): EdlCurveHandle? =
+        o?.let { EdlCurveHandle(dtTicks = it.getLong("dtTicks"), dv = it.getDouble("dv")) }
 
     private fun parseEffect(o: JSONObject): EdlEffect =
         EdlEffect(

@@ -238,4 +238,54 @@ class EdlParserTest {
         assertTrue(edl.mainTrack()!!.clips[0].hasMasks)
         assertTrue(!edl.mainTrack()!!.clips[1].hasMasks)
     }
+
+    @Test
+    fun `parses keyframe animation channels with handles (round 47)`() {
+        val clipJson = JSONObject(
+            """
+            {
+              "clipId": "clip-kf", "kind": "video", "assetId": "asset-1", "name": "kf",
+              "startTicks": 0, "durationTicks": 240000, "sourceStartTicks": 0, "sourceEndTicks": 240000, "trimEndTicks": 0,
+              "speed": { "numerator": 1, "denominator": 1 }, "maintainPitch": false, "volumeDb": 0,
+              "muted": false, "hidden": false,
+              "transform": { "positionX": 0, "positionY": 0, "scaleX": 1, "scaleY": 1, "rotateDegrees": 0 },
+              "opacity": 1, "blendMode": "normal", "effects": [], "masks": [],
+              "animations": [{
+                "propertyPath": "transform.positionX", "componentKey": null,
+                "extrapolationBefore": "hold", "extrapolationAfter": "linear",
+                "keyframes": [
+                  { "keyframeId": "k1", "timeTicks": 0, "value": -150, "interpolation": "bezier",
+                    "leftHandle": null, "rightHandle": { "dtTicks": 40000, "dv": 12.5 } },
+                  { "keyframeId": "k2", "timeTicks": 240000, "value": 150, "interpolation": "linear",
+                    "leftHandle": { "dtTicks": -40000, "dv": 0 }, "rightHandle": null }
+                ]
+              }],
+              "params": {}
+            }
+            """.trimIndent(),
+        )
+        val root = sampleEdlJson()
+        root.getJSONArray("tracks").getJSONObject(0).getJSONArray("clips").put(clipJson)
+        val edl = EdlParser.parse(root)
+        val clip = edl.mainTrack()!!.clips.first { it.clipId == "clip-kf" }
+        assertTrue(clip.hasAnimations)
+        assertEquals(1, clip.animations.size)
+        val channel = clip.animations[0]
+        assertEquals("transform.positionX", channel.propertyPath)
+        assertNull(channel.componentKey)
+        assertEquals("hold", channel.extrapolationBefore)
+        assertEquals("linear", channel.extrapolationAfter)
+        assertEquals(2, channel.keyframes.size)
+        val k1 = channel.keyframes[0]
+        assertEquals(-150.0, k1.value!!, 0.0)
+        assertEquals("bezier", k1.interpolation)
+        assertNull(k1.leftHandle)
+        assertEquals(40000L, k1.rightHandle!!.dtTicks)
+        assertEquals(12.5, k1.rightHandle!!.dv, 0.0)
+        val k2 = channel.keyframes[1]
+        assertEquals(-40000L, k2.leftHandle!!.dtTicks)
+        assertNull(k2.rightHandle)
+        // Static clips carry an empty list, not null.
+        assertTrue(edl.mainTrack()!!.clips[0].animations.isEmpty())
+    }
 }
