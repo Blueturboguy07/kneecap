@@ -30,17 +30,13 @@ web-sys = { version = "0.3.93", features = ["OffscreenCanvas", "HtmlCanvasElemen
 default = ["wasm"]
 wasm = []
 
-# wasm-pack's bundled wasm-opt parses the module as MVP-only and rejects the
-# second table that Rust >= 1.82 emits for reference types ("Only 1 table
-# definition allowed in MVP"). Enable the features the wasm32-unknown-unknown
-# target has on by default so wasm-opt can parse and optimize the output.
+# wasm-pack's bundled wasm-opt cannot handle what current Rust emits for
+# wasm32-unknown-unknown: on Linux it rejects the second table that reference
+# types produce ("Only 1 table definition allowed in MVP"), and the macOS
+# binary is older still and does not even know the feature flags that would
+# let it parse the module. The pkg/ output is committed and consumed via a
+# file: dependency, so CI only builds this crate as a workspace health check;
+# skip the optimizer rather than fail on every push. Revisit if pkg/ is ever
+# regenerated for release and binary size matters.
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = [
-  "-O",
-  "--enable-reference-types",
-  "--enable-bulk-memory",
-  "--enable-multivalue",
-  "--enable-nontrapping-float-to-int",
-  "--enable-sign-ext",
-  "--enable-mutable-globals",
-]
+wasm-opt = false
