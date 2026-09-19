@@ -15,7 +15,15 @@
 name: bugfix-lab
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
+  # workflow_dispatch alone 404s via `gh workflow run` until the file exists
+  # on the repo's default branch (this branch isn't merged yet). Also
+  # trigger on push to this negative-control branch so a plain git push
+  # dispatches the run instead (prior art in this campaign: cluster
+  # noscroll-windows-bash-sync-engine-script, commit eaee933).
+  push:
+    branches:
+      - fix/kneecap-android-crash-on-launch-negctl
 
 permissions:
   contents: read
