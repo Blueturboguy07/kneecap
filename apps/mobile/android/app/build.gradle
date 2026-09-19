@@ -89,6 +89,15 @@ android {
     kotlinOptions {
         jvmTarget = "21"
     }
+    // bugfix-lab kneecap-android-crash-on-launch — REPRODUCE stage negative
+    // control only, not shipped. Same oracle as the fix/<key> branch, run
+    // here (unmodified 4f0ee2ee, the commit right after the guide's stale
+    // pin) to prove the oracle is sensitive: it must return 0 here.
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+        }
+    }
 }
 
 repositories {
@@ -128,6 +137,9 @@ dependencies {
     testImplementation "junit:junit:$junitVersion"
     // kneecap M9 — see variables.gradle's orgJsonVersion doc comment.
     testImplementation "org.json:json:$orgJsonVersion"
+    // bugfix-lab kneecap-android-crash-on-launch — REPRODUCE stage negative
+    // control only, not shipped (see build.gradle testOptions comment above).
+    testImplementation "org.robolectric:robolectric:4.17"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
