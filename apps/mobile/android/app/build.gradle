@@ -67,6 +67,15 @@ android {
     kotlinOptions {
         jvmTarget = "21"
     }
+    // bugfix-lab kneecap-android-crash-on-launch (REPRODUCE stage only, not
+    // shipped): Robolectric needs the app's real merged manifest/resources
+    // on the unit-test classpath to resolve activity themes the same way a
+    // real device does.
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+        }
+    }
 }
 
 repositories {
@@ -106,6 +115,13 @@ dependencies {
     testImplementation "junit:junit:$junitVersion"
     // kneecap M9 — see variables.gradle's orgJsonVersion doc comment.
     testImplementation "org.json:json:$orgJsonVersion"
+    // bugfix-lab kneecap-android-crash-on-launch (REPRODUCE stage only):
+    // no Android emulator/device is available in this harness, so the
+    // oracle instantiates the real (unmodified) launcher Activity classes
+    // on the JVM via Robolectric, which loads this module's actual merged
+    // AndroidManifest.xml + res/values/styles.xml and runs the real
+    // androidx.appcompat theme-validation code that a device would run.
+    testImplementation "org.robolectric:robolectric:4.17"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')

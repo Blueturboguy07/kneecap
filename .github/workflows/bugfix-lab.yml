@@ -1,0 +1,83 @@
+# bugfix-lab controlled environment for kneecap-android-crash-on-launch.
+# Manual dispatch only; not part of normal CI. Builds the debug APK exactly
+# as apps/mobile/README.md's "Building" section documents (bun run build,
+# bunx cap sync android, ./gradlew assembleDebug), boots a real Android
+# emulator via KVM (a genuine mobile simulator, matching this cluster's
+# repro_env: mobile-sim — no local emulator is available in the bugfix-lab
+# sandbox, see log.md), installs the app, launches it the way a reporter's
+# tap on the launcher icon does (`adb shell monkey ... LAUNCHER`, the same
+# action the cluster's own proposed oracle names), and reads logcat back for
+# a FATAL EXCEPTION naming the app's process — exactly what a reporter's
+# "kneecap closed because this app has a bug" dialog corresponds to.
+#
+# Prints BUGFIX_LAB_PRESENT (exit 1) if the launcher activity crashes,
+# BUGFIX_LAB_ABSENT (exit 0) if it survives 30s with no fatal exception.
+name: bugfix-lab
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        with:
+          bun-version: 1.2.18
+
+      - name: Install dependencies
+        run: bun install
+
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21" }
+
+      - name: Set up Android SDK (platform 36, build-tools 36.0.0)
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-36 build-tools;36.0.0 platform-tools"
+
+      - name: Build the editor bundle (apps/mobile/www)
+        run: bun run build
+        working-directory: apps/mobile
+
+      - name: cap sync android
+        run: bunx cap sync android
+        working-directory: apps/mobile
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --console=plain
+        working-directory: apps/mobile/android
+
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: AVD cache
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-34-google_apis-x86_64-v1
+
+      - name: Boot emulator, run oracle
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash scripts/bugfix-lab/kneecap-android-crash-on-launch.sh
