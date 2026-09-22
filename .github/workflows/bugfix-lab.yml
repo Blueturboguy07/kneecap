@@ -1,0 +1,14 @@
+name: bugfix-lab
+on:
+  workflow_dispatch:
+
+jobs:
+  oracle:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run oracle recipe
+        shell: pwsh
+        run: |
+          & .\scripts\bugfix-lab\kneecap-android-gradle-download-timeout.ps1
+          exit $LASTEXITCODE
