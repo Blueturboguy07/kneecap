@@ -28,6 +28,7 @@ on:
       - "*.md"
   pull_request:
     branches: [main]
+  workflow_dispatch: {} # bugfix-lab FIX-stage verification probe; reverted before PR
     paths-ignore:
       - "*.md"
 
