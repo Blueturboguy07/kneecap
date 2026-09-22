@@ -78,8 +78,18 @@ Write-Host "----- end output -----"
 # --- Clean up the hosts file redirect regardless of outcome ---
 (Get-Content $hostsFile) | Where-Object { $_ -notmatch "# bugfix-lab blackhole" } | Set-Content $hostsFile
 
-$hitTimeout = $output -match "SocketTimeoutException" -and $output -match "Connect timed out"
-$hitInstallFailure = $output -match "Could not install Gradle distribution"
+# The reporter's pasted message ("Could not install Gradle distribution from '<url>'.
+# Reason: <exception>") is the OLDER Gradle wrapper-jar message format. This pin's
+# wrapper (Gradle 8.14.3) uses a NEWER format ("Downloading from <url> failed: <reason>
+# \nCaused by: <exception>") — confirmed empirically (see log.md attempt 2): both
+# formats wrap the identical underlying failure, java.net.SocketTimeoutException:
+# Connect timed out while fetching the distribution from services.gradle.org. So the
+# win condition matches on that underlying signature, not either message's exact
+# wrapper text, and either wrapper-message format satisfies "downloading the pinned
+# distribution timed out".
+$hitTimeout = ($output -match "SocketTimeoutException") -and ($output -match "Connect timed out")
+$hitInstallFailure = ($output -match "Could not install Gradle distribution") -or `
+  ($output -match "Downloading from .* failed")
 $hitDomain = $output -match [regex]::Escape($targetHost)
 
 if ($hitTimeout -and $hitInstallFailure -and $hitDomain) {
