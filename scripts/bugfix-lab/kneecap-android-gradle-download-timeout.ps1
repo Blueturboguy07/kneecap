@@ -9,11 +9,14 @@
 #
 # We do not fabricate the failure by editing gradle-wrapper.properties or grepping
 # source for a patch — that would be a tautology. Instead we constrain the network the
-# same way a restrictive/slow home network would: silently drop outbound packets to
-# services.gradle.org's real, DNS-resolved IPs with a Windows Firewall block rule
-# (not a DNS blackhole — a firewall Block silently drops, which is what produces a
-# genuine java.net.SocketTimeoutException: Connect timed out, matching the reporter's
-# exact exception class, rather than a fast "Connection refused").
+# same way a restrictive/slow home network would: a hosts-file redirect of
+# services.gradle.org to a reserved, non-routable IP (RFC 5737 TEST-NET), so the TCP
+# SYN genuinely leaves this host and gets silently dropped somewhere upstream — no
+# response ever comes back, which is what a real OS/JVM connect-timeout requires.
+# (A local Windows Firewall Block rule was tried first and rejected: WFP denies the
+# socket synchronously, before any packet leaves the host, so Java sees an immediate
+# "java.net.SocketException: Permission denied: getsockopt" in ~1s — a different
+# exception class than the reporter's SocketTimeoutException. See log.md attempt 1.)
 #
 # Exit contract: 1 = bug PRESENT (sync attempted, hit a connect-timeout downloading the
 # distribution). 0 = bug ABSENT (sync's distribution download succeeded). 2 = oracle
@@ -34,19 +37,16 @@ Write-Host "Pinned wrapper distributionUrl: $($distLine.Line)"
 
 # --- Constrain the network path to services.gradle.org (silent drop, not reject) ---
 $targetHost = "services.gradle.org"
+$blackhole = "192.0.2.1"   # RFC 5737 TEST-NET-1: reserved, never assigned to a real host.
+$hostsFile = "$env:windir\System32\drivers\etc\hosts"
 try {
-  $addrs = (Resolve-DnsName -Name $targetHost -Type A -ErrorAction Stop).IPAddress
+  Add-Content -Path $hostsFile -Value "`n$blackhole`t$targetHost`t# bugfix-lab blackhole" -ErrorAction Stop
 } catch {
-  Write-Host "BUGFIX_LAB_ABSENT (oracle could not run: DNS resolution of $targetHost failed: $_)"
+  Write-Host "BUGFIX_LAB_ABSENT (oracle could not run: could not write hosts file: $_)"
   exit 2
 }
-Write-Host "Resolved $targetHost -> $($addrs -join ', ')"
-
-foreach ($ip in $addrs) {
-  New-NetFirewallRule -DisplayName "bugfix-lab-block-$ip" -Direction Outbound `
-    -RemoteAddress $ip -Action Block -Protocol TCP -RemotePort 443 | Out-Null
-}
-Write-Host "Firewall block rules installed for: $($addrs -join ', ')"
+Write-Host "Redirected $targetHost -> $blackhole via hosts file"
+Write-Host (Resolve-DnsName -Name $targetHost -Type A | Out-String)
 
 # --- Force a real download attempt: fresh GRADLE_USER_HOME so nothing is cached ---
 $freshHome = Join-Path $env:RUNNER_TEMP "gradle-home-fresh"
@@ -75,10 +75,8 @@ Write-Host "----- gradlew.bat output -----"
 Write-Host $output
 Write-Host "----- end output -----"
 
-# --- Clean up firewall rules regardless of outcome ---
-foreach ($ip in $addrs) {
-  Remove-NetFirewallRule -DisplayName "bugfix-lab-block-$ip" -ErrorAction SilentlyContinue
-}
+# --- Clean up the hosts file redirect regardless of outcome ---
+(Get-Content $hostsFile) | Where-Object { $_ -notmatch "# bugfix-lab blackhole" } | Set-Content $hostsFile
 
 $hitTimeout = $output -match "SocketTimeoutException" -and $output -match "Connect timed out"
 $hitInstallFailure = $output -match "Could not install Gradle distribution"
