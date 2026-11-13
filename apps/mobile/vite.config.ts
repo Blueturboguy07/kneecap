@@ -62,6 +62,14 @@ const editorCoreSrc = fileURLToPath(
 export default defineConfig({
 	root: __dirname,
 	plugins: [wasm()],
+	// Sign in with publik (src/publik/publik.ts): the publik app token
+	// (`pat_`) comes from PUBLIK_APP_TOKEN in the build's environment (CI
+	// passes the repo secret of that name). It is public by design: it only
+	// mints capped install keys for this app. A build without it shows
+	// "This build has no publik app token." at the gate.
+	define: {
+		__PUBLIK_APP_TOKEN__: JSON.stringify(process.env.PUBLIK_APP_TOKEN?.trim() ?? ""),
+	},
 	esbuild: {
 		jsx: "automatic",
 		jsxImportSource: "react",

@@ -23,7 +23,7 @@ kneecap
 ## Tagline (one line, card-level)
 
 ```
-A local-first mobile video editor. No account, no cloud, no watermark.
+A local-first mobile video editor. No cloud, no watermark.
 ```
 
 ## Category
@@ -40,8 +40,8 @@ A local-first mobile video editor. No account, no cloud, no watermark.
 kneecap is an open-source, touch-first video editor for iOS and
 Android. Multi-track timeline editing, transitions, text and stickers,
 filters, speed ramps, and on-device auto-captions — all running
-entirely on your phone, with zero network requests and zero account
-required. Free forever, MIT-licensed, no watermark.
+entirely on your phone. Sign in with publik once; your footage never
+leaves the phone. Free forever, MIT-licensed, no watermark.
 ```
 
 ## Full description
@@ -62,13 +62,14 @@ Everything runs on-device:
   • Hardware-accelerated export, straight to your camera roll / gallery
 
 What kneecap doesn't have, on purpose:
-  • No account, no sign-in, no cloud sync
+  • No cloud sync: you sign in with publik once, then the app also
+    works offline
   • No watermark, no paywall, no in-app purchases
-  • No ads, no analytics beyond an optional, anonymized, opt-in crash
-    report
-  • No network requests during editing or export — verified by this
-    project's own CI on every change (see scripts/offline-audit.mjs in
-    the repo)
+  • No ads. publik counts users with two small events (app opened,
+    still running) that carry no content
+  • No network requests for editing or export — footage, edits and
+    captions stay on the phone (see scripts/offline-audit.mjs in the
+    repo); the only calls are publik's sign-in check and its user count
 
 kneecap is a fork of the archived, open-source
 OpenCut-app/opencut-classic engine (MIT License), rebuilt from the

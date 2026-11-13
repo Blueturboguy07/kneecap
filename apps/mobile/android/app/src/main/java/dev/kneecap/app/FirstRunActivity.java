@@ -32,7 +32,13 @@ public class FirstRunActivity extends AppCompatActivity {
     private void markCompletedAndContinue() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         prefs.edit().putBoolean(KEY_COMPLETED, true).apply();
-        startActivity(new Intent(this, MainActivity.class));
+        startMain();
+    }
+
+    /** MainActivity gets this launch's extras: the publik launch settings
+     *  (PublikGatePlugin.SETTING_NAMES) ride on them. */
+    private void startMain() {
+        startActivity(new Intent(this, MainActivity.class).putExtras(getIntent()));
         finish();
     }
 
@@ -40,9 +46,11 @@ public class FirstRunActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        if (hasCompletedFirstRun(this)) {
-            startActivity(new Intent(this, MainActivity.class));
-            finish();
+        // A publik self-test run (extra PUBLIK_SELF_TEST) goes straight to the
+        // WebView, where the gate's module logs its line and ends the app. It
+        // skips only this primer, never the sign-in gate.
+        if (hasCompletedFirstRun(this) || PublikGatePlugin.selfTestRequested(getIntent())) {
+            startMain();
             return;
         }
 

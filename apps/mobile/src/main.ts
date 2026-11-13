@@ -1,5 +1,6 @@
 /**
- * kneecap mobile entry — a deliberately thin hash router:
+ * kneecap mobile entry — the publik sign-in gate (./publik/), then a
+ * deliberately thin hash router:
  *
  *   (default)        -> ./app/app-root.tsx  — the real product: project
  *                       list + the CapCut-parity editor (`EditorShell`).
@@ -39,6 +40,12 @@ async function autotestFlagPresent(): Promise<boolean> {
 }
 
 async function boot() {
+	// Sign in with publik (src/publik/): the gate runs before every screen of
+	// the app, the hidden routes below included. A phone that is signed in
+	// passes at once; PUBLIK_SELF_TEST=1 prints the self-test line and ends.
+	const { runPublikGate } = await import("./publik/gate-ui");
+	await runPublikGate();
+
 	if (window.location.hash.startsWith(DIAGNOSTICS_HASH)) {
 		const { mountLegacyHarness } = await import("./legacy-harness");
 		await mountLegacyHarness();

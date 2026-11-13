@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only (the blind test's android-debug-apk): lets the Sign in
+     with publik test hook PUBLIK_API_BASE_URL reach a fake publik over http on
+     this computer. A release build has no such exception. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:networkSecurityConfig="@xml/publik_test_network" />
+</manifest>

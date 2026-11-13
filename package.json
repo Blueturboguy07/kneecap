@@ -21,7 +21,7 @@
     "publish:wasm": "bun run build:wasm && npm publish rust/wasm/pkg --access public",
     "start:tools": "turbo run start --filter=@opencut/tools",
     "_test_comment": "Explicit roots, not a bare `bun test`: apps/mobile/android/app/src/main/cpp/whisper.cpp is a build-time third-party checkout (scripts/fetch-whisper-cpp.sh) whose OWN test files would otherwise be discovered and fail.",
-    "test": "bun test packages apps/web/src apps/mobile/src"
+    "test": "bun test packages apps/web/src apps/mobile/src apps/mobile/test"
   },
   "dependencies": {
     "@types/react": "^19.2.10",

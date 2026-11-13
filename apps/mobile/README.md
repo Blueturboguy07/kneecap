@@ -72,6 +72,47 @@ nor the Android `NativeBridgePlugin.getDeviceInfo()` JS↔native round trip on
 a live app has been exercised interactively yet — see the M3 handoff for the
 full list of what is and isn't verified.
 
+## Sign in with publik
+
+The app opens with **Sign in with publik** before any of its own screens
+(`src/main.ts` calls `runPublikGate()` in `src/publik/gate-ui.ts`, which runs
+`ensureSignedIn()` in `src/publik/publik.ts`). The phone side is
+`@kneecap/native-bridge/publik-host` plus `PublikGatePlugin` (iOS
+`ios/App/App/PublikGatePlugin.swift`, Android
+`android/.../PublikGatePlugin.kt`).
+
+- **Sign in with publik** opens the sign-in page in the in-app browser
+  (SFSafariViewController / a Custom Tab). The app checks the wallet every
+  3 seconds for up to 10 minutes while it is in front, and again at once when
+  it comes back to the front. There is no other way past the screen.
+- `USES_AI = false`: kneecap calls no model, so there is no plan screen and
+  no own-key choice.
+- Offline: the first sign-in needs the network. After that, a phone that
+  signed in opens the app when publik does not answer
+  (`OFFLINE_AFTER_SIGN_IN`). If publik later says the phone is signed out,
+  the gate shows again.
+- Usage counting: `app_opened` after the gate, then `active_session` every
+  30 minutes, with the install key. `DO_NOT_TRACK=1`, `PUBLIK_TELEMETRY=0` or
+  `consent.json` with `"usage": false` turns it off.
+- The app token (`pat_`) comes from `PUBLIK_APP_TOKEN` at `bun run build`
+  (`vite.config.ts`); CI passes the repo secret of that name.
+
+Launch settings (iOS: environment or `-NAME value` launch arguments;
+Android: intent extras). The app reads only these:
+
+```sh
+# Self-test of the built app: prints one line, then exits.
+SIMCTL_CHILD_PUBLIK_SELF_TEST=1 xcrun simctl launch --console-pty booted dev.kneecap.app
+adb shell am start -n dev.kneecap.app/.FirstRunActivity --es PUBLIK_SELF_TEST 1 && adb logcat -s publik
+# -> publik self-test: ok kneecap 1.0.1
+
+# Test hook: send every publik call to another server.
+SIMCTL_CHILD_PUBLIK_API_BASE_URL=http://127.0.0.1:8787/api/v1 xcrun simctl launch booted dev.kneecap.app
+adb shell am start -n dev.kneecap.app/.FirstRunActivity --es PUBLIK_API_BASE_URL http://10.0.2.2:8787/api/v1
+```
+
+Unit tests: `bun test apps/mobile/test` (from the repo root).
+
 ## NativeBridge: what's real vs. stubbed (M3 + M4)
 
 `@kneecap/native-bridge`'s `capabilities()` is genuinely wired end-to-end:

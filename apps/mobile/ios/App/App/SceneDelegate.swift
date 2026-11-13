@@ -15,6 +15,8 @@ class KneecapBridgeViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(NativeBridgePlugin())
         bridge?.registerPluginInstance(SpikeDiagnosticsPlugin())
+        // Sign in with publik — see PublikGatePlugin.swift.
+        bridge?.registerPluginInstance(PublikGatePlugin())
     }
 }
 
@@ -28,8 +30,11 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
         // kneecap M3 item 6: native first-run + permissions primer, shown
         // once, before the WebView ever loads. See FirstRunView.swift.
+        // A publik self-test run (PUBLIK_SELF_TEST) goes straight to the
+        // WebView: the gate's module prints its line and ends the app there.
+        // It skips only this primer, never the sign-in gate.
         let hasCompletedFirstRun = UserDefaults.standard.bool(forKey: FirstRunView.completedDefaultsKey)
-        if hasCompletedFirstRun {
+        if hasCompletedFirstRun || PublikGatePlugin.selfTestRequested {
             window?.rootViewController = KneecapBridgeViewController()
         } else {
             window?.rootViewController = UIHostingController(

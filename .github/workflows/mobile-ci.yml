@@ -23,13 +23,17 @@ concurrency:
 
 on:
   push:
-    branches: [main]
+    # signin-gate: Sign in with publik (apps/mobile/src/publik/). Its runs
+    # also hand the blind test its two artifacts, `ios-sim-app` and
+    # `android-debug-apk`.
+    branches: [main, signin-gate]
     paths-ignore:
       - "*.md"
   pull_request:
     branches: [main]
     paths-ignore:
       - "*.md"
+  workflow_dispatch: {}
 
 jobs:
   ios-simulator-build:
@@ -55,6 +59,12 @@ jobs:
         run: bun install
 
       - name: Build the M3 shell harness (apps/mobile/www)
+        # PUBLIK_APP_TOKEN: the publik app token (pat_) for Sign in with
+        # publik, put into the bundle by vite.config.ts. Empty on a fork's
+        # pull request; that build then shows "This build has no publik app
+        # token." at the gate.
+        env:
+          PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
         run: bun run build
         working-directory: apps/mobile
 
@@ -68,7 +78,10 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
 
-      - name: xcodebuild (Debug, iphonesimulator, CODE_SIGNING_ALLOWED=NO)
+      - name: xcodebuild (Debug, iphonesimulator, arm64, CODE_SIGNING_ALLOWED=NO)
+        # -derivedDataPath puts App.app at a known path (DerivedData/ is
+        # gitignored); ARCHS=arm64 makes the test artifact an Apple-silicon
+        # simulator build.
         run: |
           xcodebuild \
             -project App.xcodeproj \
@@ -76,8 +89,56 @@ jobs:
             -configuration Debug \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath DerivedData \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO \
             build
+        working-directory: apps/mobile/ios/App
+
+      - name: Zip the simulator app (ios-sim-app)
+        run: |
+          set -euo pipefail
+          APP=DerivedData/Build/Products/Debug-iphonesimulator/App.app
+          lipo -archs "$APP/App"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$RUNNER_TEMP/kneecap-ios-sim-arm64.zip"
+        working-directory: apps/mobile/ios/App
+
+      - name: Upload the simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-sim-app
+          path: ${{ runner.temp }}/kneecap-ios-sim-arm64.zip
+          if-no-files-found: error
+
+      - name: publik self-test (the built app, on a simulator)
+        # setup.md step 6: the built app prints `publik self-test: ok
+        # kneecap <version>` after a real GET /wallet answers, then exits.
+        # SIMCTL_CHILD_* sets the app's environment. Only that one line is
+        # printed: the app's own log is never shown here.
+        run: |
+          set -euo pipefail
+          APP=DerivedData/Build/Products/Debug-iphonesimulator/App.app
+          UDID="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          for runtime in sorted(devices, reverse=True):
+              if "iOS" in runtime:
+                  for d in devices[runtime]:
+                      if d["name"].startswith("iPhone"):
+                          print(d["udid"]); sys.exit(0)
+          sys.exit("no iPhone simulator")')"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b > /dev/null
+          xcrun simctl install "$UDID" "$APP"
+          OUT="$RUNNER_TEMP/publik-self-test.out"
+          : > "$OUT"
+          SIMCTL_CHILD_PUBLIK_SELF_TEST=1 SIMCTL_CHILD_DO_NOT_TRACK=1 xcrun simctl launch \
+            --stdout="$OUT" --stderr="$RUNNER_TEMP/publik-self-test.err" "$UDID" dev.kneecap.app > /dev/null
+          for _ in $(seq 1 90); do grep -q "publik self-test:" "$OUT" && break; sleep 2; done
+          LINE="$(grep -m1 -o "publik self-test: .*" "$OUT" || true)"
+          echo "${LINE:-publik self-test: no line in 180 s}"
+          case "$LINE" in "publik self-test: ok kneecap "*) ;; *) exit 1 ;; esac
         working-directory: apps/mobile/ios/App
 
   android-debug-build:
@@ -113,7 +174,21 @@ jobs:
         with:
           packages: "platforms;android-36 build-tools;36.0.0 platform-tools"
 
+      - name: "publik gate: typecheck (apps/mobile, packages/native-bridge), unit tests, bridge-import gate"
+        run: |
+          set -euo pipefail
+          (cd apps/mobile && bunx tsc --project tsconfig.json --noEmit)
+          (cd packages/native-bridge && bunx tsc --project tsconfig.json --noEmit)
+          bun test apps/mobile/test
+          if grep -rnE "from ['\"]@capacitor/" apps/mobile/src; then echo "::error::@capacitor import outside packages/native-bridge"; exit 1; fi
+
       - name: Build the M3 shell harness (apps/mobile/www)
+        # PUBLIK_APP_TOKEN: the publik app token (pat_) for Sign in with
+        # publik, put into the bundle by vite.config.ts. Empty on a fork's
+        # pull request; that build then shows "This build has no publik app
+        # token." at the gate.
+        env:
+          PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
         run: bun run build
         working-directory: apps/mobile
 
@@ -167,6 +242,6 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: kneecap-debug.apk
+          name: android-debug-apk
           path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

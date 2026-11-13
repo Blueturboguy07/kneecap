@@ -16,6 +16,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NativeBridgePlugin.class);
         // kneecap M1 spike ONLY — see SpikeDiagnosticsPlugin.java's header.
         registerPlugin(SpikeDiagnosticsPlugin.class);
+        // Sign in with publik — see PublikGatePlugin.kt.
+        registerPlugin(PublikGatePlugin.class);
         super.onCreate(savedInstanceState);
     }
 
