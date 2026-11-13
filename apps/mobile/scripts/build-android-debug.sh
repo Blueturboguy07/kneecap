@@ -9,8 +9,11 @@ set -euo pipefail
 MOBILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$MOBILE_DIR"
 
-echo "==> bun run build (Vite -> www/)"
-bun run build
+# A debug build for developers: the web bundle keeps the developer tools
+# (spike.html, #/diagnostics, #/autotest; docs/SPIKE-GUIDE.md). Store and
+# CI builds use plain `bun run build`, which has none of them.
+echo "==> bun run build:debug-tools (Vite -> www/, with developer tools)"
+bun run build:debug-tools
 
 echo "==> cap sync android"
 bunx cap sync android

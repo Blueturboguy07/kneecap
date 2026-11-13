@@ -1,7 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Debug builds only (the blind test's android-debug-apk): lets the Sign in
-     with publik test hook PUBLIK_API_BASE_URL reach a fake publik over http on
-     this computer. A release build has no such exception. -->
+<!-- Debug builds only (the blind test's android-debug-apk). The manifest
+     merger adds this to src/main/AndroidManifest.xml; a release build has
+     none of it.
+     - networkSecurityConfig: lets the Sign in with publik test hook
+       PUBLIK_API_BASE_URL reach a fake publik over http on this computer.
+     - kneecap-spike:// on MainActivity: the M1 spike's deep link to the
+       hidden diagnostics screen (MainActivity.java#onNewIntent,
+       docs/SPIKE-GUIDE.md). A developer tool, like SpikeDiagnosticsPlugin.java
+       and the spike test clips, which are also in src/debug only. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:networkSecurityConfig="@xml/publik_test_network" />
+    <application android:networkSecurityConfig="@xml/publik_test_network">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="kneecap-spike" />
+            </intent-filter>
+        </activity>
+    </application>
 </manifest>

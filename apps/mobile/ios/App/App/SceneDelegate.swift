@@ -14,7 +14,10 @@ import Capacitor
 class KneecapBridgeViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(NativeBridgePlugin())
+        #if DEBUG
+        // The M1 spike's diagnostics plugin is a developer tool: Debug builds only.
         bridge?.registerPluginInstance(SpikeDiagnosticsPlugin())
+        #endif
         // Sign in with publik — see PublikGatePlugin.swift.
         bridge?.registerPluginInstance(PublikGatePlugin())
     }
@@ -28,21 +31,11 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
         window = UIWindow(windowScene: windowScene)
 
-        // kneecap M3 item 6: native first-run + permissions primer, shown
-        // once, before the WebView ever loads. See FirstRunView.swift.
-        // A publik self-test run (PUBLIK_SELF_TEST) goes straight to the
-        // WebView: the gate's module prints its line and ends the app there.
-        // It skips only this primer, never the sign-in gate.
-        let hasCompletedFirstRun = UserDefaults.standard.bool(forKey: FirstRunView.completedDefaultsKey)
-        if hasCompletedFirstRun || PublikGatePlugin.selfTestRequested {
-            window?.rootViewController = KneecapBridgeViewController()
-        } else {
-            window?.rootViewController = UIHostingController(
-                rootView: FirstRunView(onFinish: { [weak self] in
-                    self?.window?.rootViewController = KneecapBridgeViewController()
-                })
-            )
-        }
+        // The WebView loads first. "Sign in with publik" (with
+        // PUBLIK_GATE_MODE=required) is the first screen of a new install;
+        // after it, the web app asks PublikGatePlugin.showFirstRun for the
+        // native first-run screen (kneecap M3 item 6, FirstRunView.swift).
+        window?.rootViewController = KneecapBridgeViewController()
 
         window?.makeKeyAndVisible()
 
@@ -50,19 +43,23 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        #if DEBUG
         // kneecap M1 spike — throwaway deep link (`kneecap-spike://open`)
         // that navigates the already-loaded WKWebView to spike.html, the
         // hidden diagnostics screen (docs/SPIKE-GUIDE.md has the exact
-        // trigger commands). Purely additive: only intercepts our own
-        // scheme and always still forwards to SceneDelegateProxy so
-        // Capacitor's own URL-open plugin handling (e.g. OAuth deep links)
-        // is untouched.
+        // trigger commands). Debug builds only: the scheme is added to the
+        // built Info.plist by the "Debug-only items" build phase, and
+        // spike.html is only in a KNEECAP_DEBUG_TOOLS=1 web build. Always
+        // still forwards to SceneDelegateProxy so Capacitor's own URL-open
+        // plugin handling (e.g. OAuth deep links) is untouched.
         if let url = URLContexts.first?.url, url.scheme == "kneecap-spike" {
             navigateToSpikeHarness()
         }
+        #endif
         SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
     }
 
+    #if DEBUG
     private func navigateToSpikeHarness() {
         guard let bridgeViewController = window?.rootViewController as? CAPBridgeViewController,
               let webView = bridgeViewController.bridge?.webView else {
@@ -73,6 +70,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
         webView.evaluateJavaScript("window.location.href = 'spike.html';")
     }
+    #endif
 
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
         SceneDelegateProxy.shared.scene(scene, continue: userActivity)

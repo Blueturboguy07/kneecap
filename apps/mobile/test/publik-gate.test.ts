@@ -4,6 +4,8 @@
  * for the reference modules, plus the phone's own: the in-app browser, the
  * check when the app comes back to the front, the offline pass after a
  * sign-in, the PUBLIK_API_BASE_URL test hook, and the self-test line.
+ * Then the two gate modes (PUBLIK_GATE_MODE) and the Settings actions:
+ * sign-in from Settings, Sign out, Delete account and the usage switch.
  *
  * Run: bun test apps/mobile/test (outside src/: apps/mobile's tsconfig has
  * no bun types).
@@ -51,6 +53,7 @@ function phone(settings: PublikLaunch["settings"] = {}) {
 			requests.push({ method: req.method, url: req.url, auth: req.headers.Authorization ?? null, body: req.body ? JSON.parse(req.body) : null });
 			if (server.offline) throw new Error("The Internet connection appears to be offline.");
 			const path = new URL(req.url).pathname;
+			if (path.endsWith("/installs/revoke")) return { status: 204, data: "" };
 			if (path.endsWith("/installs")) {
 				if (server.installsStatus !== 201) return { status: server.installsStatus, data: { error: { type: "invalid_app_token", message: "This app token is not valid." } } };
 				const sent = JSON.parse(req.body ?? "{}") as { install_id: string };
@@ -72,6 +75,10 @@ function phone(settings: PublikLaunch["settings"] = {}) {
 			files.set(name, text);
 			return true;
 		},
+		async removeFile({ name }) {
+			files.delete(name);
+			return true;
+		},
 		async openUrl({ url }) {
 			opened.push(url);
 		},
@@ -85,6 +92,7 @@ function phone(settings: PublikLaunch["settings"] = {}) {
 				foreground = null;
 			};
 		},
+		async showFirstRun() {},
 	};
 	return { host, files, requests, opened, selfTest, server, comeToFront: () => foreground?.() };
 }
@@ -236,5 +244,155 @@ describe("the publik gate on a phone", () => {
 		expect((await run((p) => (p.server.walletStatus = 500))).selfTest).toEqual(["publik self-test: failed: This key is not valid."]);
 		expect((await run((p) => (p.server.offline = true))).selfTest).toEqual(["publik self-test: failed: publik is not reachable. Check your connection."]);
 		expect((await run((p) => (p.server.installsStatus = 401))).selfTest).toEqual(["publik self-test: failed: This app token is not valid."]);
+	});
+});
+
+const noScreen = {
+	show: (): Promise<never> => Promise.reject(new Error("a screen was shown")),
+	openUrl: () => undefined,
+};
+const paths = (p: ReturnType<typeof phone>) => p.requests.map((r) => `${r.method} ${new URL(r.url).pathname}`);
+const telemetry = (p: ReturnType<typeof phone>) => p.requests.filter((r) => r.url.endsWith("/telemetry"));
+
+describe("PUBLIK_GATE_MODE", () => {
+	it("is required by default: the gate shows, and startPublik resolves only after the sign-in", async () => {
+		expect(gate.GATE_MODE).toBe("required");
+		const p = phone();
+		p.server.wallets = [anonymous, anonymous, claimed];
+		const { ui, seen } = scriptedUI(p, {}, p.comeToFront);
+		await gate.startPublik(ui, p.host);
+		expect(seen.map((s) => s.title)).toEqual([WORDS.title, WORDS.title]);
+		expect(gate.getStatus()).toMatchObject({ mode: "required", signedIn: true, handle: "mann" });
+	});
+
+	it("optional: the app opens with no screen, and a phone that never signed in sends nothing to publik", async () => {
+		const p = phone();
+		await gate.startPublik(noScreen, p.host, "optional");
+		await tick();
+		expect(p.requests).toEqual([]);
+		expect(p.files.size).toBe(0);
+		expect(gate.getStatus()).toMatchObject({ mode: "optional", signedIn: false, checking: false });
+	});
+
+	it("optional: Settings > Sign in with publik opens the in-app browser, waits for the sign-in, and only then counts the open", async () => {
+		const p = phone();
+		p.server.wallets = [anonymous, claimed];
+		await gate.startPublik(noScreen, p.host, "optional");
+		let waited = 0;
+		const result = await gate.signIn({
+			signal: new AbortController().signal,
+			onWaiting: () => {
+				waited = telemetry(p).length + 1; // 1: nothing was counted before the sign-in
+				setTimeout(p.comeToFront, 5); // the person closes the browser: the app checks at once
+			},
+		});
+		expect(result).toBe("signed_in");
+		expect(waited).toBe(1);
+		expect(p.opened).toEqual([`${ORIGIN}/claim/abc`]);
+		expect(gate.getStatus()).toMatchObject({ mode: "optional", signedIn: true, handle: "mann" });
+		await tick();
+		expect(telemetry(p).map((r) => r.body!.event)).toEqual(["app_opened"]);
+		expect(JSON.parse(p.files.get("apps/kneecap.json")!).claimed_at).toBeString();
+	});
+
+	it("optional: the sign-in from Settings stops when Settings closes (the signal aborts)", async () => {
+		const p = phone();
+		await gate.startPublik(noScreen, p.host, "optional");
+		const abort = new AbortController();
+		const result = await gate.signIn({ signal: abort.signal, onWaiting: () => setTimeout(() => abort.abort(), 5) });
+		expect(result).toBe("cancelled");
+		expect(gate.getStatus().signedIn).toBe(false);
+		expect(telemetry(p)).toEqual([]);
+	});
+
+	it("optional: a phone that signed in before is checked at start with no screen, and counts the open again", async () => {
+		const p = phone();
+		p.server.wallets = [claimed];
+		await gate.startPublik(noScreen, p.host, "optional");
+		expect(await gate.signIn({ signal: new AbortController().signal })).toBe("signed_in");
+		await tick(); // the first run's app_opened
+		gate._resetForTests();
+		p.requests.length = 0;
+		await gate.startPublik(noScreen, p.host, "optional");
+		await tick(50);
+		expect(paths(p)).toEqual(["GET /api/v1/wallet", "POST /api/v1/telemetry"]);
+		expect(gate.getStatus()).toMatchObject({ signedIn: true, checking: false, offline: false });
+	});
+
+	it("optional: signed out on publik, the start check ends the sign-in and counts nothing", async () => {
+		const p = phone();
+		p.server.wallets = [claimed];
+		await gate.startPublik(noScreen, p.host, "optional");
+		await gate.signIn({ signal: new AbortController().signal });
+		await tick(); // the first run's app_opened
+		gate._resetForTests();
+		p.requests.length = 0;
+		p.server.wallets = [anonymous];
+		await gate.startPublik(noScreen, p.host, "optional");
+		await tick(50);
+		expect(paths(p)).toEqual(["GET /api/v1/wallet"]);
+		expect(gate.getStatus().signedIn).toBe(false);
+		expect(JSON.parse(p.files.get("apps/kneecap.json")!).claimed_at).toBeNull();
+	});
+
+	it("optional answers PUBLIK_SELF_TEST too", async () => {
+		const p = phone({ PUBLIK_SELF_TEST: "1" });
+		void gate.startPublik(noScreen, p.host, "optional");
+		for (let i = 0; i < 50 && p.selfTest.length === 0; i++) await tick(5);
+		expect(p.selfTest).toEqual(["publik self-test: ok kneecap 1.0.1"]);
+	});
+});
+
+describe("Settings: Sign out, Delete account, usage counting", () => {
+	async function signedInPhone(settings: PublikLaunch["settings"] = {}) {
+		const p = phone(settings);
+		p.server.wallets = [claimed];
+		await gate.ensureSignedIn(scriptedUI(p).ui, p.host);
+		await tick();
+		return p;
+	}
+
+	it("Sign out revokes this phone's key on publik, deletes it from the phone, and ends the session", async () => {
+		const p = await signedInPhone();
+		await gate.signOut();
+		const revoke = p.requests.find((r) => r.url.endsWith("/installs/revoke"));
+		expect(revoke).toMatchObject({ method: "POST", auth: "Bearer pk_live_gatetest" });
+		expect(p.files.has("apps/kneecap.json")).toBe(false);
+		expect(gate.getStatus().signedIn).toBe(false);
+	});
+
+	it("Sign out still deletes the key when publik is not reachable", async () => {
+		const p = await signedInPhone();
+		p.server.offline = true;
+		await gate.signOut();
+		expect(p.files.has("apps/kneecap.json")).toBe(false);
+	});
+
+	it("Delete account deletes the key and the install ID, keeps the opt-out, and names publik's delete page", async () => {
+		const p = await signedInPhone();
+		await gate.setUsageCounting(false);
+		expect(p.files.has("telemetry.json")).toBe(true);
+		await gate.deletePublikData();
+		expect(p.files.has("apps/kneecap.json")).toBe(false);
+		expect(p.files.has("telemetry.json")).toBe(false);
+		expect(JSON.parse(p.files.get("consent.json")!)).toEqual({ usage: false });
+		expect(gate.DELETE_ACCOUNT_URL).toBe("https://publikhq.com/settings/profile#delete-account-title");
+	});
+
+	it("the usage switch saves the choice in consent.json; off sends nothing more, and the launch opt-out locks it", async () => {
+		const p = await signedInPhone();
+		expect(await gate.usageCounting()).toEqual({ on: true, locked: false });
+		await gate.setUsageCounting(false);
+		expect(JSON.parse(p.files.get("consent.json")!)).toEqual({ usage: false });
+		expect(await gate.usageCounting()).toEqual({ on: false, locked: false });
+		gate._resetForTests();
+		const before = telemetry(p).length;
+		await gate.ensureSignedIn(scriptedUI(p).ui, p.host); // the next start: signed in, counting off
+		await tick();
+		expect(telemetry(p).length).toBe(before);
+		gate._resetForTests();
+		const locked = await signedInPhone({ DO_NOT_TRACK: "1" });
+		expect(await gate.usageCounting()).toEqual({ on: false, locked: true });
+		expect(telemetry(locked)).toEqual([]);
 	});
 });

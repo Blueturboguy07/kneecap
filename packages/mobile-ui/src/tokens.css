@@ -49,13 +49,13 @@
  *         /Users/mannbellani/opencut-research/04-capcut-ui-inventory.md
  *         /Users/mannbellani/opencut-research/iphone_shots/ip_1..10.jpg
  *
- * Scoped under [data-kneecap-theme="capcut-mobile"] rather than merged into
+ * Scoped under [data-kneecap-theme="kneecap-mobile"] rather than merged into
  * apps/web's own `.dark` theme — CapCut mobile chrome is dark-only (no
  * light-mode evidence in any of the 10 screenshots) and must not shift with
  * the desktop editor's light/dark toggle.
  */
 
-[data-kneecap-theme="capcut-mobile"] {
+[data-kneecap-theme="kneecap-mobile"] {
 	/* ============================== Surfaces ============================== */
 	/* MEASURED high confidence — corpus 06 §2.1: bottom-40%-crop pixel scan,
 	   10/10 screenshots. Deepest bg ranged #000000-#101010; #000000 is the

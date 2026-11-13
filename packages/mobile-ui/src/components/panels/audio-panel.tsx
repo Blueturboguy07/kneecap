@@ -51,7 +51,7 @@ export function AudioPanel({ editor, onClose, onInserted }: AudioPanelProps) {
 				<span>{importing ? "Importing…" : "Import audio from Files"}</span>
 			</button>
 			{importError && <p className="cc-panel-note">{importError}</p>}
-			<p className="cc-panel-note">Bundled local sounds — no network, no CapCut library clone.</p>
+			<p className="cc-panel-note">Bundled local sounds — they work offline.</p>
 			<div className="cc-panel-actions">
 				{sounds.map((sound) => (
 					<button

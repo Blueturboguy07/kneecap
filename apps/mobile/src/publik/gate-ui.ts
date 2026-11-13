@@ -1,13 +1,14 @@
 /**
  * The publik gate's screens in the webview (the UI adapter of ./publik.ts).
  *
- * main.ts runs runPublikGate() before any screen of kneecap, the hidden
- * #/diagnostics and #/autotest routes included. A phone that is signed in
- * passes without a screen; until then, index.html's "Loading…" stays up.
+ * main.ts runs runPublik() before any screen of kneecap, the hidden
+ * #/diagnostics and #/autotest routes included. With PUBLIK_GATE_MODE=required
+ * a phone that is signed in passes without a screen; until then, the gate
+ * shows. With PUBLIK_GATE_MODE=optional there is no screen here.
  * The words come from gateScreen() in ./publik.ts and are not changed here.
  */
 import "./gate.css";
-import { ensureSignedIn, type GateAction, type GateResult, type GateScreen, type GateUI } from "./publik";
+import { startPublik, type GateAction, type GateScreen, type GateUI } from "./publik";
 
 /** Draws one screen at a time into `container`. Each button resolves show() with its action. */
 export function domGateUI(container: HTMLElement, openUrl: (url: string) => void): GateUI {
@@ -60,17 +61,24 @@ export function domGateUI(container: HTMLElement, openUrl: (url: string) => void
 	};
 }
 
-/** The gate, then index.html's placeholder again: the app mounts next. */
-export async function runPublikGate(): Promise<GateResult> {
+/** The gate (required mode) or the background check (optional mode), then index.html's placeholder again: the app mounts next. */
+export async function runPublik(): Promise<void> {
 	const container = document.getElementById("app") ?? document.body;
 	const { getPublikHost } = await import("@kneecap/native-bridge/publik-host");
 	const host = getPublikHost();
 	const ui = domGateUI(container, (url) => {
 		host.openUrl({ url }).catch((err: unknown) => console.error("publik: could not open the sign-in page:", err));
 	});
-	const result = await ensureSignedIn(ui, host);
+	await startPublik(ui, host);
 	const loading = document.createElement("p");
 	loading.textContent = "Loading…";
 	container.replaceChildren(loading);
-	return result;
+}
+
+/** kneecap's native first-run screen, once per install. main.ts calls it after runPublik(), so the gate comes first. */
+export async function showFirstRun(): Promise<void> {
+	const { getPublikHost } = await import("@kneecap/native-bridge/publik-host");
+	await getPublikHost()
+		.showFirstRun()
+		.catch((err: unknown) => console.error("kneecap: the first-run screen did not open:", err));
 }

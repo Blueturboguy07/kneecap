@@ -15,10 +15,10 @@
  * follows, just for styling instead of logic.
  *
  * Every rule here assumes it is rendered inside (or under) an element
- * carrying [data-kneecap-theme="capcut-mobile"] — see tokens.css.
+ * carrying [data-kneecap-theme="kneecap-mobile"] — see tokens.css.
  */
 
-[data-kneecap-theme="capcut-mobile"] {
+[data-kneecap-theme="kneecap-mobile"] {
 	font-family: var(--cc-font-ui);
 	color: var(--cc-text-primary);
 }

@@ -350,7 +350,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 
 	if (!ready) {
 		return (
-			<div className={cn("cc-editor-shell", className)} data-kneecap-theme="capcut-mobile">
+			<div className={cn("cc-editor-shell", className)} data-kneecap-theme="kneecap-mobile">
 				<p className="cc-panel-note">Loading demo project…</p>
 			</div>
 		);
@@ -389,7 +389,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 				isPreviewFullscreen && "cc-editor-shell--preview-fullscreen",
 				className,
 			)}
-			data-kneecap-theme="capcut-mobile"
+			data-kneecap-theme="kneecap-mobile"
 		>
 			<TopBar
 				onClose={onBack}

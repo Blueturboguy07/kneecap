@@ -2,13 +2,21 @@
 // A port of publikhq.com/sdk/publik.ts.md for a phone. The gate words, the endpoints and the
 // order of the steps are the same; the platform seam is a PublikHost (@kneecap/native-bridge/publik-host):
 // native HTTP, the app's publik folder, the in-app browser and the launch settings.
-// At app start, before any screen of the app: `await ensureSignedIn(ui, host)`. It
+// At app start, before any screen of the app: `await startPublik(ui, host)`. The build setting
+// PUBLIK_GATE_MODE (vite.config.ts) picks one of two modes:
+//
+// "required" (the default): startPublik() runs ensureSignedIn(ui, host). It
 //   1. loads or provisions this phone's publik key (POST /api/v1/installs);
 //   2. shows Sign in with publik until GET /api/v1/wallet says "claimed" (no other way past it). The
 //      button opens claim_url in the in-app browser; the app checks every 3 s for up to 10 minutes
 //      while it is in front, and checks again at once when it comes back to the front;
 //   3. when USES_AI: asks once how the app pays for AI and stores the answer (setChoice() changes it);
 //   4. starts usage counting: app_opened now, active_session every 30 minutes (POST /api/v1/telemetry).
+// "optional": startPublik() shows no screen and the editor opens. Settings has "Sign in with publik"
+//   (signIn(): steps 1 and 2 without the wall). A phone that never signed in sends nothing to publik;
+//   usage counting starts only after a sign-in.
+// Both modes: Settings has Sign out (signOut()), Delete account (deletePublikData() and then
+// DELETE_ACCOUNT_URL in the in-app browser) and a usage-counting switch (setUsageCounting()).
 // Self-test: the launch setting PUBLIK_SELF_TEST=1 makes it print `publik self-test: ok kneecap <version>`
 // after a real GET /wallet answers, and end the app.
 // Test hook: the launch setting PUBLIK_API_BASE_URL (for example http://127.0.0.1:8787/api/v1) replaces
@@ -24,6 +32,13 @@ export const USES_AI = false;
 export const OFFLINE_AFTER_SIGN_IN = true;
 const ORIGIN = "https://publikhq.com";
 export const DEFAULT_BASE_URL = `${ORIGIN}/api/v1`;
+/** Settings > Delete account opens this publik page in the in-app browser. publik deletes the account there. */
+export const DELETE_ACCOUNT_URL = `${ORIGIN}/settings/profile#delete-account-title`;
+
+export type GateMode = "required" | "optional";
+/** The gate mode, put in at build time from PUBLIK_GATE_MODE (vite.config.ts). Anything but "optional" is "required". */
+declare const __PUBLIK_GATE_MODE__: string | undefined;
+export const GATE_MODE: GateMode = typeof __PUBLIK_GATE_MODE__ === "string" && __PUBLIK_GATE_MODE__ === "optional" ? "optional" : "required";
 const POLL_MS = 3_000, POLL_LIMIT_MS = 10 * 60_000;
 const LONGEST_TIMEOUT_MS = 2_147_483_647; // the largest delay setTimeout takes (about 24 days)
 const NOT_REACHABLE = "publik is not reachable. Check your connection.";
@@ -44,6 +59,9 @@ export interface GateScreen { id: "sign_in" | "unreachable" | "choose"; title: s
 export interface GateUI { show(screen: GateScreen, signal: AbortSignal): Promise<GateAction>; openUrl(url: string): unknown }
 /** `offline`: publik did not answer and the phone signed in before (OFFLINE_AFTER_SIGN_IN); `wallet` is null then. */
 export interface GateResult { key: string; wallet: Wallet | null; choice: Choice | null; offline: boolean }
+/** What Settings shows. `checking`: optional mode is checking a saved sign-in with publik at start. */
+export interface PublikStatus { mode: GateMode; checking: boolean; signedIn: boolean; handle: string | null; offline: boolean }
+export type SignInResult = "signed_in" | "timeout" | "cancelled";
 
 /** The request did not complete, or publik answered with a server error. */
 class Unreachable extends Error {}
@@ -58,6 +76,21 @@ let launch: PublikLaunch;
 let apiBase: string | null = null;
 const wakers = new Set<() => void>();
 let foregroundOff: (() => void) | null = null;
+let mode: GateMode = GATE_MODE;
+let session: { handle: string | null; offline: boolean } | null = null;
+let checking = false;
+const statusListeners = new Set<(s: PublikStatus) => void>();
+
+/** The sign-in state, for Settings. */
+export function getStatus(): PublikStatus {
+  return { mode, checking, signedIn: session !== null, handle: session?.handle ?? null, offline: session?.offline ?? false };
+}
+/** Calls `listener` when the state changes. Returns the function that stops it. */
+export function onStatus(listener: (s: PublikStatus) => void): () => void {
+  statusListeners.add(listener);
+  return () => { statusListeners.delete(listener); };
+}
+function notify(): void { const s = getStatus(); for (const l of [...statusListeners]) l(s); }
 
 /** Binds the module to the phone. ensureSignedIn() calls it; tests call it with a fake host. */
 export async function attachHost(h: PublikHost): Promise<PublikLaunch> {
@@ -71,7 +104,7 @@ export async function attachHost(h: PublikHost): Promise<PublikLaunch> {
 
 const appVersion = () => (launch.appVersion || APP_VERSION).replace(/^v/i, "");
 /** The URL of a publik endpoint: https://publikhq.com/api/v1/..., or PUBLIK_API_BASE_URL/... when that launch setting is there. */
-function endpoint(path: "/api/v1/installs" | "/api/v1/wallet" | "/api/v1/telemetry"): string {
+function endpoint(path: "/api/v1/installs" | "/api/v1/installs/revoke" | "/api/v1/wallet" | "/api/v1/telemetry"): string {
   return apiBase ? `${apiBase}${path.slice("/api/v1".length)}` : `${ORIGIN}${path}`;
 }
 
@@ -88,6 +121,9 @@ export async function readCredential(): Promise<PublikCredential | null> {
 async function writeCredential(c: PublikCredential | null): Promise<void> {
   // The native side writes it with mode 0600, in a folder that is not backed up.
   if (!(await host.writeFile({ name: CREDENTIAL_FILE, text: JSON.stringify(c ?? {}, null, 2) }))) throw new Error("publik could not save this phone's key.");
+}
+async function removeCredential(): Promise<void> {
+  if (!(await host.removeFile({ name: CREDENTIAL_FILE }))) throw new Error("publik could not delete this phone's key.");
 }
 /** The person's answer to the plan screen. Settings call it to change the answer; null asks again at the next start. */
 export async function setChoice(choice: Choice | null): Promise<void> {
@@ -235,8 +271,120 @@ export async function ensureSignedIn(ui: GateUI, h: PublikHost): Promise<GateRes
 
 function pass(c: PublikCredential, wallet: Wallet | null, offline: boolean): GateResult {
   void host.closeBrowser().catch(() => undefined); // the sign-in page, if it is still open over the app
+  session = { handle: wallet?.account?.handle ?? null, offline };
+  notify();
   startTelemetry();
   return { key: c.key, wallet, choice: USES_AI ? c.choice ?? null : null, offline };
+}
+
+/**
+ * App start, in the mode of this build (`gateMode` is for tests). Both modes answer PUBLIK_SELF_TEST first.
+ * "required": the gate, ensureSignedIn(); resolves once the person is signed in.
+ * "optional": resolves at once, with no screen. A phone with a saved key is checked with publik in the
+ * background (resumeSession); a phone that never signed in sends nothing.
+ */
+export async function startPublik(ui: GateUI, h: PublikHost, gateMode: GateMode = GATE_MODE): Promise<void> {
+  mode = gateMode;
+  if (gateMode === "required") {
+    await ensureSignedIn(ui, h);
+    return;
+  }
+  await attachHost(h);
+  if (launch.settings.PUBLIK_SELF_TEST) {
+    await host.finishSelfTest({ line: await selfTest() }); // prints the line and ends the app
+    return new Promise<void>(() => {});
+  }
+  notify();
+  void resumeSession();
+}
+
+/** Optional mode, at start: is the saved key still signed in? Shows no screen; never throws. */
+async function resumeSession(): Promise<void> {
+  const c = await readCredential().catch(() => null);
+  if (!c) return; // this phone never started a sign-in: nothing is sent
+  checking = true;
+  notify();
+  try {
+    let r: Awaited<ReturnType<typeof readWallet>>;
+    try {
+      r = await readWallet(c.key);
+      if (r.status >= 500) throw new Unreachable(NOT_REACHABLE);
+    } catch (e) {
+      // kneecap is local-first: a phone that signed in before keeps its sign-in when publik does not answer.
+      if (OFFLINE_AFTER_SIGN_IN && e instanceof Unreachable && c.claimed_at) pass(c, null, true);
+      return;
+    }
+    if (r.status === 401) return await removeCredential(); // the key was revoked: signed out
+    if (r.wallet?.claim_state === "claimed") { await signedIn(c, r.wallet); return; }
+    if (r.wallet && c.claimed_at) await writeCredential({ ...c, claimed_at: null }); // signed out on publik
+  } catch {
+    // A file could not be read or written: the phone stays signed out.
+  } finally {
+    checking = false;
+    notify();
+  }
+}
+
+async function signedIn(c: PublikCredential, w: Wallet): Promise<"signed_in"> {
+  const signed = c.claimed_at ? c : { ...c, claimed_at: new Date().toISOString() };
+  if (!c.claimed_at) await writeCredential(signed);
+  pass(signed, w, false);
+  return "signed_in";
+}
+
+/**
+ * Settings > "Sign in with publik" (optional mode). Gets this phone's key when it has none (POST /installs),
+ * opens the sign-in page in the in-app browser, then checks GET /wallet every 3 s for up to 10 minutes, and at
+ * once when the app comes back to the front. "signed_in": usage counting starts now. "cancelled": `signal`
+ * aborted. Throws a readable message when publik cannot set up the phone or does not answer.
+ */
+export async function signIn(opts: { signal: AbortSignal; onWaiting?: () => void }): Promise<SignInResult> {
+  const { signal } = opts;
+  for (let attempt = 0; ; attempt++) {
+    const c = (await readCredential()) ?? (await provision());
+    if (signal.aborted) return "cancelled";
+    const r = await readWallet(c.key);
+    if (r.status === 401 && attempt === 0) { await removeCredential(); continue; } // a revoked key: get a new one
+    if (r.status >= 500) throw new Unreachable(NOT_REACHABLE);
+    if (!r.wallet) throw new Error(r.message ?? `publik answered ${r.status}.`);
+    if (r.wallet.claim_state === "claimed") return signedIn(c, r.wallet);
+    if (signal.aborted) return "cancelled";
+    await host.openUrl({ url: r.wallet.claim_url ?? c.claim_url ?? `${ORIGIN}/wallet` });
+    opts.onWaiting?.();
+    for (const end = Date.now() + POLL_LIMIT_MS; ; ) {
+      await nap(POLL_MS, signal);
+      if (signal.aborted) return "cancelled";
+      const w = await readWallet(c.key).then((x) => x.wallet, () => null);
+      if (signal.aborted) return "cancelled";
+      if (w?.claim_state === "claimed") return signedIn(c, w);
+      if (Date.now() >= end) return "timeout";
+    }
+  }
+}
+
+/**
+ * Settings > "Sign out": stops usage counting, revokes this phone's key on publik (POST /api/v1/installs/revoke;
+ * skipped when publik does not answer) and deletes the key from the phone. The next sign-in gets a new key.
+ * With PUBLIK_GATE_MODE=required the caller then starts the app again, so the gate shows.
+ */
+export async function signOut(): Promise<void> {
+  stopTelemetry();
+  const c = await readCredential();
+  session = null;
+  notify();
+  if (c) await call("POST", endpoint("/api/v1/installs/revoke"), { key: c.key, timeoutMs: 10_000 }).catch(() => undefined);
+  await removeCredential();
+}
+
+/**
+ * Settings > "Delete account", the part on the phone: signOut(), then the install ID (telemetry.json) goes too.
+ * The usage opt-out (consent.json) stays: it is the person's choice, not data about them.
+ * Then the caller opens DELETE_ACCOUNT_URL in the in-app browser, where publik deletes the account.
+ */
+export async function deletePublikData(): Promise<void> {
+  await signOut();
+  installIdOnce = null;
+  if (!(await host.removeFile({ name: "telemetry.json" }))) throw new Error("publik could not delete this phone's install ID.");
 }
 
 /** Builder check, run by the BUILT app: PUBLIK_SELF_TEST=1 makes ensureSignedIn() print this line and end the app. */
@@ -253,11 +401,25 @@ export async function selfTest(): Promise<string> {
 // ---------- usage counting: /skills/telemetry.md sections 3-5 ----------
 let timer: ReturnType<typeof setInterval> | null = null, installIdOnce: string | null = null;
 
-async function usageOff(): Promise<boolean> {
+/** DO_NOT_TRACK or PUBLIK_TELEMETRY=0 at launch: usage counting is off, and the Settings switch cannot turn it on. */
+function launchOptOut(): boolean {
   const dnt = (launch.settings.DO_NOT_TRACK ?? "").trim().toLowerCase();
   if (dnt !== "" && dnt !== "0" && dnt !== "false") return true;
-  if (["0", "false", "off"].includes((launch.settings.PUBLIK_TELEMETRY ?? "").trim().toLowerCase())) return true;
+  return ["0", "false", "off"].includes((launch.settings.PUBLIK_TELEMETRY ?? "").trim().toLowerCase());
+}
+async function usageOff(): Promise<boolean> {
+  if (launchOptOut()) return true;
   return parseJson(await host.readFile({ name: "consent.json" }).catch(() => null))?.usage === false;
+}
+/** The Settings switch for usage counting. `locked`: a launch setting turns it off. */
+export async function usageCounting(): Promise<{ on: boolean; locked: boolean }> {
+  return { on: !(await usageOff()), locked: launchOptOut() };
+}
+/** The Settings switch: saves the choice in consent.json ("usage": true or false) and stops or starts counting at once. */
+export async function setUsageCounting(on: boolean): Promise<void> {
+  if (!(await host.writeFile({ name: "consent.json", text: `${JSON.stringify({ usage: on })}\n` }))) throw new Error("kneecap could not save this setting.");
+  if (!on) stopTelemetry();
+  else if (session) startTelemetry({ opened: false });
 }
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 /** One random UUID for this app on this phone, in <publik folder>/telemetry.json (mode 0600). */
@@ -287,14 +449,21 @@ async function sendEvent(event: "app_opened" | "active_session"): Promise<void> 
     say(res.status);
   } catch (e) { say(e instanceof Error ? e.name : "error"); }
 }
-/** Called by ensureSignedIn(). app_opened now, active_session every 30 minutes; never fails the app, never blocks. */
-export function startTelemetry(): void {
+/** Called at a sign-in (pass()). app_opened now, active_session every 30 minutes; never fails the app, never blocks.
+ *  `opened: false` (the Settings switch turned on again): only the 30-minute timer. */
+export function startTelemetry(opts: { opened?: boolean } = {}): void {
   if (timer) return;
   timer = setInterval(() => void sendEvent("active_session"), 1_800 * 1000);
-  void sendEvent("app_opened");
+  if (opts.opened !== false) void sendEvent("app_opened");
+}
+/** Sign out, Delete account, or the Settings switch turned off. */
+export function stopTelemetry(): void {
+  if (timer) clearInterval(timer);
+  timer = null;
 }
 /** Tests only: stops the timer and forgets the module's state. */
 export function _resetForTests(): void {
-  if (timer) clearInterval(timer);
-  timer = null; installIdOnce = null; wakers.clear(); foregroundOff?.(); foregroundOff = null;
+  stopTelemetry();
+  installIdOnce = null; wakers.clear(); foregroundOff?.(); foregroundOff = null;
+  mode = GATE_MODE; session = null; checking = false; statusListeners.clear();
 }

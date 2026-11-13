@@ -9,8 +9,8 @@ milestones for what's actually shipped vs. planned. Re-check every
 scope claim below against the real app before this ever goes live, and
 strip anything not yet true.
 
-No CapCut name, marks, or copyrighted assets appear anywhere below, per
-plan §8.0 item 3 / `docs/DECISIONS.md`.
+No other app's name, marks, or copyrighted assets appear anywhere below,
+per plan §8.0 item 3 / `docs/DECISIONS.md`.
 
 ---
 

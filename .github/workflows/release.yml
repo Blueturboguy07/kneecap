@@ -88,7 +88,16 @@ jobs:
           packages: "platforms;android-36 build-tools;36.0.0 platform-tools"
 
       - name: Build the mobile web harness (apps/mobile/www)
-        run: bun run build
+        # PUBLIK_APP_TOKEN: the publik app token (pat_) for Sign in with
+        # publik (vite.config.ts). PUBLIK_GATE_MODE: required (the default)
+        # or optional; set the repo variable PUBLIK_GATE_MODE to change it.
+        # The check fails on developer tools or another app's name.
+        env:
+          PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
+          PUBLIK_GATE_MODE: ${{ vars.PUBLIK_GATE_MODE || 'required' }}
+        run: |
+          bun run build
+          bash scripts/check-web-bundle.sh www "$PUBLIK_GATE_MODE"
         working-directory: apps/mobile
 
       - name: cap sync android
@@ -176,9 +185,13 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode.app
 
       - name: Build unsigned .ipa
+        # PUBLIK_APP_TOKEN and PUBLIK_GATE_MODE: as in the Android job; the
+        # script's `bun run build` reads them.
         env:
           IOS_RELEASE_REF_NAME: ${{ github.ref_name }}
           IOS_UNSIGNED_OUT_DIR: ${{ github.workspace }}/release-artifacts
+          PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
+          PUBLIK_GATE_MODE: ${{ vars.PUBLIK_GATE_MODE || 'required' }}
         run: bash scripts/build-ios-unsigned-ipa.sh
         working-directory: apps/mobile
 

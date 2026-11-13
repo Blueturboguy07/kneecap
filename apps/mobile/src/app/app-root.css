@@ -265,3 +265,148 @@ body {
 	gap: 8px;
 }
 
+
+/* Home > Settings button (sign-in, account, usage counting). The same size
+   as "+ New project", on the raised surface instead of the accent. */
+.kc-home__settings {
+	font-family: inherit;
+	background: var(--cc-surface-raised, #262626);
+	color: var(--cc-text-primary, #f5f5f5);
+	border: none;
+	border-radius: 8px;
+	padding: 10px 16px;
+	font-size: 14px;
+	font-weight: 600;
+}
+
+.kc-home__settings:disabled {
+	opacity: 0.5;
+}
+
+/* Settings screen (settings-screen.tsx): the home screen's frame and tokens,
+   grouped rows in the iOS settings pattern. */
+.kc-settings {
+	height: 100vh;
+	height: 100dvh;
+	box-sizing: border-box;
+	overflow: hidden;
+	background: var(--cc-bg, #0b0b0b);
+	color: var(--cc-text-primary, #f5f5f5);
+	display: flex;
+	flex-direction: column;
+	padding: calc(env(safe-area-inset-top, 0px) + 16px)
+		calc(env(safe-area-inset-right, 0px) + 16px)
+		calc(env(safe-area-inset-bottom, 0px) + 16px)
+		calc(env(safe-area-inset-left, 0px) + 16px);
+	gap: 16px;
+	font-family: var(--cc-font-family, system-ui, sans-serif);
+}
+
+.kc-settings__header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.kc-settings__header h1 {
+	font-size: 20px;
+	font-weight: 700;
+	margin: 0;
+}
+
+.kc-settings__back {
+	font-family: inherit;
+	width: 36px;
+	height: 36px;
+	border: none;
+	border-radius: var(--cc-radius-pill, 999px);
+	background: var(--cc-surface-raised, #262626);
+	color: inherit;
+	font-size: 24px;
+	line-height: 1;
+	padding: 0 0 3px;
+	touch-action: manipulation;
+}
+
+.kc-settings__body {
+	overflow-y: auto;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+}
+
+.kc-settings__section h2 {
+	font-size: 13px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--cc-text-secondary, #8b8a90);
+	margin: 0 0 8px 4px;
+}
+
+.kc-settings__group {
+	display: flex;
+	flex-direction: column;
+	border-radius: var(--cc-radius-card, 12px);
+	overflow: hidden;
+	background: var(--cc-surface, #1a1a1a);
+}
+
+.kc-settings__row {
+	font-family: inherit;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	min-height: 48px;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 12px 16px;
+	border: none;
+	background: none;
+	color: inherit;
+	font-size: 16px;
+	text-align: left;
+	touch-action: manipulation;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.kc-settings__row + .kc-settings__row {
+	border-top: 1px solid rgb(255 255 255 / 8%);
+}
+
+.kc-settings__row:disabled {
+	opacity: 0.5;
+}
+
+.kc-settings__row--primary {
+	font-weight: 600;
+}
+
+.kc-settings__row--danger {
+	color: var(--cc-danger, #ff5c5c);
+}
+
+.kc-settings__row--text {
+	color: var(--cc-text-secondary, #8b8a90);
+}
+
+.kc-settings__row--switch input {
+	width: 22px;
+	height: 22px;
+	accent-color: var(--cc-accent, #00cae0);
+}
+
+.kc-settings__note {
+	min-height: 1em;
+	font-size: 13px;
+	margin: 8px 4px 0;
+}
+
+.kc-settings__hint {
+	font-size: 13px;
+	line-height: 1.4;
+	color: var(--cc-text-secondary, #8b8a90);
+	margin: 8px 4px 0;
+}

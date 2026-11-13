@@ -9,9 +9,9 @@
  *   code (URLSession / HttpURLConnection), so the webview's CORS and its
  *   Origin header do not apply. publik answers /installs and /wallet with no
  *   CORS headers, and drops a telemetry event that a web page sends.
- * - readFile()/writeFile(): the publik folder of this app (iOS: Application
- *   Support/publik, not backed up; Android: noBackupFilesDir/publik). Only
- *   the three names below. Mode 0600.
+ * - readFile()/writeFile()/removeFile(): the publik folder of this app
+ *   (iOS: Application Support/publik, not backed up; Android:
+ *   noBackupFilesDir/publik). Only the three names below. Mode 0600.
  * - openUrl(): SFSafariViewController on iOS, a Custom Tab on Android.
  * - launch(): the app version, the device, and the launch settings
  *   (iOS: environment or `-NAME value` launch arguments; Android: intent
@@ -20,6 +20,10 @@
  *   (Android, tag "publik"), then ends the app.
  * - onForeground(): the app came back to the front, or the in-app browser
  *   closed.
+ * - showFirstRun(): kneecap's native first-run screen, once per install.
+ *   It is here, not in NativeBridge, because the gate decides when it shows:
+ *   after "Sign in with publik" (with PUBLIK_GATE_MODE=required the gate is
+ *   the first screen of a new install).
  *
  * Native halves: apps/mobile/ios/App/App/PublikGatePlugin.swift and
  * apps/mobile/android/app/src/main/java/dev/kneecap/app/PublikGatePlugin.kt.
@@ -72,11 +76,15 @@ export interface PublikHost {
 	readFile(args: { name: PublikFileName }): Promise<string | null>;
 	/** `exclusive`: create the file only when it does not exist. Resolves false when nothing was written. */
 	writeFile(args: { name: PublikFileName; text: string; exclusive?: boolean }): Promise<boolean>;
+	/** Deletes the file. Resolves true when it is gone (also when it was never there). */
+	removeFile(args: { name: PublikFileName }): Promise<boolean>;
 	openUrl(args: { url: string }): Promise<void>;
 	closeBrowser(): Promise<void>;
 	finishSelfTest(args: { line: string }): Promise<void>;
 	/** Returns the function that stops the listener. */
 	onForeground(listener: () => void): () => void;
+	/** Shows the native first-run screen if this install has not seen it; resolves when it closes. */
+	showFirstRun(): Promise<void>;
 }
 
 interface PublikGatePluginSpec {
@@ -88,9 +96,11 @@ interface PublikGatePluginSpec {
 	}>;
 	readFile(args: { name: string }): Promise<{ text?: string }>;
 	writeFile(args: { name: string; text: string; exclusive: boolean }): Promise<{ written: boolean }>;
+	removeFile(args: { name: string }): Promise<{ removed: boolean }>;
 	openBrowser(args: { url: string }): Promise<void>;
 	closeBrowser(): Promise<void>;
 	finishSelfTest(args: { line: string }): Promise<void>;
+	showFirstRun(): Promise<void>;
 	addListener(eventName: "foreground", listenerFunc: () => void): Promise<PluginListenerHandle>;
 }
 
@@ -165,6 +175,10 @@ function createNativeHost(platform: "ios" | "android"): PublikHost {
 			const { written } = await PublikGatePlugin.writeFile({ name, text, exclusive: exclusive === true });
 			return written;
 		},
+		async removeFile({ name }) {
+			const { removed } = await PublikGatePlugin.removeFile({ name });
+			return removed;
+		},
 		async openUrl({ url }) {
 			await PublikGatePlugin.openBrowser({ url });
 		},
@@ -187,6 +201,9 @@ function createNativeHost(platform: "ios" | "android"): PublikHost {
 				offDocument();
 				if (handle) void handle.remove();
 			};
+		},
+		async showFirstRun() {
+			await PublikGatePlugin.showFirstRun();
 		},
 	};
 }
@@ -218,6 +235,14 @@ function createWebHost(): PublikHost {
 				return false;
 			}
 		},
+		async removeFile({ name }) {
+			try {
+				localStorage.removeItem(storageKey(name));
+				return true;
+			} catch {
+				return false;
+			}
+		},
 		async openUrl({ url }) {
 			window.open(url, "_blank", "noopener");
 		},
@@ -228,6 +253,7 @@ function createWebHost(): PublikHost {
 		onForeground(listener) {
 			return onDocumentForeground(listener);
 		},
+		async showFirstRun() {}, // the browser preview has no native first-run screen
 	};
 }
 

@@ -1,0 +1,215 @@
+/**
+ * Settings: the publik account and usage counting (src/publik/publik.ts).
+ *
+ * Rows, in both gate modes (PUBLIK_GATE_MODE, vite.config.ts):
+ *  - signed out (optional mode): "Sign in with publik". It opens the publik
+ *    sign-in page in the in-app browser; the app checks every 3 s and when it
+ *    comes back to the front.
+ *  - signed in: who is signed in, and "Sign out". In required mode the app
+ *    then starts again, so the gate shows.
+ *  - "Delete account": deletes the publik data on this phone, then opens
+ *    publik's delete-account page in the in-app browser (App Store guideline
+ *    5.1.1(v)).
+ *  - "Count app use": the usage-counting switch (consent.json).
+ */
+import { getPublikHost } from "@kneecap/native-bridge/publik-host";
+import { useEffect, useRef, useState } from "react";
+import {
+	DELETE_ACCOUNT_URL,
+	deletePublikData,
+	getStatus,
+	onStatus,
+	type PublikStatus,
+	setUsageCounting,
+	signIn,
+	signOut,
+	usageCounting,
+} from "../publik/publik";
+
+const messageOf = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+/** Resolves when the app is in front again (the in-app browser closed). */
+function backInFront(): Promise<void> {
+	return new Promise((resolve) => {
+		const off = getPublikHost().onForeground(() => {
+			off();
+			resolve();
+		});
+	});
+}
+
+export function SettingsScreen({ onBack }: { onBack: () => void }) {
+	const [status, setStatus] = useState<PublikStatus>(getStatus);
+	const [usage, setUsage] = useState<{ on: boolean; locked: boolean } | null>(null);
+	const [note, setNote] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
+	const signInAbort = useRef<AbortController | null>(null);
+
+	useEffect(() => {
+		const off = onStatus(setStatus);
+		setStatus(getStatus());
+		usageCounting().then(setUsage, () => setUsage(null));
+		return () => {
+			off();
+			signInAbort.current?.abort();
+		};
+	}, []);
+
+	const startSignIn = async () => {
+		if (busy) return;
+		const abort = new AbortController();
+		signInAbort.current = abort;
+		setBusy(true);
+		setNote("Opening publik…");
+		try {
+			const result = await signIn({
+				signal: abort.signal,
+				onWaiting: () => setNote("Waiting for you to sign in in your browser."),
+			});
+			if (result === "signed_in") setNote(null);
+			if (result === "timeout") setNote("No sign-in after 10 minutes. Tap Sign in with publik to try again.");
+		} catch (err) {
+			setNote(messageOf(err));
+		} finally {
+			if (signInAbort.current === abort) signInAbort.current = null;
+			setBusy(false);
+		}
+	};
+
+	const doSignOut = async () => {
+		if (busy) return;
+		const question =
+			status.mode === "required"
+				? "Sign out of publik? kneecap needs a publik sign-in, so it shows Sign in with publik next."
+				: "Sign out of publik? kneecap keeps working. Usage counting stops.";
+		if (!window.confirm(question)) return;
+		setBusy(true);
+		setNote(null);
+		try {
+			await signOut();
+			if (status.mode === "required") {
+				window.location.reload();
+				return;
+			}
+		} catch (err) {
+			setNote(messageOf(err));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const doDeleteAccount = async () => {
+		if (busy) return;
+		const question =
+			"Delete your publik account?\n\n" +
+			"This deletes the account for every publik app, not only kneecap. Your projects and videos on this phone stay.\n\n" +
+			"kneecap now deletes its publik data on this phone. Then the publik page opens, where you confirm the deletion.";
+		if (!window.confirm(question)) return;
+		setBusy(true);
+		setNote(null);
+		try {
+			await deletePublikData();
+			await getPublikHost().openUrl({ url: DELETE_ACCOUNT_URL });
+			setNote("Confirm the deletion on the publik page.");
+			if (status.mode === "required") {
+				// The gate shows when the person closes the publik page.
+				await backInFront();
+				window.location.reload();
+				return;
+			}
+		} catch (err) {
+			setNote(messageOf(err));
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const toggleUsage = async (on: boolean) => {
+		setUsage((u) => (u ? { ...u, on } : u));
+		try {
+			await setUsageCounting(on);
+		} catch (err) {
+			setNote(messageOf(err));
+			usageCounting().then(setUsage, () => setUsage(null));
+		}
+	};
+
+	const account = status.signedIn
+		? `${status.handle ? `Signed in as @${status.handle}` : "Signed in to publik"}${status.offline ? ". publik is not reachable now." : ""}`
+		: null;
+
+	return (
+		<div className="kc-settings" data-kneecap-theme="kneecap-mobile">
+			<header className="kc-settings__header">
+				<button type="button" className="kc-settings__back" aria-label="Back" onClick={onBack}>
+					‹
+				</button>
+				<h1>Settings</h1>
+			</header>
+			<div className="kc-settings__body">
+				<section className="kc-settings__section" aria-labelledby="kc-settings-publik">
+					<h2 id="kc-settings-publik">publik account</h2>
+					<div className="kc-settings__group">
+						{account ? (
+							<>
+								<p className="kc-settings__row kc-settings__row--text">{account}</p>
+								<button
+									type="button"
+									className="kc-settings__row"
+									disabled={busy}
+									onClick={() => void doSignOut()}
+								>
+									Sign out
+								</button>
+							</>
+						) : (
+							<button
+								type="button"
+								className="kc-settings__row kc-settings__row--primary"
+								disabled={busy || status.checking}
+								onClick={() => void startSignIn()}
+							>
+								{status.checking ? "Checking your sign-in…" : "Sign in with publik"}
+							</button>
+						)}
+						<button
+							type="button"
+							className="kc-settings__row kc-settings__row--danger"
+							disabled={busy}
+							onClick={() => void doDeleteAccount()}
+						>
+							Delete account
+						</button>
+					</div>
+					<p className="kc-settings__note" role="status">
+						{note ?? ""}
+					</p>
+					<p className="kc-settings__hint">
+						{status.mode === "optional"
+							? "Sign-in is optional. kneecap works without an account."
+							: "kneecap uses your publik account."}
+					</p>
+				</section>
+				<section className="kc-settings__section" aria-labelledby="kc-settings-usage">
+					<h2 id="kc-settings-usage">Usage counting</h2>
+					<div className="kc-settings__group">
+						<label className="kc-settings__row kc-settings__row--switch">
+							<span>Count app use</span>
+							<input
+								type="checkbox"
+								role="switch"
+								checked={usage?.on ?? false}
+								disabled={usage === null || usage.locked}
+								onChange={(event) => void toggleUsage(event.target.checked)}
+							/>
+						</label>
+					</div>
+					<p className="kc-settings__hint">
+						When you are signed in, kneecap tells publik when the app opens, and every 30 minutes while it stays
+						open. It sends no videos, photos or project data.
+					</p>
+				</section>
+			</div>
+		</div>
+	);
+}

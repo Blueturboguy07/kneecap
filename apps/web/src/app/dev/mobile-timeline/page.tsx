@@ -147,7 +147,7 @@ export default function MobileTimelineHarnessPage() {
 			</div>
 
 			<div
-				data-kneecap-theme="capcut-mobile"
+				data-kneecap-theme="kneecap-mobile"
 				data-mobile-timeline-harness
 				style={{
 					width: 390,

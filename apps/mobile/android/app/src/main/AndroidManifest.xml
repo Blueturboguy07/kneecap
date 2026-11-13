@@ -9,10 +9,11 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
-        <!-- kneecap M3 item 6: FirstRunActivity is the launcher now, not
-             MainActivity — see FirstRunActivity.java. It hands off to
-             MainActivity immediately (no visible flash) once first run is
-             marked complete. -->
+        <!-- kneecap M3 item 6: FirstRunActivity is the launcher. It hands off
+             to MainActivity at once (no visible flash). The first-run screen
+             itself shows later, when the web app asks for it after "Sign in
+             with publik" (PublikGatePlugin.showFirstRun), so the gate is the
+             first screen of a new install. See FirstRunActivity.java. -->
         <activity
             android:name=".FirstRunActivity"
             android:label="@string/title_activity_main"
@@ -33,21 +34,9 @@
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
             android:exported="true">
-            <!-- kneecap M1 spike ONLY — throwaway deep link to the hidden
-                 diagnostics screen. See MainActivity.java#onNewIntent and
-                 docs/SPIKE-GUIDE.md. Safe/expected to delete once M1 is
-                 read. android:exported flipped to true (from M3's false)
-                 specifically so this scheme is externally reachable the
-                 same way iOS's CFBundleURLTypes is — MainActivity itself
-                 gains no other new external entry point since it was
-                 already the app's own runtime target, just not
-                 externally-launchable before. -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="kneecap-spike" />
-            </intent-filter>
+            <!-- The M1 spike's kneecap-spike:// deep link is a developer
+                 tool: it is in src/debug/AndroidManifest.xml, so only debug
+                 builds have it. -->
         </activity>
 
         <provider
@@ -65,21 +54,12 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Forward-looking declarations for M4 (camera capture, plan M4 item 3
-         — Android WebView does not honor <input capture="camera"> so the
-         host builds the camera Intent itself) and M8 (voiceover recording).
-         Deliberately NOT declared here: READ_MEDIA_VIDEO / READ_MEDIA_IMAGES
-         / READ_EXTERNAL_STORAGE — plan M4 item 2's chosen import path
-         (Photo Picker + SAF fallback) needs neither; see
-         FirstRunActivity.java's doc comment. Declaring these is inert until
-         M4/M8 actually call the corresponding APIs — no runtime prompt fires
-         from a manifest declaration alone. -->
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-feature
-        android:name="android.hardware.camera"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.microphone"
-        android:required="false" />
+    <!-- No CAMERA or RECORD_AUDIO: the app never asks for the camera or the
+         microphone (the editor imports with the Photo Picker and has no
+         recording). NativeBridgePlugin.kt still has the camera-capture path
+         of plan M4 item 3, but no screen calls it; it needs CAMERA back
+         before a screen does. Deliberately NOT declared either:
+         READ_MEDIA_VIDEO / READ_MEDIA_IMAGES / READ_EXTERNAL_STORAGE — plan
+         M4 item 2's chosen import path (Photo Picker + SAF fallback) needs
+         neither; see FirstRunActivity.java's doc comment. -->
 </manifest>

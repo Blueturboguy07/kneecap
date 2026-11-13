@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  kneecap app icon: the ONE source for every icon and splash image.
+  Change this file, then run: python3 apps/mobile/scripts/generate-brand-assets.py
+  Rules for the generator: keep a full-size <rect id="background"> with a
+  solid fill (it becomes the Android adaptive-icon background colour), and
+  draw the mark inside <g id="mark"> (Android's adaptive foreground and the
+  splash use it). Original design: a bold rounded "k" (a bar and an
+  open angle) with a dot, like a playhead, between its arms.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect id="background" x="0" y="0" width="1024" height="1024" fill="#F2542D"/>
+  <g id="mark" fill="none" stroke="#FFFFFF" stroke-width="112" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M330 300 V724"/>
+    <path d="M690 300 L432 512 L690 724"/>
+    <circle cx="690" cy="512" r="58" fill="#FFFFFF" stroke="none"/>
+  </g>
+</svg>

@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * throwaway harness, not the real M9 export pipeline.
  *
  * exportSpikeSequence() uses the two bundled clips at
- * android/app/src/main/assets/spike/{clip-a,clip-b}.mp4 (see
+ * android/app/src/debug/assets/spike/{clip-a,clip-b}.mp4 (see
  * scripts/generate-spike-assets.sh) — bundling as a plain Android asset
  * needs no project-file surgery, unlike iOS (see SpikeDiagnosticsPlugin.swift
  * for why iOS generates its clips on-device instead).

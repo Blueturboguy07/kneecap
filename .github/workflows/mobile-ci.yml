@@ -16,6 +16,20 @@ name: Mobile CI
 # is flaky from agent sessions, and there is deliberately no CI-held Apple
 # signing identity anywhere in this project (release.yml's iOS artifact is
 # unsigned by design — see that workflow's header comment for why).
+#
+# App Store items (signin-gate):
+#   - PUBLIK_GATE_MODE (vite.config.ts) is built BOTH ways. Artifacts:
+#     ios-sim-app (required, the default), ios-sim-app-optional,
+#     android-debug-apk (required), android-debug-apk-optional.
+#   - Every web bundle passes scripts/check-web-bundle.sh: no developer
+#     tools, no other app's name, the gate mode asked for.
+#   - An unsigned iOS Release device build runs too. Its "Debug-only items"
+#     build phase fails when a developer tool is in the app, and
+#     scripts/check-ios-app.sh checks the plist items (iPhone only, arm64,
+#     no encryption, no camera/mic strings, privacy manifest).
+#   - An unsigned Android release APK is built and checked with
+#     scripts/check-android-apk.sh (no developer tools, no camera/mic
+#     permissions).
 
 concurrency:
   group: mobile-ci-${{ github.ref }}
@@ -24,8 +38,9 @@ concurrency:
 on:
   push:
     # signin-gate: Sign in with publik (apps/mobile/src/publik/). Its runs
-    # also hand the blind test its two artifacts, `ios-sim-app` and
-    # `android-debug-apk`.
+    # also hand the blind test its artifacts: `ios-sim-app` and
+    # `android-debug-apk` (gate required), `ios-sim-app-optional` and
+    # `android-debug-apk-optional` (gate optional).
     branches: [main, signin-gate]
     paths-ignore:
       - "*.md"
@@ -58,14 +73,17 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Build the M3 shell harness (apps/mobile/www)
+      - name: Build the web bundle (apps/mobile/www, gate required)
         # PUBLIK_APP_TOKEN: the publik app token (pat_) for Sign in with
         # publik, put into the bundle by vite.config.ts. Empty on a fork's
         # pull request; that build then shows "This build has no publik app
         # token." at the gate.
         env:
           PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
-        run: bun run build
+          PUBLIK_GATE_MODE: required
+        run: |
+          bun run build
+          bash scripts/check-web-bundle.sh www required
         working-directory: apps/mobile
 
       - name: cap sync ios
@@ -96,11 +114,12 @@ jobs:
             build
         working-directory: apps/mobile/ios/App
 
-      - name: Zip the simulator app (ios-sim-app)
+      - name: Check and zip the simulator app (ios-sim-app)
         run: |
           set -euo pipefail
           APP=DerivedData/Build/Products/Debug-iphonesimulator/App.app
           lipo -archs "$APP/App"
+          bash ../../scripts/check-ios-app.sh "$APP" Debug
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$RUNNER_TEMP/kneecap-ios-sim-arm64.zip"
         working-directory: apps/mobile/ios/App
 
@@ -114,31 +133,78 @@ jobs:
       - name: publik self-test (the built app, on a simulator)
         # setup.md step 6: the built app prints `publik self-test: ok
         # kneecap <version>` after a real GET /wallet answers, then exits.
-        # SIMCTL_CHILD_* sets the app's environment. Only that one line is
-        # printed: the app's own log is never shown here.
+        run: bash ../../scripts/ios-sim-self-test.sh DerivedData/Build/Products/Debug-iphonesimulator/App.app
+        working-directory: apps/mobile/ios/App
+
+      - name: xcodebuild (Release, iphoneos, unsigned) — the store build check
+        # The same build as scripts/build-ios-unsigned-ipa.sh. The
+        # "Debug-only items" build phase fails a Release build that has a
+        # developer tool in it.
+        run: |
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+        working-directory: apps/mobile/ios/App
+
+      - name: Check the Release app (plist items, privacy manifest, no developer tools, no other app's name)
+        run: |
+          set -euo pipefail
+          bash ../../scripts/check-ios-app.sh DerivedData/Build/Products/Release-iphoneos/App.app Release
+          # The App Store icon must have no alpha channel.
+          sips -g hasAlpha App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png | grep -q "hasAlpha: no"
+        working-directory: apps/mobile/ios/App
+
+      - name: Build the web bundle (gate optional)
+        env:
+          PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
+          PUBLIK_GATE_MODE: optional
+        run: |
+          bun run build
+          bash scripts/check-web-bundle.sh www optional
+          bunx cap copy ios
+        working-directory: apps/mobile
+
+      - name: xcodebuild (Debug, iphonesimulator, gate optional)
+        run: |
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath DerivedData \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+        working-directory: apps/mobile/ios/App
+
+      - name: Check and zip the simulator app (ios-sim-app-optional)
         run: |
           set -euo pipefail
           APP=DerivedData/Build/Products/Debug-iphonesimulator/App.app
-          UDID="$(xcrun simctl list devices available -j | python3 -c '
-          import json, sys
-          devices = json.load(sys.stdin)["devices"]
-          for runtime in sorted(devices, reverse=True):
-              if "iOS" in runtime:
-                  for d in devices[runtime]:
-                      if d["name"].startswith("iPhone"):
-                          print(d["udid"]); sys.exit(0)
-          sys.exit("no iPhone simulator")')"
-          xcrun simctl boot "$UDID" || true
-          xcrun simctl bootstatus "$UDID" -b > /dev/null
-          xcrun simctl install "$UDID" "$APP"
-          OUT="$RUNNER_TEMP/publik-self-test.out"
-          : > "$OUT"
-          SIMCTL_CHILD_PUBLIK_SELF_TEST=1 SIMCTL_CHILD_DO_NOT_TRACK=1 xcrun simctl launch \
-            --stdout="$OUT" --stderr="$RUNNER_TEMP/publik-self-test.err" "$UDID" dev.kneecap.app > /dev/null
-          for _ in $(seq 1 90); do grep -q "publik self-test:" "$OUT" && break; sleep 2; done
-          LINE="$(grep -m1 -o "publik self-test: .*" "$OUT" || true)"
-          echo "${LINE:-publik self-test: no line in 180 s}"
-          case "$LINE" in "publik self-test: ok kneecap "*) ;; *) exit 1 ;; esac
+          lipo -archs "$APP/App"
+          bash ../../scripts/check-ios-app.sh "$APP" Debug
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$RUNNER_TEMP/kneecap-ios-sim-arm64-optional.zip"
+        working-directory: apps/mobile/ios/App
+
+      - name: Upload the simulator app (gate optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-sim-app-optional
+          path: ${{ runner.temp }}/kneecap-ios-sim-arm64-optional.zip
+          if-no-files-found: error
+
+      - name: publik self-test (gate optional, on a simulator)
+        run: bash ../../scripts/ios-sim-self-test.sh DerivedData/Build/Products/Debug-iphonesimulator/App.app
         working-directory: apps/mobile/ios/App
 
   android-debug-build:
@@ -182,14 +248,17 @@ jobs:
           bun test apps/mobile/test
           if grep -rnE "from ['\"]@capacitor/" apps/mobile/src; then echo "::error::@capacitor import outside packages/native-bridge"; exit 1; fi
 
-      - name: Build the M3 shell harness (apps/mobile/www)
+      - name: Build the web bundle (apps/mobile/www, gate required)
         # PUBLIK_APP_TOKEN: the publik app token (pat_) for Sign in with
         # publik, put into the bundle by vite.config.ts. Empty on a fork's
         # pull request; that build then shows "This build has no publik app
         # token." at the gate.
         env:
           PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
-        run: bun run build
+          PUBLIK_GATE_MODE: required
+        run: |
+          bun run build
+          bash scripts/check-web-bundle.sh www required
         working-directory: apps/mobile
 
       - name: cap sync android
@@ -218,7 +287,9 @@ jobs:
         working-directory: apps/mobile/android
 
       - name: gradlew assembleDebug
-        run: ./gradlew assembleDebug --console=plain
+        run: |
+          ./gradlew assembleDebug --console=plain
+          bash ../scripts/check-android-apk.sh app/build/outputs/apk/debug/app-debug.apk debug
         working-directory: apps/mobile/android
 
       - name: gradlew :app:assembleDebugAndroidTest
@@ -244,4 +315,32 @@ jobs:
         with:
           name: android-debug-apk
           path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: gradlew assembleRelease (unsigned) — the store build check
+        # No KNEECAP_RELEASE_KEYSTORE here, so the APK is unsigned
+        # (app-release-unsigned.apk). release.yml makes the signed one.
+        run: |
+          ./gradlew assembleRelease --console=plain
+          bash ../scripts/check-android-apk.sh app/build/outputs/apk/release/app-release-unsigned.apk release
+        working-directory: apps/mobile/android
+
+      - name: Build the web bundle (gate optional) and the optional debug APK
+        env:
+          PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
+          PUBLIK_GATE_MODE: optional
+        run: |
+          set -euo pipefail
+          bun run build
+          bash scripts/check-web-bundle.sh www optional
+          bunx cap copy android
+          (cd android && ./gradlew assembleDebug --console=plain)
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/app-debug-optional.apk"
+        working-directory: apps/mobile
+
+      - name: Upload debug APK (gate optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk-optional
+          path: ${{ runner.temp }}/app-debug-optional.apk
           if-no-files-found: error

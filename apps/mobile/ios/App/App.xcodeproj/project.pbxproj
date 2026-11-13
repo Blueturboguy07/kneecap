@@ -20,7 +20,6 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
-		7043508A28F8EEA3BE0D1BBB /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 638A6FC5ACDE6FBAB50CDDD7 /* Fixtures */; };
 		736D0ACF30ECDCA55A7384B0 /* VideoCompositionBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D85BDC04331F7C007EDB97B7 /* VideoCompositionBuilder.swift */; };
 		7B4826CBA5B6613A9717F384 /* EdlModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 654B51BD8EE303BA97EE40EA /* EdlModel.swift */; };
 		7EDD4B23018CD79F34FD25FF /* ThumbnailStripGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73AFEFD04E3E867B0DA1B10A /* ThumbnailStripGenerator.swift */; };
@@ -40,6 +39,7 @@
 		BB10AE12AE12AE12AE12AE12 /* NativeBridgePlugin+Transcribe.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10AE12AE12AE12AE12AE12 /* NativeBridgePlugin+Transcribe.swift */; };
 		F4E28BDF2E5CF34A1EC39DC1 /* NativeBridgePlugin+Media.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82FAE7E1DF147549BC77C247 /* NativeBridgePlugin+Media.swift */; };
 		BB10AE20AE20AE20AE20AE20 /* PublikGatePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10AE20AE20AE20AE20AE20 /* PublikGatePlugin.swift */; };
+		BB20AE20AE20AE20AE20AE20 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AA20AE20AE20AE20AE20AE20 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -78,6 +78,7 @@
 		D85BDC04331F7C007EDB97B7 /* VideoCompositionBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoCompositionBuilder.swift; sourceTree = "<group>"; };
 		FDD463A5948B39971E5D18B5 /* EdlExporter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EdlExporter.swift; sourceTree = "<group>"; };
 		AA10AE20AE20AE20AE20AE20 /* PublikGatePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PublikGatePlugin.swift; sourceTree = "<group>"; };
+		AA20AE20AE20AE20AE20AE20 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -119,6 +120,7 @@
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
 				504EC3131FED79650016851F /* Info.plist */,
+				AA20AE20AE20AE20AE20AE20 /* PrivacyInfo.xcprivacy */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 				5C29089217A122709B9713B2 /* NativeBridgePlugin.swift */,
@@ -175,6 +177,7 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				CC10AE20AE20AE20AE20AE20 /* Debug-only items */,
 			);
 			buildRules = (
 			);
@@ -237,11 +240,35 @@
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
-				7043508A28F8EEA3BE0D1BBB /* Fixtures in Resources */,
+				BB20AE20AE20AE20AE20AE20 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		CC10AE20AE20AE20AE20AE20 /* Debug-only items */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+			);
+			name = "Debug-only items";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# kneecap: developer tools are in Debug builds only (App Store guideline 2.5.19).\n# Debug: adds the M1 spike's kneecap-spike:// URL scheme (docs/SPIKE-GUIDE.md) to the built Info.plist.\n# Release: fails the build when a developer tool is in the app.\nset -eu\nPLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nRES=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nPB=/usr/libexec/PlistBuddy\nif [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  if ! \"$PB\" -c \"Print :CFBundleURLTypes\" \"$PLIST\" 2>/dev/null | grep -q kneecap-spike; then\n    \"$PB\" -c \"Print :CFBundleURLTypes\" \"$PLIST\" >/dev/null 2>&1 || \"$PB\" -c \"Add :CFBundleURLTypes array\" \"$PLIST\"\n    \"$PB\" -c \"Add :CFBundleURLTypes:0 dict\" -c \"Add :CFBundleURLTypes:0:CFBundleURLName string dev.kneecap.app.spike\" -c \"Add :CFBundleURLTypes:0:CFBundleURLSchemes array\" -c \"Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string kneecap-spike\" \"$PLIST\"\n  fi\n  exit 0\nfi\nfail=0\nfor item in public/spike.html public/spike-assets Fixtures; do\n  if [ -e \"$RES/$item\" ]; then echo \"error: this ${CONFIGURATION} build contains a developer tool: $item\"; fail=1; fi\ndone\nif ls \"$RES/public/assets\" 2>/dev/null | grep -Eq '^(legacy-harness|autotest|spike)-'; then\n  echo \"error: the web bundle has developer tools. Build it with 'bun run build' (no KNEECAP_DEBUG_TOOLS=1), then 'cap sync ios'.\"; fail=1\nfi\nif \"$PB\" -c \"Print :CFBundleURLTypes\" \"$PLIST\" 2>/dev/null | grep -q kneecap-spike; then\n  echo \"error: this ${CONFIGURATION} build has the kneecap-spike URL scheme.\"; fail=1\nfi\nexit $fail\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		504EC3001FED79650016851F /* Sources */ = {
@@ -412,8 +439,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = R5R3ZS54LV;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -426,7 +454,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -435,8 +463,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = R5R3ZS54LV;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -448,7 +477,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};

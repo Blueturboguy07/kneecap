@@ -46,7 +46,10 @@ interface defined and stubbed."
 
 ```sh
 # from apps/mobile/
-bun run build            # Vite -> www/ (the locally-bundled static app)
+bun run build            # Vite -> www/ (the locally-bundled static app). No developer tools.
+bun run build:debug-tools  # the same, plus #/diagnostics, #/autotest, spike.html and the spike clips
+PUBLIK_GATE_MODE=optional bun run build   # the gate mode (see "Sign in with publik")
+bash scripts/check-web-bundle.sh www required   # the store check CI runs on every bundle
 bunx cap sync ios        # copies www/ into ios/App/App/public
 bunx cap sync android    # copies www/ into android/app/src/main/assets/public
 
@@ -74,26 +77,55 @@ full list of what is and isn't verified.
 
 ## Sign in with publik
 
-The app opens with **Sign in with publik** before any of its own screens
-(`src/main.ts` calls `runPublikGate()` in `src/publik/gate-ui.ts`, which runs
-`ensureSignedIn()` in `src/publik/publik.ts`). The phone side is
+`src/main.ts` calls `runPublik()` in `src/publik/gate-ui.ts`, which runs
+`startPublik()` in `src/publik/publik.ts`. The phone side is
 `@kneecap/native-bridge/publik-host` plus `PublikGatePlugin` (iOS
 `ios/App/App/PublikGatePlugin.swift`, Android
 `android/.../PublikGatePlugin.kt`).
 
+**Gate mode: ONE build setting, `PUBLIK_GATE_MODE`** (read by
+`vite.config.ts` at `bun run build`; any other value fails the build):
+
+| Value | What the person sees |
+|---|---|
+| `required` (default) | **Sign in with publik** is the first screen of a new install, before the native first-run screen. There is no way past it. Usage counting starts after the sign-in. |
+| `optional` | The editor opens with no wall. **Sign in with publik** is a row in Settings. Usage counting starts only after a sign-in. A phone that never signed in sends nothing to publik. |
+
+CI builds both (`ios-sim-app` / `android-debug-apk` = required,
+`ios-sim-app-optional` / `android-debug-apk-optional` = optional).
+`release.yml` reads the repo variable `PUBLIK_GATE_MODE` (default required).
+
+Start order, both modes: the WebView loads, the gate runs (required mode
+only), then `showFirstRun()` asks the native side to show the first-run
+screen (`FirstRunView.swift` / `FirstRunActivity.java`, once per install),
+then the editor opens.
+
 - **Sign in with publik** opens the sign-in page in the in-app browser
   (SFSafariViewController / a Custom Tab). The app checks the wallet every
   3 seconds for up to 10 minutes while it is in front, and again at once when
-  it comes back to the front. There is no other way past the screen.
+  it comes back to the front. In required mode there is no other way past
+  the screen.
+- **Settings** (the "Settings" button on the home screen,
+  `src/app/settings-screen.tsx`):
+  - **Sign in with publik** (optional mode, signed out).
+  - **Sign out**: revokes this phone's install key on publik
+    (`POST /api/v1/installs/revoke`; skipped when publik does not answer) and
+    deletes it from the phone. In required mode the gate shows again.
+  - **Delete account**: deletes the publik data on this phone (the key and
+    the install ID; the usage opt-out stays), then opens
+    `https://publikhq.com/settings/profile#delete-account-title` in the
+    in-app browser, where the person confirms.
+  - **Count app use**: the usage-counting switch (`consent.json`). It is
+    off and locked when `DO_NOT_TRACK` or `PUBLIK_TELEMETRY=0` is set.
 - `USES_AI = false`: kneecap calls no model, so there is no plan screen and
   no own-key choice.
 - Offline: the first sign-in needs the network. After that, a phone that
   signed in opens the app when publik does not answer
   (`OFFLINE_AFTER_SIGN_IN`). If publik later says the phone is signed out,
   the gate shows again.
-- Usage counting: `app_opened` after the gate, then `active_session` every
+- Usage counting: `app_opened` after a sign-in, then `active_session` every
   30 minutes, with the install key. `DO_NOT_TRACK=1`, `PUBLIK_TELEMETRY=0` or
-  `consent.json` with `"usage": false` turns it off.
+  `consent.json` with `"usage": false` (the Settings switch) turns it off.
 - The app token (`pat_`) comes from `PUBLIK_APP_TOKEN` at `bun run build`
   (`vite.config.ts`); CI passes the repo secret of that name.
 
@@ -111,7 +143,36 @@ SIMCTL_CHILD_PUBLIK_API_BASE_URL=http://127.0.0.1:8787/api/v1 xcrun simctl launc
 adb shell am start -n dev.kneecap.app/.FirstRunActivity --es PUBLIK_API_BASE_URL http://10.0.2.2:8787/api/v1
 ```
 
-Unit tests: `bun test apps/mobile/test` (from the repo root).
+Unit tests: `bun test apps/mobile/test` (from the repo root). They cover both
+gate modes and the Settings actions.
+
+## Store build items
+
+- **Privacy manifest**: `ios/App/App/PrivacyInfo.xcprivacy`. No tracking.
+  Collected data: Device ID, Product Interaction, User ID, Email Address and
+  Name (all from Sign in with publik and usage counting). Required-reason
+  APIs: UserDefaults (CA92.1) and file timestamps (C617.1). The comment in
+  the file says where each one is used. Keep the App Store Connect privacy
+  answers the same as this file.
+- **Developer tools are in debug builds only**: web (`KNEECAP_DEBUG_TOOLS`,
+  `vite.config.ts`), iOS (`#if DEBUG`, plus the "Debug-only items" build
+  phase, which adds the `kneecap-spike://` scheme in Debug and fails a
+  Release build that has a developer tool), Android (`src/debug`: the spike
+  clips, `SpikeDiagnosticsPlugin.java`, the deep link).
+- **No camera or microphone permission**: the app never asks for them.
+  Android's `NativeBridgePlugin.kt` has a camera-capture path that no screen
+  calls; add `CAMERA` back to the manifest before a screen uses it.
+- **iPhone only** (`TARGETED_DEVICE_FAMILY = 1`), `arm64` in
+  `UIRequiredDeviceCapabilities`, `ITSAppUsesNonExemptEncryption = false`
+  (the app has no encryption of its own; HTTPS is exempt).
+- **App icon and splash**: one source file, `brand/icon.svg` (a solid
+  `<rect id="background">` and the mark in `<g id="mark">`). To change the
+  icon, edit or replace that file, then run
+  `python3 scripts/generate-brand-assets.py` (needs `rsvg-convert` and
+  Pillow) and commit the PNGs it writes. The iOS App Store icon has no alpha
+  channel.
+- CI checks all of these: `scripts/check-web-bundle.sh`,
+  `scripts/check-ios-app.sh`, `scripts/check-android-apk.sh`.
 
 ## NativeBridge: what's real vs. stubbed (M3 + M4)
 
@@ -154,8 +215,8 @@ Capacitor/UIKit-free — Foundation/AVFoundation/CoreImage only).
 
 - **`apps/mobile/ios/verify-media-pipeline/`** compiles those SAME
   `NativeMedia/*.swift` files into a standalone macOS command-line
-  executable and runs them against a real bundled fixture
-  (`App/App/Fixtures/kneecap-test-clip.mp4` — a 960x540/4s/H.264+AAC clip
+  executable and runs them against a real fixture from the source tree
+  (`App/App/Fixtures/kneecap-test-clip.mp4`, not copied into the app — a 960x540/4s/H.264+AAC clip
   generated with `ffmpeg`'s `testsrc2` filter, not a shipped copyrighted
   asset). This is real, not a mock: probe (dims/duration/codec/fps),
   downscale-transcode (960x540 → 480x270), and thumbnail generation (6

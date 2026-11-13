@@ -9,10 +9,12 @@ import android.os.Handler
 import android.os.Looper
 import android.system.Os
 import android.util.Log
+import androidx.activity.result.ActivityResult
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
+import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
 import java.io.File
 import java.io.IOException
@@ -25,13 +27,17 @@ import kotlin.system.exitProcess
  * apps/mobile/src/publik/publik.ts. This plugin gives it:
  *  - launchInfo: the app version, the device, and the launch settings
  *    (extras of the launching intent) named in SETTING_NAMES;
- *  - readFile / writeFile: noBackupFilesDir/publik/<name>, mode 0600, for
- *    three names only (the credential, the install ID, the opt-out);
+ *  - readFile / writeFile / removeFile: noBackupFilesDir/publik/<name>,
+ *    mode 0600, for three names only (the credential, the install ID, the
+ *    opt-out);
  *  - openBrowser: the sign-in page in a Custom Tab;
  *  - finishSelfTest: logs the self-test line (logcat tag "publik"), then
  *    ends the app;
  *  - the "foreground" event: the app came back to the front (for example
- *    when the Custom Tab closes).
+ *    when the Custom Tab closes);
+ *  - showFirstRun: kneecap's first-run screen (FirstRunActivity), once per
+ *    install. The web app calls it AFTER the gate, so "Sign in with publik"
+ *    is the first screen of a new install (PUBLIK_GATE_MODE=required).
  * Registered in MainActivity.onCreate.
  */
 @CapacitorPlugin(name = "PublikGate")
@@ -53,10 +59,6 @@ class PublikGatePlugin : Plugin() {
 			val value = extras.get(name)?.toString()
 			return if (value.isNullOrEmpty()) null else value
 		}
-
-		/** A publik self-test run skips the first-run primer (FirstRunActivity), never the sign-in gate. */
-		@JvmStatic
-		fun selfTestRequested(intent: Intent?): Boolean = launchSetting(intent, "PUBLIK_SELF_TEST") != null
 	}
 
 	private fun fileFor(name: String?): File? {
@@ -134,6 +136,28 @@ class PublikGatePlugin : Plugin() {
 			result.put("written", false)
 		}
 		call.resolve(result)
+	}
+
+	@PluginMethod
+	fun removeFile(call: PluginCall) {
+		val file = fileFor(call.getString("name")) ?: return call.reject("publik: this file name is not allowed.")
+		if (file.exists() && !file.delete()) Log.w(TAG, "could not delete ${file.name}")
+		val result = JSObject()
+		result.put("removed", !file.exists())
+		call.resolve(result)
+	}
+
+	@PluginMethod
+	fun showFirstRun(call: PluginCall) {
+		if (FirstRunActivity.hasCompletedFirstRun(context)) return call.resolve()
+		val intent = Intent(context, FirstRunActivity::class.java).putExtra(FirstRunActivity.EXTRA_SHOW_PRIMER, true)
+		startActivityForResult(call, intent, "firstRunClosed")
+	}
+
+	/** Get Started (seen) or Back (shows again next time): the app goes on either way. */
+	@ActivityCallback
+	private fun firstRunClosed(call: PluginCall?, result: ActivityResult) {
+		call?.resolve()
 	}
 
 	@PluginMethod

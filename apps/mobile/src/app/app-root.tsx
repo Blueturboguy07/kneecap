@@ -31,6 +31,7 @@ import { getNativeBridge } from "@kneecap/native-bridge";
 import { loadFontAtlas, loadFonts } from "@kneecap/editor-core/fonts/local-fonts";
 import { useEditor } from "@kneecap/editor-core/react";
 import { EditorShell, ensurePreviewGpu } from "@kneecap/mobile-ui";
+import { SettingsScreen } from "./settings-screen";
 
 const NOOP_BOOTSTRAP = async () => {};
 
@@ -79,7 +80,7 @@ class CrashBoundary extends Component<
 	}
 }
 
-type Screen = { name: "home" } | { name: "editor" };
+type Screen = { name: "home" } | { name: "editor" } | { name: "settings" };
 
 function App() {
 	const [screen, setScreen] = useState<Screen>({ name: "home" });
@@ -100,10 +101,19 @@ function App() {
 		);
 	}
 
-	return <HomeScreen onOpenEditor={() => setScreen({ name: "editor" })} />;
+	if (screen.name === "settings") {
+		return <SettingsScreen onBack={() => setScreen({ name: "home" })} />;
+	}
+
+	return (
+		<HomeScreen
+			onOpenEditor={() => setScreen({ name: "editor" })}
+			onOpenSettings={() => setScreen({ name: "settings" })}
+		/>
+	);
 }
 
-function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
+function HomeScreen({ onOpenEditor, onOpenSettings }: { onOpenEditor: () => void; onOpenSettings: () => void }) {
 	const editor = useEditor();
 	// CRITICAL finding #2 of the 2026-08-18 test sweep ("saved projects never
 	// appear"): this originally read `editor.project.getSavedProjects()`
@@ -144,10 +154,13 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 	};
 
 	return (
-		<div className="kc-home" data-kneecap-theme="capcut-mobile">
+		<div className="kc-home" data-kneecap-theme="kneecap-mobile">
 			<header className="kc-home__header">
 				<h1>kneecap</h1>
 				<div className="kc-home__header-actions">
+					<button type="button" className="kc-home__settings" disabled={busy} onClick={onOpenSettings}>
+						Settings
+					</button>
 					<button
 						type="button"
 						className="kc-home__new"

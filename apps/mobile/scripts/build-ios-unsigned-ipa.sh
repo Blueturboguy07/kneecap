@@ -24,8 +24,9 @@ BUILD_DIR="${IOS_UNSIGNED_BUILD_DIR:-$(mktemp -d)}"
 OUT_DIR="${IOS_UNSIGNED_OUT_DIR:-$MOBILE_DIR/release-artifacts}"
 REF_NAME="${IOS_RELEASE_REF_NAME:-dev}"
 
-echo "==> bun run build (Vite -> www/)"
+echo "==> bun run build (Vite -> www/, gate ${PUBLIK_GATE_MODE:-required})"
 bun run build
+bash scripts/check-web-bundle.sh www "${PUBLIK_GATE_MODE:-required}"
 
 echo "==> cap sync ios"
 bunx cap sync ios

@@ -29,7 +29,7 @@ android {
         applicationId "dev.kneecap.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
+        versionCode 3
         versionName "1.0.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // On-device captions: libkneecap_whisper.so (whisper.cpp + the JNI

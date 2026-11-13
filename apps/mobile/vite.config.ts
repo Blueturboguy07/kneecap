@@ -1,10 +1,66 @@
+import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
+import { type CSSOptions, defineConfig, type Plugin } from "vite";
 import wasm from "vite-plugin-wasm";
 
 const editorCoreSrc = fileURLToPath(
 	new URL("../../packages/editor-core/src", import.meta.url),
 );
+
+/**
+ * Two build settings, both read from the build's environment:
+ *
+ * PUBLIK_GATE_MODE = required | optional (default: required).
+ *   required: "Sign in with publik" is the first screen and there is no way
+ *   past it (src/publik/publik.ts, ensureSignedIn).
+ *   optional: the editor opens without sign-in; "Sign in with publik" is a
+ *   row in Settings, and usage counting starts only after a sign-in.
+ *   This is the ONE place the mode is set. CI builds both
+ *   (.github/workflows/mobile-ci.yml).
+ *
+ * KNEECAP_DEBUG_TOOLS = 1 (default: off).
+ *   Puts the developer tools in the bundle: the #/diagnostics and #/autotest
+ *   routes (src/main.ts), spike.html and the spike test videos
+ *   (public/spike-assets). A store or release build never sets it, so those
+ *   are not in the app (App Store guideline 2.5.19). `bun run dev` always has
+ *   them; `bun run build:debug-tools` makes a build with them.
+ */
+const GATE_MODE = (process.env.PUBLIK_GATE_MODE ?? "").trim() || "required";
+if (GATE_MODE !== "required" && GATE_MODE !== "optional") {
+	throw new Error(`PUBLIK_GATE_MODE must be "required" or "optional", not "${GATE_MODE}".`);
+}
+
+type PostcssOptions = Exclude<NonNullable<CSSOptions["postcss"]>, string>;
+type PostcssPlugin = NonNullable<PostcssOptions["plugins"]>[number];
+
+/**
+ * Removes CSS comments from the bundle (license comments, `/*! ... *\/`,
+ * stay). The source CSS keeps its design notes, which name the reference
+ * app; the shipped app must not carry them. JS comments never reach the
+ * bundle (esbuild drops them).
+ */
+const stripCssComments: PostcssPlugin = {
+	postcssPlugin: "kneecap-strip-css-comments",
+	Once(root) {
+		root.walkComments((comment) => {
+			if (!comment.text.startsWith("!")) comment.remove();
+		});
+	},
+};
+
+/** A build without KNEECAP_DEBUG_TOOLS: delete the spike test videos that public/ copies into www/. */
+function dropDebugAssets(outDir: string): Plugin {
+	return {
+		name: "kneecap-drop-debug-assets",
+		apply: "build",
+		closeBundle() {
+			rmSync(fileURLToPath(new URL(`${outDir}/spike-assets`, import.meta.url)), {
+				recursive: true,
+				force: true,
+			});
+		},
+	};
+}
 
 /**
  * kneecap M3 (+ M1 spike, see apps/mobile/src/spike/) — builds
@@ -59,59 +115,68 @@ const editorCoreSrc = fileURLToPath(
  * `jsx`/`jsxImportSource` transform options, forwarded here, are sufficient
  * for a one-shot build.
  */
-export default defineConfig({
-	root: __dirname,
-	plugins: [wasm()],
-	// Sign in with publik (src/publik/publik.ts): the publik app token
-	// (`pat_`) comes from PUBLIK_APP_TOKEN in the build's environment (CI
-	// passes the repo secret of that name). It is public by design: it only
-	// mints capped install keys for this app. A build without it shows
-	// "This build has no publik app token." at the gate.
-	define: {
-		__PUBLIK_APP_TOKEN__: JSON.stringify(process.env.PUBLIK_APP_TOKEN?.trim() ?? ""),
-	},
-	esbuild: {
-		jsx: "automatic",
-		jsxImportSource: "react",
-	},
-	resolve: {
-		// Mirrors apps/web/tsconfig.json's "@/*" mapping: packages/editor-core's
-		// OWN source uses this alias internally (its tsconfig.json maps "@/*"
-		// to "./src/*" for a standalone `tsc --noEmit` self-containment proof —
-		// see that package's index.ts header), so any host bundling
-		// editor-core's source directly (as this app does, and as apps/web
-		// does) must resolve the same alias.
-		alias: {
-			"@": editorCoreSrc,
+export default defineConfig(({ command }) => {
+	const debugTools = command === "serve" || process.env.KNEECAP_DEBUG_TOOLS === "1";
+	return {
+		root: __dirname,
+		plugins: debugTools ? [wasm()] : [wasm(), dropDebugAssets("www")],
+		css: {
+			postcss: { plugins: [stripCssComments] },
 		},
-	},
-	build: {
-		outDir: "www",
-		emptyOutDir: true,
-		target: "esnext",
-		// Keep this readable in `git diff`-adjacent debugging for now; revisit
-		// once this harness is replaced by the real M2-item-6 SPA bundle.
-		minify: false,
-		rollupOptions: {
-			input: {
-				main: "index.html",
-				spike: "spike.html",
+		// Sign in with publik (src/publik/publik.ts): the publik app token
+		// (`pat_`) comes from PUBLIK_APP_TOKEN in the build's environment (CI
+		// passes the repo secret of that name). It is public by design: it only
+		// mints capped install keys for this app. A build without it shows
+		// "This build has no publik app token." at the gate.
+		define: {
+			__PUBLIK_APP_TOKEN__: JSON.stringify(process.env.PUBLIK_APP_TOKEN?.trim() ?? ""),
+			__PUBLIK_GATE_MODE__: JSON.stringify(GATE_MODE),
+			__KNEECAP_DEBUG_TOOLS__: JSON.stringify(debugTools),
+		},
+		esbuild: {
+			jsx: "automatic",
+			jsxImportSource: "react",
+		},
+		resolve: {
+			// Mirrors apps/web/tsconfig.json's "@/*" mapping: packages/editor-core's
+			// OWN source uses this alias internally (its tsconfig.json maps "@/*"
+			// to "./src/*" for a standalone `tsc --noEmit` self-containment proof —
+			// see that package's index.ts header), so any host bundling
+			// editor-core's source directly (as this app does, and as apps/web
+			// does) must resolve the same alias.
+			alias: {
+				"@": editorCoreSrc,
 			},
 		},
-	},
-	worker: {
-		format: "es",
-		plugins: () => [wasm()],
-	},
-	optimizeDeps: {
-		// wasm-bindgen bundler-target output must not be pre-bundled by esbuild
-		// (it doesn't understand the `.wasm` ESM import either) — same
-		// exclusion vite-plugin-wasm's own docs recommend.
-		exclude: ["opencut-wasm"],
-	},
-	server: {
-		// `bun run dev` here is a plain browser preview of the harness only —
-		// never something a packaged app points at (plan M3 item 2).
-		port: 5183,
-	},
+		build: {
+			outDir: "www",
+			emptyOutDir: true,
+			target: "esnext",
+			// Keep this readable in `git diff`-adjacent debugging for now; revisit
+			// once this harness is replaced by the real M2-item-6 SPA bundle.
+			minify: false,
+			rollupOptions: {
+				// spike.html (the M1 spike's diagnostics screen) is a developer
+				// tool: only a KNEECAP_DEBUG_TOOLS build has it.
+				input: debugTools
+					? ({ main: "index.html", spike: "spike.html" } as Record<string, string>)
+					: ({ main: "index.html" } as Record<string, string>),
+			},
+		},
+		worker: {
+			format: "es",
+			plugins: () => [wasm()],
+		},
+		optimizeDeps: {
+			// wasm-bindgen bundler-target output must not be pre-bundled by esbuild
+			// (it doesn't understand the `.wasm` ESM import either) — same
+			// exclusion vite-plugin-wasm's own docs recommend.
+			exclude: ["opencut-wasm"],
+		},
+		server: {
+			// `bun run dev` here is a plain browser preview of the harness only —
+			// never something a packaged app points at (plan M3 item 2).
+			port: 5183,
+		},
+	};
 });

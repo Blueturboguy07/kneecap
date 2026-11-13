@@ -23,7 +23,9 @@ Each app is a frontend that calls into Rust. Logic is never duplicated between a
 
 
 ## publik API
-- Sign in with publik: the publik module's gate (`apps/mobile/src/publik/publik.ts`, started by `runPublikGate()` in `apps/mobile/src/main.ts`) runs at start-up, before the first screen; it also sends usage telemetry (`app_opened`, then `active_session` every 30 minutes)
+- Sign in with publik: the publik module (`apps/mobile/src/publik/publik.ts`, started by `runPublik()` in `apps/mobile/src/main.ts`) runs at start-up, before the native first-run screen; after a sign-in it sends usage telemetry (`app_opened`, then `active_session` every 30 minutes)
+- Gate mode: ONE build setting, `PUBLIK_GATE_MODE` = `required` (default: the gate is the first screen, no way past it) or `optional` (no wall; "Sign in with publik" is a row in Settings). Read only in `apps/mobile/vite.config.ts`; CI builds both
+- Settings (`apps/mobile/src/app/settings-screen.tsx`): Sign in, Sign out (revokes the key), Delete account (local data, then publik's delete page), and the usage-counting switch
 - `USES_AI = false`: kneecap calls no model (captions and retouch run on the phone), so there is no plan screen and no publik API provider. If a model call is added, use Base URL https://publikhq.com/api/v1 (OpenAI Chat Completions, Responses, Anthropic Messages) with models publik-fast, publik-balanced, publik-smart only; never a vendor model name
 - Key: per-install `pk_` from POST /installs, stored in the app's publik folder (`apps/kneecap.json`, mode 0600, not backed up); launch setting PUBLIK_API_BASE_URL overrides the base URL (tests)
 - App token: `PUBLIK_APP_TOKEN` at build time (`apps/mobile/vite.config.ts`; CI uses the repo secret); public by design

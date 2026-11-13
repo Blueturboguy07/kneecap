@@ -1,17 +1,25 @@
 /**
- * kneecap mobile entry — the publik sign-in gate (./publik/), then a
- * deliberately thin hash router:
+ * kneecap mobile entry: Sign in with publik (./publik/), the native first-run
+ * screen, then a deliberately thin hash router:
  *
  *   (default)        -> ./app/app-root.tsx  — the real product: project
- *                       list + the CapCut-parity editor (`EditorShell`).
+ *                       list + the editor (`EditorShell`).
  *   #/diagnostics    -> ./legacy-harness.ts — the M3/M4 NativeBridge shell
  *                       harness, kept reachable for QA (see its header).
+ *   #/autotest       -> ./autotest.tsx — end-to-end playback QA.
+ *
+ * The two hidden routes are developer tools: they exist only in a build with
+ * KNEECAP_DEBUG_TOOLS=1 (vite.config.ts). In any other build
+ * `__KNEECAP_DEBUG_TOOLS__` is the constant `false`, so the bundler drops the
+ * routes and their modules (App Store guideline 2.5.19: no hidden features).
  *
  * Both are dynamic imports so the diagnostics path stays out of the
  * editor's startup graph and vice versa. A hash flip between modes does a
  * full reload rather than trying to unmount one world and boot the other —
  * this is a hidden debug switch, not user-facing navigation.
  */
+declare const __KNEECAP_DEBUG_TOOLS__: boolean;
+
 const DIAGNOSTICS_HASH = "#/diagnostics";
 const AUTOTEST_HASH = "#/autotest";
 
@@ -40,18 +48,24 @@ async function autotestFlagPresent(): Promise<boolean> {
 }
 
 async function boot() {
-	// Sign in with publik (src/publik/): the gate runs before every screen of
-	// the app, the hidden routes below included. A phone that is signed in
-	// passes at once; PUBLIK_SELF_TEST=1 prints the self-test line and ends.
-	const { runPublikGate } = await import("./publik/gate-ui");
-	await runPublikGate();
+	// Sign in with publik (src/publik/): with PUBLIK_GATE_MODE=required the
+	// gate is the first screen of the app, before the first-run screen and
+	// before the hidden routes below. A phone that is signed in passes at
+	// once; PUBLIK_SELF_TEST=1 prints the self-test line and ends the app.
+	// With PUBLIK_GATE_MODE=optional there is no screen here: sign-in is a
+	// row in Settings.
+	const { runPublik, showFirstRun } = await import("./publik/gate-ui");
+	await runPublik();
+	// The native first-run screen (FirstRunView.swift / FirstRunActivity.java),
+	// once per install, AFTER the gate.
+	await showFirstRun();
 
-	if (window.location.hash.startsWith(DIAGNOSTICS_HASH)) {
+	if (__KNEECAP_DEBUG_TOOLS__ && window.location.hash.startsWith(DIAGNOSTICS_HASH)) {
 		const { mountLegacyHarness } = await import("./legacy-harness");
 		await mountLegacyHarness();
 	} else if (
-		window.location.hash.startsWith(AUTOTEST_HASH) ||
-		(await autotestFlagPresent())
+		__KNEECAP_DEBUG_TOOLS__ &&
+		(window.location.hash.startsWith(AUTOTEST_HASH) || (await autotestFlagPresent()))
 	) {
 		// End-to-end playback QA (import → persist → reopen → frames) — see
 		// autotest.tsx. Hidden debug route, same policy as #/diagnostics.
@@ -95,14 +109,15 @@ window.addEventListener("unhandledrejection", (event) => {
 	showBootError(event.reason);
 });
 
-window.addEventListener("hashchange", () => {
-	const inDiagnostics = window.location.hash.startsWith(DIAGNOSTICS_HASH);
-	const bootedDiagnostics = document.body.dataset.kneecapMode === "diagnostics";
-	if (inDiagnostics !== bootedDiagnostics) window.location.reload();
-});
+if (__KNEECAP_DEBUG_TOOLS__) {
+	window.addEventListener("hashchange", () => {
+		const inDiagnostics = window.location.hash.startsWith(DIAGNOSTICS_HASH);
+		const bootedDiagnostics = document.body.dataset.kneecapMode === "diagnostics";
+		if (inDiagnostics !== bootedDiagnostics) window.location.reload();
+	});
+}
 
-document.body.dataset.kneecapMode = window.location.hash.startsWith(DIAGNOSTICS_HASH)
-	? "diagnostics"
-	: "app";
+document.body.dataset.kneecapMode =
+	__KNEECAP_DEBUG_TOOLS__ && window.location.hash.startsWith(DIAGNOSTICS_HASH) ? "diagnostics" : "app";
 
 boot().catch(showBootError);
