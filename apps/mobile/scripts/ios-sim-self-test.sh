@@ -22,12 +22,21 @@ xcrun simctl boot "$UDID" 2>/dev/null || true
 xcrun simctl bootstatus "$UDID" -b > /dev/null
 xcrun simctl terminate "$UDID" dev.kneecap.app 2>/dev/null || true
 xcrun simctl install "$UDID" "$APP"
-OUT="$(mktemp)"
-ERR="$(mktemp)"
+# The output files go in the runner's temp folder (the simulator writes them).
+DIR="${RUNNER_TEMP:-$HOME}"
+OUT="$DIR/publik-self-test.out"
+ERR="$DIR/publik-self-test.err"
+: > "$OUT"
+: > "$ERR"
 SIMCTL_CHILD_PUBLIK_SELF_TEST=1 SIMCTL_CHILD_DO_NOT_TRACK=1 xcrun simctl launch \
 	--stdout="$OUT" --stderr="$ERR" "$UDID" dev.kneecap.app > /dev/null
 for _ in $(seq 1 90); do grep -q "publik self-test:" "$OUT" && break; sleep 2; done
 LINE="$(grep -m1 -o "publik self-test: .*" "$OUT" || true)"
+if [ -z "$LINE" ]; then
+	# Facts only, never the app's log: the output sizes, and whether the app still runs.
+	RUNNING="$(xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -c dev.kneecap.app || true)"
+	echo "publik self-test: no line in 180 s (stdout $(wc -c < "$OUT") bytes, stderr $(wc -c < "$ERR") bytes, app processes running: $RUNNING)"
+fi
 rm -f "$OUT" "$ERR"
-echo "${LINE:-publik self-test: no line in 180 s}"
+[ -n "$LINE" ] && echo "$LINE"
 case "$LINE" in "publik self-test: ok kneecap "*) ;; *) exit 1 ;; esac

@@ -2,11 +2,15 @@
 # Checks a built kneecap APK (CI: .github/workflows/mobile-ci.yml):
 #   release: no developer tools (the spike clips, spike.html, spike-assets,
 #            SpikeDiagnosticsPlugin, the kneecap-spike deep link), no CAMERA
-#            or RECORD_AUDIO permission, no "capcut" (any case) in any file.
+#            or RECORD_AUDIO permission, no "capcut" (any case) in the app's
+#            assets, resources, manifest or own compiled classes
+#            (<app build dir>, the 3rd argument). A hit in the dex files
+#            outside those classes is a library's text: it is printed as a
+#            warning.
 #   debug:   the developer tools are there (src/debug), so the spike guide
 #            still works on a debug build.
 #
-#   bash scripts/check-android-apk.sh <app.apk> <debug|release>
+#   bash scripts/check-android-apk.sh <app.apk> <debug|release> [<android/app/build>]
 set -euo pipefail
 
 APK="${1:?usage: check-android-apk.sh <app.apk> <debug|release>}"
@@ -36,7 +40,22 @@ if [ "$KIND" = "release" ]; then
 	for perm in CAMERA RECORD_AUDIO; do
 		if printf '%s\n' "$MANIFEST" | grep -q "\"android.permission.$perm\""; then bad "a release APK asks for android.permission.$perm"; fi
 	done
-	if grep -rlia capcut "$OUT"; then bad "the word CapCut is in the files listed above"; fi
+	if grep -rlia capcut "$OUT" --exclude='classes*.dex'; then bad "the word CapCut is in the files listed above"; fi
+	BUILD="${3:-}"
+	OWN=()
+	for d in "$BUILD/intermediates/javac/release" "$BUILD/tmp/kotlin-classes/release"; do
+		if [ -n "$BUILD" ] && [ -d "$d" ]; then OWN+=("$d"); fi
+	done
+	if [ "${#OWN[@]}" -eq 0 ]; then
+		echo "::warning::the app's own compiled classes were not found; only the dex files are searched"
+	elif grep -rlia capcut "${OWN[@]}"; then
+		bad "the word CapCut is in the app's own classes listed above"
+	fi
+	for dex in "$OUT"/classes*.dex; do
+		{ grep -aoiE '.{0,48}capcut.{0,48}' "$dex" || true; } | LC_ALL=C tr -c '[:print:]\n' '.' | sort -u | while IFS= read -r hit; do
+			echo "::warning::library text in $(basename "$dex"): $hit"
+		done
+	done
 else
 	spike_link || bad "a debug APK has no kneecap-spike deep link (src/debug/AndroidManifest.xml)"
 	spike_clips || bad "a debug APK has no spike test clips (src/debug/assets/spike)"

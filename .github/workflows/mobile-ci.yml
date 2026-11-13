@@ -322,7 +322,7 @@ jobs:
         # (app-release-unsigned.apk). release.yml makes the signed one.
         run: |
           ./gradlew assembleRelease --console=plain
-          bash ../scripts/check-android-apk.sh app/build/outputs/apk/release/app-release-unsigned.apk release
+          bash ../scripts/check-android-apk.sh app/build/outputs/apk/release/app-release-unsigned.apk release app/build
         working-directory: apps/mobile/android
 
       - name: Build the web bundle (gate optional) and the optional debug APK
