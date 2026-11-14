@@ -33,10 +33,11 @@
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
-            android:exported="true">
-            <!-- The M1 spike's kneecap-spike:// deep link is a developer
-                 tool: it is in src/debug/AndroidManifest.xml, so only debug
-                 builds have it. -->
+            android:exported="false">
+            <!-- Not exported: only FirstRunActivity (the launcher) starts
+                 it. The M1 spike's kneecap-spike:// deep link is a developer
+                 tool: src/debug/AndroidManifest.xml adds it and exports this
+                 activity, so only debug builds have it. -->
         </activity>
 
         <provider

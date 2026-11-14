@@ -1,7 +1,9 @@
 package dev.kneecap.app
 
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -26,11 +28,13 @@ import kotlin.system.exitProcess
  * the 3-second wallet poll, usage counting) is TypeScript:
  * apps/mobile/src/publik/publik.ts. This plugin gives it:
  *  - launchInfo: the app version, the device, and the launch settings
- *    (extras of the launching intent) named in SETTING_NAMES;
+ *    (extras of the launching intent) named in SETTING_NAMES. Only a
+ *    debuggable build reads them: a release build has no test hooks;
  *  - readFile / writeFile / removeFile: noBackupFilesDir/publik/<name>,
  *    mode 0600, for three names only (the credential, the install ID, the
  *    opt-out);
- *  - openBrowser: the sign-in page in a Custom Tab;
+ *  - openBrowser: the sign-in page in a Custom Tab; closeBrowser brings the
+ *    app back in front of it when the gate passes while it is still open;
  *  - finishSelfTest: logs the self-test line (logcat tag "publik"), then
  *    ends the app;
  *  - the "foreground" event: the app came back to the front (for example
@@ -45,8 +49,14 @@ class PublikGatePlugin : Plugin() {
 	companion object {
 		const val TAG = "publik"
 
-		/** The launch settings the gate reads. Nothing else is read. */
+		/** The launch settings the gate reads (debuggable builds only). Nothing else is read. */
+		@JvmField
 		val SETTING_NAMES = listOf("PUBLIK_SELF_TEST", "PUBLIK_API_BASE_URL", "DO_NOT_TRACK", "PUBLIK_TELEMETRY", "PUBLIK_TELEMETRY_DEBUG")
+
+		/** A debug build (the CI test APK). Launch settings are test hooks: a release build ignores them. */
+		@JvmStatic
+		fun isDebuggable(context: Context): Boolean =
+			(context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
 		private val ALLOWED_NAMES = Regex("^(apps/[a-z0-9-]+\\.json|telemetry\\.json|consent\\.json)$")
 		private val MODE_0600 = "600".toInt(8)
@@ -66,15 +76,22 @@ class PublikGatePlugin : Plugin() {
 		return File(File(context.noBackupFilesDir, "publik"), name)
 	}
 
+	/** The sign-in Custom Tab is open over the app (openBrowser), as far as this plugin knows. */
+	@Volatile
+	private var browserOpen = false
+
 	override fun handleOnResume() {
 		super.handleOnResume()
+		browserOpen = false // the app is in front: the tab is closed or behind it
 		notifyListeners("foreground", JSObject())
 	}
 
 	@PluginMethod
 	fun launchInfo(call: PluginCall) {
 		val settings = JSObject()
-		for (name in SETTING_NAMES) launchSetting(activity?.intent, name)?.let { settings.put(name, it) }
+		if (isDebuggable(context)) {
+			for (name in SETTING_NAMES) launchSetting(activity?.intent, name)?.let { settings.put(name, it) }
+		}
 		val version = try {
 			context.packageManager.getPackageInfo(context.packageName, 0).versionName
 		} catch (e: Exception) {
@@ -173,6 +190,7 @@ class PublikGatePlugin : Plugin() {
 		act.runOnUiThread {
 			try {
 				act.startActivity(intent)
+				browserOpen = true
 				call.resolve()
 			} catch (e: ActivityNotFoundException) {
 				call.reject("publik: no browser on this phone.")
@@ -180,10 +198,23 @@ class PublikGatePlugin : Plugin() {
 		}
 	}
 
-	/** A Custom Tab closes when the person closes it; the gate goes on behind it. */
+	/** The gate passed while the Custom Tab is still open: bring the app back in front of it. */
 	@PluginMethod
 	fun closeBrowser(call: PluginCall) {
-		call.resolve()
+		val act = activity
+		if (!browserOpen || act == null) return call.resolve()
+		browserOpen = false
+		act.runOnUiThread {
+			try {
+				act.startActivity(
+					Intent(act, MainActivity::class.java)
+						.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+				)
+			} catch (e: Exception) {
+				Log.w(TAG, "could not bring the app in front of the browser")
+			}
+			call.resolve()
+		}
 	}
 
 	@PluginMethod

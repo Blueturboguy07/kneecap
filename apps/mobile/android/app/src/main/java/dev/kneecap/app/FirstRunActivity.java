@@ -43,10 +43,18 @@ public class FirstRunActivity extends AppCompatActivity {
         finish();
     }
 
-    /** MainActivity gets this launch's extras: the publik launch settings
-     *  (PublikGatePlugin.SETTING_NAMES) ride on them. */
+    /** Starts the app. A debuggable build passes on the publik launch
+     *  settings (PublikGatePlugin.SETTING_NAMES) and nothing else; a release
+     *  build passes no extras. */
     private void startMain() {
-        startActivity(new Intent(this, MainActivity.class).putExtras(getIntent()));
+        Intent main = new Intent(this, MainActivity.class);
+        if (PublikGatePlugin.isDebuggable(this)) {
+            for (String name : PublikGatePlugin.SETTING_NAMES) {
+                String value = PublikGatePlugin.launchSetting(getIntent(), name);
+                if (value != null) main.putExtra(name, value);
+            }
+        }
+        startActivity(main);
         finish();
     }
 

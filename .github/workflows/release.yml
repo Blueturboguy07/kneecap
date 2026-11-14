@@ -49,8 +49,23 @@ permissions:
   contents: write
 
 jobs:
+  app-token:
+    # First: a release without the publik app token could never sign in.
+    name: publik app token is set
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the PUBLIK_APP_TOKEN secret (the value is never printed)
+        env:
+          PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
+        run: |
+          case "${PUBLIK_APP_TOKEN:-}" in
+            pat_*) echo "PUBLIK_APP_TOKEN is set." ;;
+            *) echo "::error::The repo secret PUBLIK_APP_TOKEN is empty or does not start with pat_. Set it before a release."; exit 1 ;;
+          esac
+
   invariants:
     name: invariants gate
+    needs: app-token
     uses: ./.github/workflows/bun-ci.yml
 
   android-release:

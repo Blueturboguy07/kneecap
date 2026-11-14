@@ -8,7 +8,9 @@ import UIKit
 /// The gate itself (the screens, the 3-second wallet poll, usage counting) is
 /// TypeScript: `apps/mobile/src/publik/publik.ts`. This plugin gives it:
 ///   - `launchInfo`: the app version, the device, and the launch settings
-///     (environment, else `-NAME value` launch arguments) named in `settingNames`;
+///     (environment, else `-NAME value` launch arguments) named in `settingNames`.
+///     PUBLIK_API_BASE_URL is a test hook: only a Debug build, or a build with the
+///     Swift condition PUBLIK_TEST_HOOKS, reads it;
 ///   - `readFile` / `writeFile` / `removeFile`: `Application Support/publik/<name>`, mode 0600,
 ///     not backed up, for three names only (the credential, the install ID, the opt-out);
 ///   - `openBrowser` / `closeBrowser`: the sign-in page in an SFSafariViewController;
@@ -37,7 +39,11 @@ public class PublikGatePlugin: CAPPlugin, CAPBridgedPlugin, SFSafariViewControll
     /// The launch settings the gate reads. Nothing else is read.
     /// `SIMCTL_CHILD_PUBLIK_SELF_TEST=1 xcrun simctl launch ...` sets the environment;
     /// `xcrun simctl launch <device> dev.kneecap.app -PUBLIK_SELF_TEST 1` passes an argument.
+    #if DEBUG || PUBLIK_TEST_HOOKS
     static let settingNames = ["PUBLIK_SELF_TEST", "PUBLIK_API_BASE_URL", "DO_NOT_TRACK", "PUBLIK_TELEMETRY", "PUBLIK_TELEMETRY_DEBUG"]
+    #else
+    static let settingNames = ["PUBLIK_SELF_TEST", "DO_NOT_TRACK", "PUBLIK_TELEMETRY", "PUBLIK_TELEMETRY_DEBUG"]
+    #endif
 
     static func launchSetting(_ name: String) -> String? {
         if let value = ProcessInfo.processInfo.environment[name], !value.isEmpty { return value }

@@ -6,6 +6,9 @@
  * sign-in, the PUBLIK_API_BASE_URL test hook, and the self-test line.
  * Then the two gate modes (PUBLIK_GATE_MODE) and the Settings actions:
  * sign-in from Settings, Sign out, Delete account and the usage switch.
+ * Then the store-review fixes: a key file that cannot be saved, answers that
+ * are not publik's (a captive portal, 408, 429), the limit on new keys after
+ * a 401, and the usage timer in the background.
  *
  * Run: bun test apps/mobile/test (outside src/: apps/mobile's tsconfig has
  * no bun types).
@@ -39,21 +42,35 @@ const ORIGIN = "https://publikhq.com";
 
 function phone(settings: PublikLaunch["settings"] = {}) {
 	const files = new Map<string, string>();
-	const requests: Array<{ method: string; url: string; auth: string | null; body: Record<string, unknown> | null }> = [];
+	const requests: Array<{ method: string; url: string; auth: string | null; body: Record<string, unknown> | null; timeoutMs: number; keyFileThere: boolean }> = [];
 	const opened: string[] = [];
 	const selfTest: string[] = [];
 	let foreground: (() => void) | null = null;
-	const server = { offline: false, installsStatus: 201, walletStatus: 200, wallets: [anonymous] as WalletBody[] };
+	let background: (() => void) | null = null;
+	const server = {
+		offline: false,
+		installsStatus: 201,
+		walletStatus: 200,
+		wallets: [anonymous] as WalletBody[],
+		/** Every request gets this answer (a captive portal, a proxy, a rate limit). */
+		answerAll: null as { status: number; data: unknown } | null,
+		/** POST /installs/revoke never answers. */
+		hangRevoke: false,
+		/** How many more file writes work; then writeFile answers false. */
+		writesLeft: Number.POSITIVE_INFINITY,
+	};
 	const host: PublikHost = {
 		async launch() {
 			return { platform: "ios", appVersion: "1.0.1", deviceName: "iPhone", arch: "arm64", settings };
 		},
 		async request(req: PublikRequest) {
 			await new Promise((r) => setTimeout(r, 0)); // a real request never answers in the same tick
-			requests.push({ method: req.method, url: req.url, auth: req.headers.Authorization ?? null, body: req.body ? JSON.parse(req.body) : null });
+			requests.push({ method: req.method, url: req.url, auth: req.headers.Authorization ?? null, body: req.body ? JSON.parse(req.body) : null,
+				timeoutMs: req.timeoutMs, keyFileThere: files.has("apps/kneecap.json") });
 			if (server.offline) throw new Error("The Internet connection appears to be offline.");
+			if (server.answerAll) return server.answerAll;
 			const path = new URL(req.url).pathname;
-			if (path.endsWith("/installs/revoke")) return { status: 204, data: "" };
+			if (path.endsWith("/installs/revoke")) return server.hangRevoke ? new Promise<never>(() => {}) : { status: 204, data: "" };
 			if (path.endsWith("/installs")) {
 				if (server.installsStatus !== 201) return { status: server.installsStatus, data: { error: { type: "invalid_app_token", message: "This app token is not valid." } } };
 				const sent = JSON.parse(req.body ?? "{}") as { install_id: string };
@@ -72,6 +89,8 @@ function phone(settings: PublikLaunch["settings"] = {}) {
 		},
 		async writeFile({ name, text, exclusive }) {
 			if (exclusive && files.has(name)) return false;
+			if (server.writesLeft <= 0) return false;
+			server.writesLeft--;
 			files.set(name, text);
 			return true;
 		},
@@ -92,9 +111,15 @@ function phone(settings: PublikLaunch["settings"] = {}) {
 				foreground = null;
 			};
 		},
+		onBackground(listener) {
+			background = listener;
+			return () => {
+				background = null;
+			};
+		},
 		async showFirstRun() {},
 	};
-	return { host, files, requests, opened, selfTest, server, comeToFront: () => foreground?.() };
+	return { host, files, requests, opened, selfTest, server, comeToFront: () => foreground?.(), goToBackground: () => background?.() };
 }
 
 /** Presses a button by screen title, or the first button of a screen with no note; else waits. Gives up after 7 screens of one title. */
@@ -241,7 +266,9 @@ describe("the publik gate on a phone", () => {
 		const ok = await run(() => {});
 		expect(ok.selfTest).toEqual(["publik self-test: ok kneecap 1.0.1"]);
 		expect(ok.requests.map((r) => new URL(r.url).pathname)).toEqual(["/api/v1/installs", "/api/v1/wallet"]);
-		expect((await run((p) => (p.server.walletStatus = 500))).selfTest).toEqual(["publik self-test: failed: This key is not valid."]);
+		// A server error says nothing about the key: publik is not reachable.
+		expect((await run((p) => (p.server.walletStatus = 500))).selfTest).toEqual(["publik self-test: failed: publik is not reachable. Check your connection."]);
+		expect((await run((p) => (p.server.walletStatus = 403))).selfTest).toEqual(["publik self-test: failed: This key is not valid."]);
 		expect((await run((p) => (p.server.offline = true))).selfTest).toEqual(["publik self-test: failed: publik is not reachable. Check your connection."]);
 		expect((await run((p) => (p.server.installsStatus = 401))).selfTest).toEqual(["publik self-test: failed: This app token is not valid."]);
 	});
@@ -394,5 +421,195 @@ describe("Settings: Sign out, Delete account, usage counting", () => {
 		const locked = await signedInPhone({ DO_NOT_TRACK: "1" });
 		expect(await gate.usageCounting()).toEqual({ on: false, locked: true });
 		expect(telemetry(locked)).toEqual([]);
+	});
+});
+
+const PORTAL_PAGE = "<html><body>Sign in to the Wi-Fi to continue.</body></html>";
+const installs = (p: ReturnType<typeof phone>) => p.requests.filter((r) => r.url.endsWith("/installs"));
+
+describe("store review: Sign out and Delete account (item 3)", () => {
+	async function signedInPhone() {
+		const p = phone();
+		p.server.wallets = [claimed];
+		await gate.ensureSignedIn(scriptedUI(p).ui, p.host);
+		await tick();
+		return p;
+	}
+
+	it("Sign out deletes the key file before it asks publik to revoke the key, stops usage counting, and gives publik at most 3 s", async () => {
+		const p = await signedInPhone();
+		expect(gate._telemetryTimerRunning()).toBe(true);
+		await gate.signOut();
+		const revoke = p.requests.find((r) => r.url.endsWith("/installs/revoke"))!;
+		expect(revoke).toMatchObject({ auth: "Bearer pk_live_gatetest", keyFileThere: false });
+		expect(revoke.timeoutMs).toBeLessThanOrEqual(3_000);
+		expect(gate._telemetryTimerRunning()).toBe(false);
+		expect(gate.getStatus().signedIn).toBe(false);
+	});
+
+	it("Sign out finishes when publik never answers the revoke", async () => {
+		const p = await signedInPhone();
+		p.server.hangRevoke = true;
+		const started = Date.now();
+		await gate.signOut();
+		expect(Date.now() - started).toBeLessThan(4_500);
+		expect(p.files.has("apps/kneecap.json")).toBe(false);
+		expect(gate.getStatus().signedIn).toBe(false);
+	}, 10_000);
+
+	it("Delete account deletes the files first and stops usage counting, also when publik is not reachable", async () => {
+		const p = await signedInPhone();
+		p.server.offline = true;
+		await gate.deletePublikData();
+		expect(p.files.has("apps/kneecap.json")).toBe(false);
+		expect(p.files.has("telemetry.json")).toBe(false);
+		expect(gate._telemetryTimerRunning()).toBe(false);
+		expect(p.requests.find((r) => r.url.endsWith("/installs/revoke"))!.keyFileThere).toBe(false);
+	});
+});
+
+describe("store review: a key file that cannot be saved (item 4)", () => {
+	it("shows the not-reachable screen with Retry, never an error page", async () => {
+		const p = phone();
+		p.server.writesLeft = 0;
+		const { ui, seen } = scriptedUI(p);
+		await expect(gate.ensureSignedIn(ui, p.host)).rejects.toThrow("gave up");
+		expect(seen.length).toBe(7);
+		for (const s of seen) {
+			expect(s).toMatchObject({ id: "unreachable", body: "publik could not save this phone's key.", buttons: [{ action: "retry", label: WORDS.retry }] });
+		}
+	});
+
+	it("passes when the sign-in time cannot be saved (claimed_at is best effort)", async () => {
+		const p = phone();
+		p.server.wallets = [claimed];
+		p.server.writesLeft = 1; // the key file only
+		const { ui, seen } = scriptedUI(p);
+		expect(await gate.ensureSignedIn(ui, p.host)).toMatchObject({ key: "pk_live_gatetest", offline: false });
+		expect(seen).toEqual([]);
+		expect(JSON.parse(p.files.get("apps/kneecap.json")!).claimed_at).toBeNull();
+	});
+});
+
+describe("store review: answers that are not publik's (item 5)", () => {
+	async function claimedThenReset() {
+		const p = phone();
+		p.server.wallets = [claimed];
+		await gate.ensureSignedIn(scriptedUI(p).ui, p.host);
+		await tick();
+		gate._resetForTests();
+		p.requests.length = 0;
+		return p;
+	}
+
+	it("a captive portal's page (200, not JSON) is 'not reachable' on a phone that never signed in", async () => {
+		const p = phone();
+		p.server.answerAll = { status: 200, data: PORTAL_PAGE };
+		const { ui, seen } = scriptedUI(p);
+		await expect(gate.ensureSignedIn(ui, p.host)).rejects.toThrow("gave up");
+		expect(seen[0]).toMatchObject({ id: "unreachable", body: WORDS.unreachable });
+		expect(p.files.has("apps/kneecap.json")).toBe(false);
+	});
+
+	it("a signed-in phone behind a captive portal opens with the offline pass and keeps its key", async () => {
+		const p = await claimedThenReset();
+		p.server.answerAll = { status: 200, data: PORTAL_PAGE };
+		const { ui, seen } = scriptedUI(p);
+		expect(await gate.ensureSignedIn(ui, p.host)).toMatchObject({ key: "pk_live_gatetest", offline: true });
+		expect(seen).toEqual([]);
+		expect(JSON.parse(p.files.get("apps/kneecap.json")!).key).toBe("pk_live_gatetest");
+	});
+
+	it("a 401 page that is not publik's JSON does not throw the key away or get a new one", async () => {
+		const p = await claimedThenReset();
+		p.server.answerAll = { status: 401, data: PORTAL_PAGE };
+		expect(await gate.ensureSignedIn(scriptedUI(p).ui, p.host)).toMatchObject({ offline: true });
+		expect(installs(p)).toEqual([]);
+		expect(p.files.has("apps/kneecap.json")).toBe(true);
+	});
+
+	it("a JSON 401 without publik's error object does not throw the key away", async () => {
+		const p = await claimedThenReset();
+		p.server.answerAll = { status: 401, data: { message: "proxy sign-in required" } };
+		expect(await gate.ensureSignedIn(scriptedUI(p).ui, p.host)).toMatchObject({ offline: true });
+		expect(installs(p)).toEqual([]);
+	});
+
+	it("a 2xx that is not a wallet is 'not reachable'", async () => {
+		const p = await claimedThenReset();
+		p.server.answerAll = { status: 200, data: { ok: true } };
+		expect(await gate.ensureSignedIn(scriptedUI(p).ui, p.host)).toMatchObject({ offline: true });
+	});
+
+	for (const status of [408, 429]) {
+		it(`${status} is 'not reachable': Retry on a new phone, the offline pass on a signed-in phone`, async () => {
+			const answer = { status, data: { error: { type: "rate_limited", message: "Slow down." } } };
+			const fresh = phone();
+			fresh.server.answerAll = answer;
+			const { ui, seen } = scriptedUI(fresh);
+			await expect(gate.ensureSignedIn(ui, fresh.host)).rejects.toThrow("gave up");
+			expect(seen[0]).toMatchObject({ id: "unreachable", body: WORDS.unreachable });
+			gate._resetForTests();
+			const p = await claimedThenReset();
+			p.server.answerAll = answer;
+			expect(await gate.ensureSignedIn(scriptedUI(p).ui, p.host)).toMatchObject({ offline: true });
+		});
+	}
+
+	it("after publik's own 401 the gate gets at most 2 new keys, then shows publik's message with Retry", async () => {
+		const p = phone();
+		p.server.walletStatus = 401;
+		const shown: GateScreen[] = [];
+		const stopUI = {
+			show: (s: GateScreen) => {
+				shown.push(s);
+				return Promise.reject(new Error("stop"));
+			},
+			openUrl: () => undefined,
+		};
+		await expect(gate.ensureSignedIn(stopUI, p.host)).rejects.toThrow("stop");
+		expect(installs(p).length).toBe(3); // the first key and 2 new ones
+		expect(shown).toHaveLength(1);
+		expect(shown[0]).toMatchObject({ id: "unreachable", body: "This key is not valid.", buttons: [{ action: "retry" }] });
+	});
+
+	it("uses PUBLIK_API_BASE_URL only for this computer or the local network (this build has no PUBLIK_TEST_HOOKS)", async () => {
+		expect(gate.testBaseUrl("https://publik.example.net/api/v1")).toBeNull();
+		expect(gate.testBaseUrl("file:///etc/hosts")).toBeNull();
+		expect(gate.testBaseUrl("http://localhost:8787/api/v1/")).toBe("http://localhost:8787/api/v1");
+		expect(gate.testBaseUrl("http://10.0.2.2:8787/api/v1")).toBe("http://10.0.2.2:8787/api/v1");
+		expect(gate.testBaseUrl("http://my-mac.local:8787/api/v1")).toBe("http://my-mac.local:8787/api/v1");
+		expect(gate.testBaseUrl("http://[::1]:8787/api/v1")).toBe("http://[::1]:8787/api/v1");
+		const p = phone({ PUBLIK_API_BASE_URL: "https://publik.example.net/api/v1" });
+		p.server.wallets = [claimed];
+		await gate.ensureSignedIn(scriptedUI(p).ui, p.host);
+		expect(p.requests.length).toBeGreaterThan(0);
+		expect(p.requests.every((r) => r.url.startsWith(`${ORIGIN}/api/v1/`))).toBe(true);
+	});
+});
+
+describe("store review: the usage timer in the background (item 8)", () => {
+	it("stops the 30-minute timer in the background and starts it again in front, with no new app_opened", async () => {
+		const p = phone();
+		p.server.wallets = [claimed];
+		await gate.ensureSignedIn(scriptedUI(p).ui, p.host);
+		await tick();
+		expect(gate._telemetryTimerRunning()).toBe(true);
+		p.goToBackground();
+		expect(gate._telemetryTimerRunning()).toBe(false);
+		p.comeToFront();
+		expect(gate._telemetryTimerRunning()).toBe(true);
+		await tick();
+		expect(telemetry(p).map((r) => r.body!.event)).toEqual(["app_opened"]);
+	});
+
+	it("does not start the timer in front again after a sign-out", async () => {
+		const p = phone();
+		p.server.wallets = [claimed];
+		await gate.ensureSignedIn(scriptedUI(p).ui, p.host);
+		p.goToBackground();
+		await gate.signOut();
+		p.comeToFront();
+		expect(gate._telemetryTimerRunning()).toBe(false);
 	});
 });

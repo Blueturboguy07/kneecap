@@ -11,9 +11,15 @@
  *    publik's delete-account page in the in-app browser (App Store guideline
  *    5.1.1(v)).
  *  - "Count app use": the usage-counting switch (consent.json).
+ *  - "Licenses": the third-party software and its licenses (licenses-screen.tsx).
+ *
+ * Sign out and Delete account act on this phone first (the key file goes,
+ * usage counting stops); revoking the key at publik is best effort with a
+ * short time limit (publik.ts, forget), so they finish without a network.
  */
 import { getPublikHost } from "@kneecap/native-bridge/publik-host";
 import { useEffect, useRef, useState } from "react";
+import { LicensesScreen } from "./licenses-screen";
 import {
 	DELETE_ACCOUNT_URL,
 	deletePublikData,
@@ -43,6 +49,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 	const [usage, setUsage] = useState<{ on: boolean; locked: boolean } | null>(null);
 	const [note, setNote] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [page, setPage] = useState<"settings" | "licenses">("settings");
 	const signInAbort = useRef<AbortController | null>(null);
 
 	useEffect(() => {
@@ -84,13 +91,14 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 				: "Sign out of publik? kneecap keeps working. Usage counting stops.";
 		if (!window.confirm(question)) return;
 		setBusy(true);
-		setNote(null);
+		setNote("Signing out…");
 		try {
 			await signOut();
 			if (status.mode === "required") {
 				window.location.reload();
 				return;
 			}
+			setNote(null);
 		} catch (err) {
 			setNote(messageOf(err));
 		} finally {
@@ -106,7 +114,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 			"kneecap now deletes its publik data on this phone. Then the publik page opens, where you confirm the deletion.";
 		if (!window.confirm(question)) return;
 		setBusy(true);
-		setNote(null);
+		setNote("Deleting your publik data on this phone…");
 		try {
 			await deletePublikData();
 			await getPublikHost().openUrl({ url: DELETE_ACCOUNT_URL });
@@ -137,6 +145,8 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 	const account = status.signedIn
 		? `${status.handle ? `Signed in as @${status.handle}` : "Signed in to publik"}${status.offline ? ". publik is not reachable now." : ""}`
 		: null;
+
+	if (page === "licenses") return <LicensesScreen onBack={() => setPage("settings")} />;
 
 	return (
 		<div className="kc-settings" data-kneecap-theme="kneecap-mobile">
@@ -208,6 +218,15 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 						When you are signed in, kneecap tells publik when the app opens, and every 30 minutes while it stays
 						open. It sends no videos, photos or project data.
 					</p>
+				</section>
+				<section className="kc-settings__section" aria-labelledby="kc-settings-about">
+					<h2 id="kc-settings-about">About</h2>
+					<div className="kc-settings__group">
+						<button type="button" className="kc-settings__row" onClick={() => setPage("licenses")}>
+							<span>Licenses</span>
+							<span aria-hidden="true">›</span>
+						</button>
+					</div>
 				</section>
 			</div>
 		</div>

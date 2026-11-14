@@ -98,7 +98,11 @@ CI builds both (`ios-sim-app` / `android-debug-apk` = required,
 Start order, both modes: the WebView loads, the gate runs (required mode
 only), then `showFirstRun()` asks the native side to show the first-run
 screen (`FirstRunView.swift` / `FirstRunActivity.java`, once per install),
-then the editor opens.
+then the editor opens. The editor waits at most 1.5 s for `showFirstRun()`
+(`src/main.ts`), so a first-run screen that does not answer cannot block it.
+When the gate passes while the sign-in page is still open, `closeBrowser()`
+brings the app back in front (iOS: dismiss; Android: MainActivity with
+`CLEAR_TOP | SINGLE_TOP`).
 
 - **Sign in with publik** opens the sign-in page in the in-app browser
   (SFSafariViewController / a Custom Tab). The app checks the wallet every
@@ -108,29 +112,63 @@ then the editor opens.
 - **Settings** (the "Settings" button on the home screen,
   `src/app/settings-screen.tsx`):
   - **Sign in with publik** (optional mode, signed out).
-  - **Sign out**: revokes this phone's install key on publik
-    (`POST /api/v1/installs/revoke`; skipped when publik does not answer) and
-    deletes it from the phone. In required mode the gate shows again.
-  - **Delete account**: deletes the publik data on this phone (the key and
-    the install ID; the usage opt-out stays), then opens
+  - **Sign out** ("Signing out…"): keeps the key in memory, deletes the key
+    file first, stops usage counting, then asks publik to revoke the key
+    (`POST /api/v1/installs/revoke`; best effort, at most 3 s). It finishes
+    without a network. In required mode the gate shows again.
+  - **Delete account**: the same order for the publik data on this phone
+    (the key and the install ID; the usage opt-out stays), then opens
     `https://publikhq.com/settings/profile#delete-account-title` in the
     in-app browser, where the person confirms.
   - **Count app use**: the usage-counting switch (`consent.json`). It is
     off and locked when `DO_NOT_TRACK` or `PUBLIK_TELEMETRY=0` is set.
+  - **Licenses** (`src/app/licenses-screen.tsx`): the third-party software
+    in the app and its license texts, from
+    `public/licenses/third-party-licenses.json`. After a dependency change,
+    run `python3 apps/mobile/scripts/generate-licenses.py` (it reads the
+    installed `node_modules`) and commit the JSON. soundtouchjs is LGPL-2.1:
+    its entry has the full text and the source link.
 - `USES_AI = false`: kneecap calls no model, so there is no plan screen and
   no own-key choice.
 - Offline: the first sign-in needs the network. After that, a phone that
   signed in opens the app when publik does not answer
   (`OFFLINE_AFTER_SIGN_IN`). If publik later says the phone is signed out,
   the gate shows again.
+- "Not reachable" also means an answer that is not publik's: a body that is
+  not JSON (a captive portal or a proxy page), 408, 429, 5xx, a 2xx that is
+  not a wallet, and a 401 without publik's JSON error. Only publik's own
+  JSON 401 deletes the key; then the gate gets at most 2 new keys and shows
+  publik's message with Retry. A failed file write shows the not-reachable
+  screen with Retry; `claimed_at` writes are best effort.
 - Usage counting: `app_opened` after a sign-in, then `active_session` every
-  30 minutes, with the install key. `DO_NOT_TRACK=1`, `PUBLIK_TELEMETRY=0` or
-  `consent.json` with `"usage": false` (the Settings switch) turns it off.
+  30 minutes while the app is in front, with the install key. The timer
+  stops in the background and starts again in front (no new `app_opened`).
+  `DO_NOT_TRACK=1`, `PUBLIK_TELEMETRY=0` or `consent.json` with
+  `"usage": false` (the Settings switch) turns it off.
 - The app token (`pat_`) comes from `PUBLIK_APP_TOKEN` at `bun run build`
-  (`vite.config.ts`); CI passes the repo secret of that name.
+  (`vite.config.ts`); CI passes the repo secret of that name. A store build
+  (`bun run build`, not `build:debug-tools`) without a `pat_` token fails;
+  `PUBLIK_ALLOW_NO_TOKEN=1` allows it (CI sets it only for a fork's pull
+  request, which gets no secrets). `scripts/check-web-bundle.sh` also fails
+  when no `pat_` token is in `www/assets` (it never prints the value), and
+  `release.yml` fails first when the secret is empty.
 
 Launch settings (iOS: environment or `-NAME value` launch arguments;
-Android: intent extras). The app reads only these:
+Android: intent extras). The app reads only these. They are test hooks:
+
+- Android reads them only in a debuggable build (`FLAG_DEBUGGABLE`, the CI
+  debug APK). A release build ignores them. `FirstRunActivity` passes on
+  only these 5 names, and only in a debuggable build. `MainActivity` is not
+  exported in `src/main` (only `src/debug` exports it, for the spike deep
+  link).
+- iOS reads `PUBLIK_API_BASE_URL` only in a Debug build or a build with the
+  Swift condition `PUBLIK_TEST_HOOKS`. Only those builds get
+  `NSAllowsLocalNetworking` (the "Debug-only items" build phase); a Release
+  build with it fails.
+- The web side (`testBaseUrl()` in `publik.ts`) accepts a
+  `PUBLIK_API_BASE_URL` only on this computer or the local network
+  (localhost, 127.x, ::1, 10.0.2.2, `*.local`), unless the bundle was built
+  with `PUBLIK_TEST_HOOKS=1`. Never ship a `PUBLIK_TEST_HOOKS` build.
 
 ```sh
 # Self-test of the built app: prints one line, then exits.
@@ -144,7 +182,8 @@ adb shell am start -n dev.kneecap.app/.FirstRunActivity --es PUBLIK_API_BASE_URL
 ```
 
 Unit tests: `bun test apps/mobile/test` (from the repo root). They cover both
-gate modes and the Settings actions.
+gate modes, the Settings actions, answers that are not publik's, a key file
+that cannot be saved, and the usage timer in the background.
 
 ## Store build items
 
@@ -156,9 +195,20 @@ gate modes and the Settings actions.
   answers the same as this file.
 - **Developer tools are in debug builds only**: web (`KNEECAP_DEBUG_TOOLS`,
   `vite.config.ts`), iOS (`#if DEBUG`, plus the "Debug-only items" build
-  phase, which adds the `kneecap-spike://` scheme in Debug and fails a
-  Release build that has a developer tool), Android (`src/debug`: the spike
-  clips, `SpikeDiagnosticsPlugin.java`, the deep link).
+  phase, which adds the `kneecap-spike://` scheme and
+  `NSAllowsLocalNetworking` in Debug and fails a Release build that has a
+  developer tool or `NSAllowsLocalNetworking`), Android (`src/debug`: the
+  spike clips, `SpikeDiagnosticsPlugin.java`, the deep link; the
+  `checkReleaseWebBundle` Gradle task fails a release build when
+  `spike.html` or the debug chunks are in `assets/public`).
+- **Gate-mode marker**: `src/main.ts` puts `publik-gate-mode:<mode>` in the
+  bundle. `scripts/check-web-bundle.sh www <required|optional>` fails when
+  the marker is missing or is the other mode, so CI proves each build's
+  mode. A missing or unknown mode argument is an error.
+- **Fonts**: the font picker's list (`public/fonts/font-atlas.json` and its
+  preview images) has no TikTok Sans: TikTok and CapCut are one company
+  (guidelines 4.1 and 5.2). Only Inter and Albert Sans ship as font files.
+- **Licenses**: Settings > Licenses (see above).
 - **No camera or microphone permission**: the app never asks for them.
   Android's `NativeBridgePlugin.kt` has a camera-capture path that no screen
   calls; add `CAMERA` back to the manifest before a screen uses it.

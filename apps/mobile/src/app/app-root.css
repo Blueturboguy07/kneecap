@@ -410,3 +410,49 @@ body {
 	color: var(--cc-text-secondary, #8b8a90);
 	margin: 8px 4px 0;
 }
+
+/* Settings > Licenses (licenses-screen.tsx). */
+.kc-licenses__item + .kc-licenses__item {
+	border-top: 1px solid rgb(255 255 255 / 8%);
+}
+
+.kc-licenses__item > summary {
+	list-style: none;
+	cursor: pointer;
+}
+
+.kc-licenses__item > summary::-webkit-details-marker {
+	display: none;
+}
+
+.kc-licenses__kind {
+	flex-shrink: 0;
+	font-size: 13px;
+	color: var(--cc-text-secondary, #8b8a90);
+}
+
+.kc-licenses__body {
+	padding: 0 16px 16px;
+}
+
+.kc-licenses__source {
+	font-family: inherit;
+	display: block;
+	margin: 8px 0;
+	padding: 0;
+	border: none;
+	background: none;
+	color: var(--cc-accent, #00cae0);
+	font-size: 13px;
+	text-align: left;
+	overflow-wrap: anywhere;
+}
+
+.kc-licenses__text {
+	margin: 0;
+	font-size: 11px;
+	line-height: 1.4;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	color: var(--cc-text-secondary, #8b8a90);
+}

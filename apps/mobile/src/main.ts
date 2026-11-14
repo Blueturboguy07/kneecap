@@ -19,6 +19,11 @@
  * this is a hidden debug switch, not user-facing navigation.
  */
 declare const __KNEECAP_DEBUG_TOOLS__: boolean;
+/** "publik-gate-mode:required" or "publik-gate-mode:optional" (vite.config.ts). CI reads it in the built bundle
+ *  (scripts/check-web-bundle.sh) to prove which gate mode a build has. */
+declare const __PUBLIK_GATE_MARKER__: string;
+/** The editor waits at most this long for the native first-run screen; the screen covers the app anyway. */
+const FIRST_RUN_WAIT_MS = 1_500;
 
 const DIAGNOSTICS_HASH = "#/diagnostics";
 const AUTOTEST_HASH = "#/autotest";
@@ -57,8 +62,9 @@ async function boot() {
 	const { runPublik, showFirstRun } = await import("./publik/gate-ui");
 	await runPublik();
 	// The native first-run screen (FirstRunView.swift / FirstRunActivity.java),
-	// once per install, AFTER the gate.
-	await showFirstRun();
+	// once per install, AFTER the gate. It covers the app, so the editor may
+	// mount under it: the wait has a limit.
+	await Promise.race([showFirstRun(), new Promise<void>((resolve) => setTimeout(resolve, FIRST_RUN_WAIT_MS))]);
 
 	if (__KNEECAP_DEBUG_TOOLS__ && window.location.hash.startsWith(DIAGNOSTICS_HASH)) {
 		const { mountLegacyHarness } = await import("./legacy-harness");
@@ -116,6 +122,8 @@ if (__KNEECAP_DEBUG_TOOLS__) {
 		if (inDiagnostics !== bootedDiagnostics) window.location.reload();
 	});
 }
+
+document.documentElement.dataset.publikGateMode = __PUBLIK_GATE_MARKER__;
 
 document.body.dataset.kneecapMode =
 	__KNEECAP_DEBUG_TOOLS__ && window.location.hash.startsWith(DIAGNOSTICS_HASH) ? "diagnostics" : "app";

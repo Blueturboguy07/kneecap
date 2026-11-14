@@ -91,6 +91,34 @@ android {
     }
 }
 
+// App Store / Play rule (guideline 2.5.19): a release build has no developer
+// tools. The web bundle in src/main/assets/public comes from `bun run build`
+// + `cap sync`; this fails a release build when it came from
+// `bun run build:debug-tools` instead (spike.html, the spike clips, or the
+// #/diagnostics, #/autotest and spike chunks). Debug builds are not checked.
+def webBundleDir = file("src/main/assets/public")
+def checkReleaseWebBundle = tasks.register("checkReleaseWebBundle") {
+    inputs.dir(webBundleDir).optional()
+    doLast {
+        def found = []
+        if (new File(webBundleDir, "spike.html").exists()) found << "spike.html"
+        if (new File(webBundleDir, "spike-assets").exists()) found << "spike-assets/"
+        def assetsDir = new File(webBundleDir, "assets")
+        if (assetsDir.isDirectory()) {
+            assetsDir.listFiles().each { f ->
+                if (f.name ==~ /^(legacy-harness|autotest|spike)-.*/) found << "assets/" + f.name
+            }
+        }
+        if (!found.isEmpty()) {
+            throw new GradleException("A release build has developer tools in src/main/assets/public: " + found.join(", ") +
+                ". Build the web bundle with 'bun run build' (not build:debug-tools), then 'bunx cap sync android'.")
+        }
+    }
+}
+tasks.configureEach { task ->
+    if (task.name == "preReleaseBuild") task.dependsOn(checkReleaseWebBundle)
+}
+
 repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'

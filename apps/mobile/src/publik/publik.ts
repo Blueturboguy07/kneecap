@@ -20,7 +20,12 @@
 // Self-test: the launch setting PUBLIK_SELF_TEST=1 makes it print `publik self-test: ok kneecap <version>`
 // after a real GET /wallet answers, and end the app.
 // Test hook: the launch setting PUBLIK_API_BASE_URL (for example http://127.0.0.1:8787/api/v1) replaces
-// https://publikhq.com/api/v1 for every call below.
+// https://publikhq.com/api/v1 for every call below, but only for a server on this computer or local network
+// (localhost, 127.x, ::1, the Android emulator's 10.0.2.2, *.local), unless the build has PUBLIK_TEST_HOOKS=1
+// (vite.config.ts). The phone reads launch settings only in a debug build (Android: debuggable; iOS: Debug
+// for PUBLIK_API_BASE_URL).
+// publik is "not reachable" when the request does not complete, and also when the answer is not publik's
+// (not JSON: a captive portal or a proxy page; 408, 429 or 5xx). Only publik's own JSON 401 ends a key.
 import type { PublikFileName, PublikHost, PublikLaunch } from "@kneecap/native-bridge/publik-host";
 
 export const APP_SLUG = "kneecap";
@@ -46,6 +51,14 @@ const NOT_REACHABLE = "publik is not reachable. Check your connection.";
 /** The publik app token (pat_), put in at build time from PUBLIK_APP_TOKEN (vite.config.ts). Public by design. */
 declare const __PUBLIK_APP_TOKEN__: string | undefined;
 const BUILD_APP_TOKEN = typeof __PUBLIK_APP_TOKEN__ === "string" ? __PUBLIK_APP_TOKEN__.trim() : "";
+/** PUBLIK_TEST_HOOKS=1 at build time (vite.config.ts): PUBLIK_API_BASE_URL may name any server (CI live tests). */
+declare const __PUBLIK_TEST_HOOKS__: boolean | undefined;
+const TEST_HOOKS = typeof __PUBLIK_TEST_HOOKS__ === "boolean" && __PUBLIK_TEST_HOOKS__;
+/** A new key after publik's 401, at most this many times in a row; then the gate shows the error with Retry. */
+const MAX_NEW_KEYS = 2;
+/** Sign out and Delete account wait at most this long for publik to revoke the key. */
+const REVOKE_TIMEOUT_MS = 3_000;
+const ACTIVE_SESSION_MS = 1_800 * 1000;
 
 export type Choice = "publik" | "own_key";
 export interface PublikCredential { key: string; base_url: string; install_id: string; claim_url: string | null; choice?: Choice | null; claimed_at?: string | null }
@@ -66,6 +79,34 @@ export type SignInResult = "signed_in" | "timeout" | "cancelled";
 /** The request did not complete, or publik answered with a server error. */
 class Unreachable extends Error {}
 
+const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** Resolves true when `p` resolves, false when it rejects. For writes that may fail without stopping the app. */
+const quietly = (p: Promise<unknown>) => p.then(() => true, () => false);
+/** `p`, or undefined after `ms`. */
+function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<undefined>((resolve) => { t = setTimeout(resolve, ms, undefined); });
+  return Promise.race([p, late]).finally(() => clearTimeout(t));
+}
+
+/**
+ * PUBLIK_API_BASE_URL when this build may use it: a server on this computer or local network (localhost, 127.x,
+ * ::1, the Android emulator's 10.0.2.2, *.local), or any http(s) server in a PUBLIK_TEST_HOOKS build. Else null:
+ * the module uses https://publikhq.com/api/v1.
+ */
+export function testBaseUrl(raw: string | undefined): string | null {
+  const value = raw?.trim().replace(/\/+$/, "");
+  if (!value) return null;
+  let hostname: string;
+  try {
+    const u = new URL(value);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    hostname = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch { return null; }
+  const local = hostname === "localhost" || /^127\./.test(hostname) || hostname === "::1" || hostname === "10.0.2.2" || hostname.endsWith(".local");
+  return local || TEST_HOOKS ? value : null;
+}
+
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json | null => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Json) : null);
 const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
@@ -76,6 +117,8 @@ let launch: PublikLaunch;
 let apiBase: string | null = null;
 const wakers = new Set<() => void>();
 let foregroundOff: (() => void) | null = null;
+let backgroundOff: (() => void) | null = null;
+let inBackground = false;
 let mode: GateMode = GATE_MODE;
 let session: { handle: string | null; offline: boolean } | null = null;
 let checking = false;
@@ -95,10 +138,20 @@ function notify(): void { const s = getStatus(); for (const l of [...statusListe
 /** Binds the module to the phone. ensureSignedIn() calls it; tests call it with a fake host. */
 export async function attachHost(h: PublikHost): Promise<PublikLaunch> {
   foregroundOff?.();
+  backgroundOff?.();
   host = h;
   launch = await h.launch();
-  apiBase = launch.settings.PUBLIK_API_BASE_URL?.trim().replace(/\/+$/, "") || null;
-  foregroundOff = h.onForeground(() => { for (const wake of [...wakers]) wake(); });
+  apiBase = testBaseUrl(launch.settings.PUBLIK_API_BASE_URL);
+  inBackground = false;
+  foregroundOff = h.onForeground(() => {
+    inBackground = false;
+    resumeTimer(); // usage counting goes on: the 30-minute timer again, no new app_opened
+    for (const wake of [...wakers]) wake();
+  });
+  backgroundOff = h.onBackground(() => {
+    inBackground = true;
+    pauseTimer(); // no active_session while the app is in the background
+  });
   return launch;
 }
 
@@ -131,15 +184,20 @@ export async function setChoice(choice: Choice | null): Promise<void> {
   if (c) await writeCredential({ ...c, choice });
 }
 
-async function call(method: "GET" | "POST", url: string, opts: { key?: string; body?: Json; timeoutMs: number }): Promise<{ status: number; body: Json }> {
+type Answer = { status: number; body: Json; json: boolean };
+async function call(method: "GET" | "POST", url: string, opts: { key?: string; body?: Json; timeoutMs: number }): Promise<Answer> {
   const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "application/json" };
   if (opts.key) headers.Authorization = `Bearer ${opts.key}`;
+  let res: { status: number; data: unknown };
   try {
-    const res = await host.request({ method, url, headers, body: opts.body ? JSON.stringify(opts.body) : undefined, timeoutMs: opts.timeoutMs });
-    return { status: res.status, body: obj(res.data) ?? {} };
+    res = await host.request({ method, url, headers, body: opts.body ? JSON.stringify(opts.body) : undefined, timeoutMs: opts.timeoutMs });
   } catch { throw new Unreachable(NOT_REACHABLE); }
+  const body = obj(res.data);
+  return { status: res.status, body: body ?? {}, json: body !== null };
 }
 const errorOf = (body: Json) => obj(body.error);
+/** An answer that is not publik's: not JSON (a captive portal or a proxy page), 408, 429 or a server error. */
+const notPublik = (a: Answer) => !a.json || a.status === 408 || a.status === 429 || a.status >= 500;
 
 /** POST /api/v1/installs: this phone's publik key. Throws a readable message. */
 export async function provision(): Promise<PublikCredential> {
@@ -148,9 +206,11 @@ export async function provision(): Promise<PublikCredential> {
   const prior = await readCredential();
   let installId = prior?.install_id || crypto.randomUUID();
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { status, body } = await call("POST", endpoint("/api/v1/installs"), { timeoutMs: 20_000, body: {
+    const answer = await call("POST", endpoint("/api/v1/installs"), { timeoutMs: 20_000, body: {
       app_token: token, app_slug: APP_SLUG, app_version: appVersion(), os: launch.platform, ...(launch.arch ? { arch: launch.arch } : {}),
       device_name: launch.deviceName.slice(0, 120), install_id: installId, disclosure_version: 1, dialects: ["chat_completions"] } });
+    if (notPublik(answer)) throw new Unreachable(NOT_REACHABLE);
+    const { status, body } = answer;
     const key = str(body.key) ?? (status === 200 ? prior?.key ?? null : null);
     if ((status === 201 || status === 200) && key) {
       const c: PublikCredential = { key, base_url: str(body.base_url) ?? DEFAULT_BASE_URL, install_id: str(body.install_id) ?? installId, claim_url: str(body.claim_url),
@@ -158,17 +218,25 @@ export async function provision(): Promise<PublikCredential> {
       await writeCredential(c); // the key reaches the file before anything else sees it
       return c;
     }
-    if (status >= 500) throw new Unreachable(NOT_REACHABLE);
     if (status === 200 || errorOf(body)?.type === "install_revoked") { installId = crypto.randomUUID(); continue; }
     throw new Error(str(errorOf(body)?.message) ?? `publik could not set up this phone (${status}).`);
   }
   throw new Error("publik could not set up this phone.");
 }
 
-/** GET /api/v1/wallet. 401: the key is gone (null wallet). Throws Unreachable when the request does not complete. */
+/**
+ * GET /api/v1/wallet. publik's own JSON 401: the key is gone (status 401, null wallet). Throws Unreachable when
+ * the request does not complete or the answer is not publik's (notPublik(), a 2xx that is not a wallet, a 401
+ * without publik's JSON error).
+ */
 export async function readWallet(key: string): Promise<{ status: number; wallet: Wallet | null; message: string | null }> {
-  const { status, body: b } = await call("GET", endpoint("/api/v1/wallet"), { key, timeoutMs: 15_000 });
-  if (status < 200 || status >= 300 || typeof b.claim_state !== "string") return { status, wallet: null, message: str(errorOf(b)?.message) };
+  const answer = await call("GET", endpoint("/api/v1/wallet"), { key, timeoutMs: 15_000 });
+  const { status, body: b } = answer;
+  if (notPublik(answer)) throw new Unreachable(NOT_REACHABLE);
+  const ok = status >= 200 && status < 300;
+  if (ok && typeof b.claim_state !== "string") throw new Unreachable(NOT_REACHABLE);
+  if (status === 401 && !errorOf(b)) throw new Unreachable(NOT_REACHABLE);
+  if (!ok) return { status, wallet: null, message: str(errorOf(b)?.message) };
   const plan = obj(b.plan), account = obj(b.account), kind = plan?.kind;
   return { status, message: null, wallet: {
     claim_state: b.claim_state === "claimed" ? "claimed" : "anonymous", claim_url: str(b.claim_url), account: account ? { handle: str(account.handle) } : null,
@@ -229,31 +297,45 @@ export async function ensureSignedIn(ui: GateUI, h: PublikHost): Promise<GateRes
     await host.finishSelfTest({ line: await selfTest() }); // prints the line and ends the app
     return new Promise<GateResult>(() => {});
   }
-  let signNote: string | null = null, signPoll = true, planNote: string | null = null, planPoll = false;
+  let signNote: string | null = null, signPoll = true, planNote: string | null = null, planPoll = false, newKeys = 0;
   for (;;) {
+    // Every read and write of this step is in the try: a failure shows "not reachable" with Retry, never an error page.
     let c: PublikCredential | null = null;
-    let r: Awaited<ReturnType<typeof readWallet>>;
+    let r: Awaited<ReturnType<typeof readWallet>> | null = null;
+    let failure: unknown;
+    let failed = false;
     try {
       c = (await readCredential()) ?? (await provision());
       r = await readWallet(c.key);
-      if (r.status >= 500) throw new Unreachable(NOT_REACHABLE);
+      if (r.status === 401) await removeCredential(); // publik says this key is gone (revoked): a new one next
     } catch (e) {
+      failed = true;
+      failure = e;
+    }
+    if (failed || !c || !r) {
       // kneecap is local-first: a phone that signed in before opens without publik (OFFLINE_AFTER_SIGN_IN).
-      if (OFFLINE_AFTER_SIGN_IN && e instanceof Unreachable && c?.claimed_at) return pass(c, null, true);
-      await ask(ui, gateScreen("unreachable", null, null, e instanceof Unreachable ? undefined : e instanceof Error ? e.message : String(e)));
+      if (OFFLINE_AFTER_SIGN_IN && failure instanceof Unreachable && c?.claimed_at) return pass(c, null, true);
+      await ask(ui, gateScreen("unreachable", null, null, failure instanceof Unreachable ? undefined : messageOf(failure)));
       continue;
     }
-    if (r.status === 401) { await writeCredential(null); continue; } // a revoked key: provision again
+    if (r.status === 401) {
+      if (++newKeys <= MAX_NEW_KEYS) continue;
+      newKeys = 0; // publik refuses the new keys too: stop here, the person can retry
+      await ask(ui, gateScreen("unreachable", null, null, r.message ?? "publik did not accept this phone's key."));
+      continue;
+    }
+    newKeys = 0;
     const w = r.wallet;
     if (!w) { await ask(ui, gateScreen("unreachable", null, null, r.message ?? undefined)); continue; }
     if (w.claim_state !== "claimed") {
-      if (c.claimed_at) await writeCredential({ ...c, claimed_at: null }); // signed out on publik: the offline pass ends too
+      // Signed out on publik: the offline pass ends too (best effort: a failed write does not stop the gate).
+      if (c.claimed_at) { c = { ...c, claimed_at: null }; await quietly(writeCredential(c)); }
       const a = await ask(ui, gateScreen("sign_in", w, signNote), c.key, signPoll ? (x) => x.claim_state === "claimed" : undefined);
       if (a === "sign_in") { ui.openUrl(w.claim_url ?? c.claim_url ?? `${ORIGIN}/wallet`); signNote = "Waiting for you to sign in in your browser."; signPoll = true; }
       if (a === "timeout") { signNote = "No sign-in after 10 minutes. Click Sign in with publik to try again."; signPoll = false; }
       continue;
     }
-    if (!c.claimed_at) await writeCredential((c = { ...c, claimed_at: new Date().toISOString() }));
+    if (!c.claimed_at) { c = { ...c, claimed_at: new Date().toISOString() }; await quietly(writeCredential(c)); }
     let choice: Choice | null = USES_AI ? c.choice ?? null : null;
     if (USES_AI && !choice) {
       if (w.plan.kind !== "none" || w.balance_micros > 0) { planNote = null; planPoll = false; } // the plan is there: Connect your plan
@@ -263,7 +345,7 @@ export async function ensureSignedIn(ui: GateUI, h: PublikHost): Promise<GateRes
       if (a === "timeout") planNote = "No plan after 10 minutes. Click Get a plan to try again.";
       if (a !== "connect" && a !== "own_key") continue; // "done": the plan is there; the next screen is Connect your plan
       choice = a === "connect" ? "publik" : "own_key";
-      await setChoice(choice);
+      await quietly(setChoice(choice));
     }
     return pass({ ...c, choice }, w, false);
   }
@@ -308,7 +390,6 @@ async function resumeSession(): Promise<void> {
     let r: Awaited<ReturnType<typeof readWallet>>;
     try {
       r = await readWallet(c.key);
-      if (r.status >= 500) throw new Unreachable(NOT_REACHABLE);
     } catch (e) {
       // kneecap is local-first: a phone that signed in before keeps its sign-in when publik does not answer.
       if (OFFLINE_AFTER_SIGN_IN && e instanceof Unreachable && c.claimed_at) pass(c, null, true);
@@ -327,7 +408,7 @@ async function resumeSession(): Promise<void> {
 
 async function signedIn(c: PublikCredential, w: Wallet): Promise<"signed_in"> {
   const signed = c.claimed_at ? c : { ...c, claimed_at: new Date().toISOString() };
-  if (!c.claimed_at) await writeCredential(signed);
+  if (!c.claimed_at) await quietly(writeCredential(signed)); // best effort: only the offline pass needs it
   pass(signed, w, false);
   return "signed_in";
 }
@@ -345,7 +426,6 @@ export async function signIn(opts: { signal: AbortSignal; onWaiting?: () => void
     if (signal.aborted) return "cancelled";
     const r = await readWallet(c.key);
     if (r.status === 401 && attempt === 0) { await removeCredential(); continue; } // a revoked key: get a new one
-    if (r.status >= 500) throw new Unreachable(NOT_REACHABLE);
     if (!r.wallet) throw new Error(r.message ?? `publik answered ${r.status}.`);
     if (r.wallet.claim_state === "claimed") return signedIn(c, r.wallet);
     if (signal.aborted) return "cancelled";
@@ -363,28 +443,37 @@ export async function signIn(opts: { signal: AbortSignal; onWaiting?: () => void
 }
 
 /**
- * Settings > "Sign out": stops usage counting, revokes this phone's key on publik (POST /api/v1/installs/revoke;
- * skipped when publik does not answer) and deletes the key from the phone. The next sign-in gets a new key.
- * With PUBLIK_GATE_MODE=required the caller then starts the app again, so the gate shows.
+ * Sign out and Delete account. The key stays in memory; its file goes first (a phone that stops now is signed
+ * out), usage counting stops, and then publik revokes the key (POST /api/v1/installs/revoke; best effort, at most
+ * REVOKE_TIMEOUT_MS). Throws when a file could not be deleted.
  */
-export async function signOut(): Promise<void> {
-  stopTelemetry();
+async function forget(names: PublikFileName[]): Promise<void> {
   const c = await readCredential();
+  const kept: PublikFileName[] = [];
+  for (const name of names) if (!(await host.removeFile({ name }).catch(() => false))) kept.push(name);
+  stopTelemetry();
   session = null;
   notify();
-  if (c) await call("POST", endpoint("/api/v1/installs/revoke"), { key: c.key, timeoutMs: 10_000 }).catch(() => undefined);
-  await removeCredential();
+  if (c) await within(call("POST", endpoint("/api/v1/installs/revoke"), { key: c.key, timeoutMs: REVOKE_TIMEOUT_MS }).catch(() => undefined), REVOKE_TIMEOUT_MS + 500);
+  if (kept.length) throw new Error("kneecap could not delete its publik data on this phone. Try again.");
 }
 
 /**
- * Settings > "Delete account", the part on the phone: signOut(), then the install ID (telemetry.json) goes too.
+ * Settings > "Sign out": forget() for this phone's key. The next sign-in gets a new key.
+ * With PUBLIK_GATE_MODE=required the caller then starts the app again, so the gate shows.
+ */
+export async function signOut(): Promise<void> {
+  await forget([CREDENTIAL_FILE]);
+}
+
+/**
+ * Settings > "Delete account", the part on the phone: forget() for the key and the install ID (telemetry.json).
  * The usage opt-out (consent.json) stays: it is the person's choice, not data about them.
  * Then the caller opens DELETE_ACCOUNT_URL in the in-app browser, where publik deletes the account.
  */
 export async function deletePublikData(): Promise<void> {
-  await signOut();
   installIdOnce = null;
-  if (!(await host.removeFile({ name: "telemetry.json" }))) throw new Error("publik could not delete this phone's install ID.");
+  await forget([CREDENTIAL_FILE, "telemetry.json"]);
 }
 
 /** Builder check, run by the BUILT app: PUBLIK_SELF_TEST=1 makes ensureSignedIn() print this line and end the app. */
@@ -400,6 +489,8 @@ export async function selfTest(): Promise<string> {
 
 // ---------- usage counting: /skills/telemetry.md sections 3-5 ----------
 let timer: ReturnType<typeof setInterval> | null = null, installIdOnce: string | null = null;
+/** Usage counting is on for this session (startTelemetry() until stopTelemetry()); the timer runs only in front. */
+let counting = false;
 
 /** DO_NOT_TRACK or PUBLIK_TELEMETRY=0 at launch: usage counting is off, and the Settings switch cannot turn it on. */
 function launchOptOut(): boolean {
@@ -449,21 +540,33 @@ async function sendEvent(event: "app_opened" | "active_session"): Promise<void> 
     say(res.status);
   } catch (e) { say(e instanceof Error ? e.name : "error"); }
 }
-/** Called at a sign-in (pass()). app_opened now, active_session every 30 minutes; never fails the app, never blocks.
- *  `opened: false` (the Settings switch turned on again): only the 30-minute timer. */
+/** Called at a sign-in (pass()). app_opened now, active_session every 30 minutes while the app is in front;
+ *  never fails the app, never blocks. `opened: false` (the Settings switch turned on again): only the timer. */
 export function startTelemetry(opts: { opened?: boolean } = {}): void {
-  if (timer) return;
-  timer = setInterval(() => void sendEvent("active_session"), 1_800 * 1000);
+  if (counting) return;
+  counting = true;
+  resumeTimer();
   if (opts.opened !== false) void sendEvent("app_opened");
 }
 /** Sign out, Delete account, or the Settings switch turned off. */
 export function stopTelemetry(): void {
+  counting = false;
+  pauseTimer();
+}
+function resumeTimer(): void {
+  if (!timer && counting && !inBackground) timer = setInterval(() => void sendEvent("active_session"), ACTIVE_SESSION_MS);
+}
+function pauseTimer(): void {
   if (timer) clearInterval(timer);
   timer = null;
+}
+/** Tests only: is the active_session timer running? */
+export function _telemetryTimerRunning(): boolean {
+  return timer !== null;
 }
 /** Tests only: stops the timer and forgets the module's state. */
 export function _resetForTests(): void {
   stopTelemetry();
-  installIdOnce = null; wakers.clear(); foregroundOff?.(); foregroundOff = null;
+  installIdOnce = null; wakers.clear(); foregroundOff?.(); foregroundOff = null; backgroundOff?.(); backgroundOff = null; inBackground = false;
   mode = GATE_MODE; session = null; checking = false; statusListeners.clear();
 }

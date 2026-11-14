@@ -19,7 +19,9 @@
  * - finishSelfTest(): prints the self-test line to stdout (iOS) or logcat
  *   (Android, tag "publik"), then ends the app.
  * - onForeground(): the app came back to the front, or the in-app browser
- *   closed.
+ *   closed. onBackground(): the app went to the background (Capacitor's
+ *   document `pause` event, or the page became hidden). Usage counting stops
+ *   its 30-minute timer there.
  * - showFirstRun(): kneecap's native first-run screen, once per install.
  *   It is here, not in NativeBridge, because the gate decides when it shows:
  *   after "Sign in with publik" (with PUBLIK_GATE_MODE=required the gate is
@@ -83,6 +85,8 @@ export interface PublikHost {
 	finishSelfTest(args: { line: string }): Promise<void>;
 	/** Returns the function that stops the listener. */
 	onForeground(listener: () => void): () => void;
+	/** The app went to the background. Returns the function that stops the listener. */
+	onBackground(listener: () => void): () => void;
 	/** Shows the native first-run screen if this install has not seen it; resolves when it closes. */
 	showFirstRun(): Promise<void>;
 }
@@ -140,6 +144,19 @@ function onDocumentForeground(listener: () => void): () => void {
 	return () => {
 		document.removeEventListener("visibilitychange", onVisible);
 		document.removeEventListener("resume", listener);
+	};
+}
+
+/** `visibilitychange` to hidden, plus Capacitor's own document `pause` event (the app went to the background). */
+function onDocumentBackground(listener: () => void): () => void {
+	const onHidden = () => {
+		if (document.visibilityState === "hidden") listener();
+	};
+	document.addEventListener("visibilitychange", onHidden);
+	document.addEventListener("pause", listener);
+	return () => {
+		document.removeEventListener("visibilitychange", onHidden);
+		document.removeEventListener("pause", listener);
 	};
 }
 
@@ -202,6 +219,9 @@ function createNativeHost(platform: "ios" | "android"): PublikHost {
 				if (handle) void handle.remove();
 			};
 		},
+		onBackground(listener) {
+			return onDocumentBackground(listener);
+		},
 		async showFirstRun() {
 			await PublikGatePlugin.showFirstRun();
 		},
@@ -252,6 +272,9 @@ function createWebHost(): PublikHost {
 		},
 		onForeground(listener) {
 			return onDocumentForeground(listener);
+		},
+		onBackground(listener) {
+			return onDocumentBackground(listener);
 		},
 		async showFirstRun() {}, // the browser preview has no native first-run screen
 	};

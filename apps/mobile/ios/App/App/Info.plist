@@ -83,13 +83,8 @@
 		<string>fonts/AlbertSans-Regular.ttf</string>
 		<string>fonts/AlbertSans-Bold.ttf</string>
 	</array>
-	<!-- Sign in with publik: the PUBLIK_API_BASE_URL test hook may point at
-	     a fake publik on this computer over http (localhost, a .local name).
-	     Local addresses only; every other load keeps App Transport Security. -->
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
+	<!-- No NSAppTransportSecurity here: a Debug or PUBLIK_TEST_HOOKS build
+	     gets NSAllowsLocalNetworking from the "Debug-only items" build phase
+	     (for a fake publik on this computer); a store build has none. -->
 </dict>
 </plist>

@@ -24,6 +24,16 @@ const editorCoreSrc = fileURLToPath(
  *   (public/spike-assets). A store or release build never sets it, so those
  *   are not in the app (App Store guideline 2.5.19). `bun run dev` always has
  *   them; `bun run build:debug-tools` makes a build with them.
+ *
+ * PUBLIK_APP_TOKEN = pat_... (CI: the repo secret). A store build (`vite
+ *   build` without KNEECAP_DEBUG_TOOLS) FAILS without it: such an app could
+ *   never sign in. PUBLIK_ALLOW_NO_TOKEN=1 turns the check off, only for a
+ *   fork's pull-request CI (no secrets there). The value is never printed.
+ *
+ * PUBLIK_TEST_HOOKS = 1 (default: off). The launch setting
+ *   PUBLIK_API_BASE_URL may then name any server (CI live tests). Without it,
+ *   only a server on this computer or local network (src/publik/publik.ts,
+ *   testBaseUrl).
  */
 const GATE_MODE = (process.env.PUBLIK_GATE_MODE ?? "").trim() || "required";
 if (GATE_MODE !== "required" && GATE_MODE !== "optional") {
@@ -117,6 +127,13 @@ function dropDebugAssets(outDir: string): Plugin {
  */
 export default defineConfig(({ command }) => {
 	const debugTools = command === "serve" || process.env.KNEECAP_DEBUG_TOOLS === "1";
+	const appToken = process.env.PUBLIK_APP_TOKEN?.trim() ?? "";
+	if (command === "build" && !debugTools && !appToken.startsWith("pat_") && process.env.PUBLIK_ALLOW_NO_TOKEN !== "1") {
+		throw new Error(
+			"PUBLIK_APP_TOKEN is not set, or it does not start with pat_. A store build without it cannot sign in. " +
+				"Set PUBLIK_APP_TOKEN (CI: the repo secret). Only a fork's pull-request CI may set PUBLIK_ALLOW_NO_TOKEN=1.",
+		);
+	}
 	return {
 		root: __dirname,
 		plugins: debugTools ? [wasm()] : [wasm(), dropDebugAssets("www")],
@@ -129,8 +146,10 @@ export default defineConfig(({ command }) => {
 		// mints capped install keys for this app. A build without it shows
 		// "This build has no publik app token." at the gate.
 		define: {
-			__PUBLIK_APP_TOKEN__: JSON.stringify(process.env.PUBLIK_APP_TOKEN?.trim() ?? ""),
+			__PUBLIK_APP_TOKEN__: JSON.stringify(appToken),
 			__PUBLIK_GATE_MODE__: JSON.stringify(GATE_MODE),
+			__PUBLIK_GATE_MARKER__: JSON.stringify(`publik-gate-mode:${GATE_MODE}`),
+			__PUBLIK_TEST_HOOKS__: JSON.stringify(process.env.PUBLIK_TEST_HOOKS === "1"),
 			__KNEECAP_DEBUG_TOOLS__: JSON.stringify(debugTools),
 		},
 		esbuild: {

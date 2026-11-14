@@ -75,11 +75,13 @@ jobs:
 
       - name: Build the web bundle (apps/mobile/www, gate required)
         # PUBLIK_APP_TOKEN: the publik app token (pat_) for Sign in with
-        # publik, put into the bundle by vite.config.ts. Empty on a fork's
-        # pull request; that build then shows "This build has no publik app
-        # token." at the gate.
+        # publik, put into the bundle by vite.config.ts. A build without it
+        # fails, except on a fork's pull request (PUBLIK_ALLOW_NO_TOKEN);
+        # that build shows "This build has no publik app token." at the gate.
         env:
           PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
+          # A fork's pull request has no secrets: only there may the build go on without the token.
+          PUBLIK_ALLOW_NO_TOKEN: ${{ github.event.pull_request.head.repo.fork && '1' || '' }}
           PUBLIK_GATE_MODE: required
         run: |
           bun run build
@@ -165,6 +167,8 @@ jobs:
       - name: Build the web bundle (gate optional)
         env:
           PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
+          # A fork's pull request has no secrets: only there may the build go on without the token.
+          PUBLIK_ALLOW_NO_TOKEN: ${{ github.event.pull_request.head.repo.fork && '1' || '' }}
           PUBLIK_GATE_MODE: optional
         run: |
           bun run build
@@ -250,11 +254,13 @@ jobs:
 
       - name: Build the web bundle (apps/mobile/www, gate required)
         # PUBLIK_APP_TOKEN: the publik app token (pat_) for Sign in with
-        # publik, put into the bundle by vite.config.ts. Empty on a fork's
-        # pull request; that build then shows "This build has no publik app
-        # token." at the gate.
+        # publik, put into the bundle by vite.config.ts. A build without it
+        # fails, except on a fork's pull request (PUBLIK_ALLOW_NO_TOKEN);
+        # that build shows "This build has no publik app token." at the gate.
         env:
           PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
+          # A fork's pull request has no secrets: only there may the build go on without the token.
+          PUBLIK_ALLOW_NO_TOKEN: ${{ github.event.pull_request.head.repo.fork && '1' || '' }}
           PUBLIK_GATE_MODE: required
         run: |
           bun run build
@@ -328,6 +334,8 @@ jobs:
       - name: Build the web bundle (gate optional) and the optional debug APK
         env:
           PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
+          # A fork's pull request has no secrets: only there may the build go on without the token.
+          PUBLIK_ALLOW_NO_TOKEN: ${{ github.event.pull_request.head.repo.fork && '1' || '' }}
           PUBLIK_GATE_MODE: optional
         run: |
           set -euo pipefail
