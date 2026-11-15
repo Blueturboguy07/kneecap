@@ -159,7 +159,8 @@ export class SeekController {
 		if (!isClickGesture({ event, session: this.session })) return false;
 		if (this.config.isSelecting) return false;
 
-		const target = event.target as HTMLElement;
+		// contains(null) is false, the same answer a non-Node target would get.
+		const target = event.target instanceof Node ? event.target : null;
 		if (this.config.getPlayheadEl()?.contains(target)) return false;
 
 		if (this.config.getTrackLabelsEl()?.contains(target)) {

@@ -16,6 +16,11 @@ import { parseStickerId } from "@/stickers/sticker-id";
 const MAX_RECENT_STICKERS = 50;
 let browseRequestVersion = 0;
 
+// Same `in` check the store already uses to accept a category, as a type guard.
+export function isStickerCategory(value: string): value is StickerCategory {
+	return value in STICKER_CATEGORIES;
+}
+
 function isValidStickerId(value: unknown): value is string {
 	if (typeof value !== "string") {
 		return false;
@@ -211,6 +216,7 @@ export const useStickersStore = create<StickersStore>()(
 					persistedState !== null &&
 					"selectedCategory" in persistedState
 				) {
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- persisted v0 state; these are the fields that version wrote, and each one is re-checked below.
 					const typedState = persistedState as {
 						selectedCategory?: string;
 						recentStickers?: string[];
@@ -218,10 +224,7 @@ export const useStickersStore = create<StickersStore>()(
 					const category = typedState.selectedCategory ?? "all";
 					return {
 						...typedState,
-						selectedCategory:
-							category in STICKER_CATEGORIES
-								? (category as StickerCategory)
-								: "all",
+						selectedCategory: isStickerCategory(category) ? category : "all",
 						recentStickers: sanitizeRecentStickers({
 							recentStickers: typedState.recentStickers ?? [],
 						}),

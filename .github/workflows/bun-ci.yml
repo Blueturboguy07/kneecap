@@ -24,6 +24,11 @@ jobs:
     name: invariants (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      # Every OS reports its own result. With the default (fail-fast: true)
+      # one failing OS cancelled the other two, so from Aug to Nov 2026 the
+      # Windows and macOS jobs almost never reached invariants.sh. The run
+      # still fails when any one of the three fails.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
@@ -31,6 +36,15 @@ jobs:
       NEXT_PUBLIC_SITE_URL: "http://localhost:3000"
 
     steps:
+      # The Windows runner's git has core.autocrlf=true, so a checkout turns
+      # every LF file into CRLF. The apps/mobile/test source-text tests then
+      # compare CRLF text with LF strings (run 43760429027: 13 extra failures
+      # on Windows only). Check out the bytes as committed, as on ubuntu and
+      # macOS.
+      - name: Keep line endings as committed (Windows)
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -40,7 +54,14 @@ jobs:
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@v0.4.0
         with:
-          version: latest
+          # Pinned. With "latest" the action asks the GitHub API without a
+          # token; a rate-limited reply has no tag_name and the action then
+          # falls back to v0.9.1 (run 43760429027, macOS). That old
+          # wasm-pack writes bundler glue that breaks the Next.js prerender
+          # ("Cannot read properties of undefined (reading
+          # 'TICKS_PER_SECOND')"). v0.15.1 is what "latest" gave on ubuntu
+          # and Windows in the same run.
+          version: v0.15.1
 
       - name: Cache Rust build artifacts
         uses: actions/cache@v4

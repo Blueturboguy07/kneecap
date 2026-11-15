@@ -96,11 +96,15 @@ export function TimelineBookmarksRow({
 				type="button"
 				onWheel={handleWheel}
 				onClick={(event) => {
-					if (!event.currentTarget.contains(event.target as Node)) return;
+					const { target } = event;
+					if (!(target instanceof Node) || !event.currentTarget.contains(target))
+						return;
 					handleTimelineContentClick(event);
 				}}
 				onPointerDown={(event) => {
-					if (!event.currentTarget.contains(event.target as Node)) return;
+					const { target } = event;
+					if (!(target instanceof Node) || !event.currentTarget.contains(target))
+						return;
 					handleRulerMouseDown(event);
 					handleRulerTrackingMouseDown(event);
 				}}
@@ -305,6 +309,7 @@ function BookmarkPopoverContent({
 	);
 
 	useEffect(() => {
+		// eslint-disable-next-line react-hooks/set-state-in-effect -- re-syncs the draft color when the bookmark color changes from outside.
 		setDraftColorHex(
 			(bookmark.color ?? DEFAULT_TIMELINE_BOOKMARK_COLOR)
 				.replace("#", "")

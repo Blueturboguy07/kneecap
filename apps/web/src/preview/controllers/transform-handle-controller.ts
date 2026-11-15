@@ -39,7 +39,7 @@ type HandleType = Corner | Edge | "rotation";
 
 interface CapturedPointerState {
 	readonly pointerId: number;
-	readonly captureTarget: HTMLElement;
+	readonly captureTarget: Element;
 }
 
 interface CornerScaleSession extends CapturedPointerState {
@@ -386,7 +386,7 @@ export class TransformHandleController {
 			animationsWithoutScale,
 			pointerId: event.pointerId,
 			captureTarget: this.capturePointer({
-				target: event.currentTarget as HTMLElement,
+				target: event.currentTarget,
 				pointerId: event.pointerId,
 			}),
 		};
@@ -421,7 +421,7 @@ export class TransformHandleController {
 			initialBoundsCy: context.bounds.cy,
 			pointerId: event.pointerId,
 			captureTarget: this.capturePointer({
-				target: event.currentTarget as HTMLElement,
+				target: event.currentTarget,
 				pointerId: event.pointerId,
 			}),
 		};
@@ -463,7 +463,7 @@ export class TransformHandleController {
 			animationsWithoutScale,
 			pointerId: event.pointerId,
 			captureTarget: this.capturePointer({
-				target: event.currentTarget as HTMLElement,
+				target: event.currentTarget,
 				pointerId: event.pointerId,
 			}),
 		};
@@ -527,9 +527,9 @@ export class TransformHandleController {
 		target,
 		pointerId,
 	}: {
-		target: HTMLElement;
+		target: Element;
 		pointerId: number;
-	}): HTMLElement {
+	}): Element {
 		target.setPointerCapture(pointerId);
 		return target;
 	}

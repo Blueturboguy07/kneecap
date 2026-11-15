@@ -26,7 +26,13 @@ type HastRootNode = {
 	children?: HastNode[];
 };
 
-type HastNode = HastTextNode | HastElementNode | HastRootNode;
+// The other node types the hast typings allow in a parse tree. renderHastNode
+// renders none of them (it returns null for every non-text, non-element node).
+type HastSkippedNode = {
+	type: "comment" | "doctype" | "raw";
+};
+
+type HastNode = HastTextNode | HastElementNode | HastRootNode | HastSkippedNode;
 
 function toReactProps({
 	properties,
@@ -89,7 +95,7 @@ function renderHastNode({
 }
 
 function renderHtmlNodes({ html }: { html: string }): React.ReactNode {
-	const rootNode = unified().use(rehypeParse, { fragment: true }).parse(html) as HastRootNode;
+	const rootNode: HastRootNode = unified().use(rehypeParse, { fragment: true }).parse(html);
 	return (rootNode.children ?? []).map((childNode, index) =>
 		renderHastNode({ node: childNode, key: `prose-node-${index}` }),
 	);

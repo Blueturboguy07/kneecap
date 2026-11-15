@@ -80,13 +80,13 @@ export function Footer() {
 					</div>
 
 					<div className="flex items-start justify-start gap-12 py-2">
-						{(Object.keys(links) as Category[]).map((category) => (
+						{Object.entries(links).map(([category, categoryLinks]) => (
 							<div key={category} className="flex flex-col gap-2">
 								<h3 className="text-foreground font-semibold">
 									{capitalizeFirstLetter({ string: category })}
 								</h3>
 								<ul className="space-y-2 text-sm">
-									{links[category].map((link) => (
+									{categoryLinks.map((link) => (
 										<li key={link.href}>
 											<Link
 												href={link.href}

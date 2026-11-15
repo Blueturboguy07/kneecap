@@ -18,10 +18,14 @@ setNotifier(({ level, message, description, duration, action }) => {
 
 const Toaster = ({ ...props }: ToasterProps) => {
 	const { theme = "system" } = useTheme();
+	// next-themes is configured with its default themes (light, dark,
+	// system), so every value it can return is one Sonner accepts.
+	const toasterTheme: ToasterProps["theme"] =
+		theme === "light" || theme === "dark" ? theme : "system";
 
 	return (
 		<Sonner
-			theme={theme as ToasterProps["theme"]}
+			theme={toasterTheme}
 			className="toaster group"
 			position="bottom-right"
 			offset={20}

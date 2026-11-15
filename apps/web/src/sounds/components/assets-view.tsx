@@ -151,12 +151,10 @@ function SoundEffectsView() {
 		return () => clearTimeout(timeoutId);
 	}, [scrollPosition, scrollAreaRef]);
 
-	const handleScrollWithPosition = ({
-		currentTarget,
-	}: React.UIEvent<HTMLDivElement>) => {
-		const { scrollTop } = currentTarget;
+	const handleScrollWithPosition = (event: React.UIEvent<HTMLDivElement>) => {
+		const { scrollTop } = event.currentTarget;
 		setScrollPosition({ position: scrollTop });
-		handleScroll({ currentTarget } as React.UIEvent<HTMLDivElement>);
+		handleScroll(event);
 	};
 
 	const displayedSounds = searchQuery ? searchResults : topSoundEffects;

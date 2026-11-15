@@ -21,9 +21,11 @@ export function useActionHandler<A extends TAction>(
 		handlerRef.current = handler;
 	}, [handler]);
 
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- the wrapper takes exactly TActionFunc<A>'s (arg, trigger) parameters; useCallback cannot infer the conditional type.
 	const stableHandler = useCallback(
 		(...parameters: [TArgOfAction<A>, TInvocationTrigger?]) => {
 			(
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- TActionFunc<A> is a conditional type TypeScript cannot call generically; this is the same function with its parameters spelled out.
 				handlerRef.current as (
 					...handlerParameters: [TArgOfAction<A>, TInvocationTrigger?]
 				) => void

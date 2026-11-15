@@ -37,7 +37,7 @@ type Point = { readonly x: number; readonly y: number };
 
 interface CapturedPointerState {
 	readonly pointerId: number;
-	readonly captureTarget: HTMLElement;
+	readonly captureTarget: Element;
 }
 
 interface PendingGesture extends CapturedPointerState {
@@ -354,7 +354,7 @@ export class PreviewInteractionController {
 			kind: "pending",
 			origin: startPos,
 			pointerId,
-			captureTarget: currentTarget as HTMLElement,
+			captureTarget: currentTarget,
 			topmostHit: hits[0] ?? null,
 			selectedHit: resolvePreferredHit({
 				hits,

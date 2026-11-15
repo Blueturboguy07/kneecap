@@ -75,7 +75,13 @@ BASELINE_TYPECHECK_ERRORS=0
 # Re-measured across both scopes post-move: 108 errors, exactly the
 # pre-move number, with the per-rule breakdown matching one-for-one
 # (no-unsafe-type-assertion 83 = 43 web + 40 core, etc.).
-BASELINE_LINT_ERRORS=108
+#
+# 2026-11-15: was 108; main had crept to 140 (all new errors in apps/web/src)
+# and this gate was red. fix/bun-ci-green cleared every apps/web/src error
+# (`bun run lint:web` exits 0), which left 72, all in packages/editor-core/src
+# and packages/mobile-ui/src. Measured 72 on ubuntu, Windows and macOS (run
+# 43760429027).
+BASELINE_LINT_ERRORS=72
 
 # `bun test` at repo root. Was 191 pass / 8 fail; M2 moved it to 250/3 and
 # these numbers are the new floor/ceiling. (215 -> 250 is the EDL v1 suite,

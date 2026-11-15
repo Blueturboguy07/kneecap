@@ -196,9 +196,9 @@ export async function processMediaAssets({
 
 const getMediaDuration = ({ file }: { file: File }): Promise<number> => {
 	return new Promise((resolve, reject) => {
-		const element = document.createElement(
+		const element: HTMLMediaElement = document.createElement(
 			file.type.startsWith("video/") ? "video" : "audio",
-		) as HTMLVideoElement;
+		);
 		const objectUrl = URL.createObjectURL(file);
 
 		element.addEventListener("loadedmetadata", () => {

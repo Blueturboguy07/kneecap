@@ -145,6 +145,7 @@ function NumberField({
 
 	useLayoutEffect(() => {
 		if (!suffix) {
+			// eslint-disable-next-line react-hooks/set-state-in-effect -- the suffix offset comes from a DOM measurement that only this layout effect can make.
 			setSuffixLeft(0);
 			return;
 		}

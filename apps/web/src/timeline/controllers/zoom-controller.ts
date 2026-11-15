@@ -352,7 +352,8 @@ export class ZoomController {
 		const preventZoom = (event: WheelEvent) => {
 			const isZoomKeyPressed = event.ctrlKey || event.metaKey;
 			const container = this.config.getContainerEl();
-			const isInContainer = container?.contains(event.target as Node) ?? false;
+			const target = event.target instanceof Node ? event.target : null;
+			const isInContainer = container?.contains(target) ?? false;
 			if (isZoomKeyPressed && isInContainer) {
 				event.preventDefault();
 			}

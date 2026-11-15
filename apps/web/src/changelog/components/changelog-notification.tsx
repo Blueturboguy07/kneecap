@@ -42,6 +42,7 @@ export function ChangelogNotification() {
 			// ignore
 		}
 
+		// eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage exists only after mount; reading it here once avoids a hydration mismatch.
 		setRelease(latest);
 	}, []);
 

@@ -36,8 +36,9 @@ import {
 } from "@/timeline/bookmarks/ui";
 
 export default function Editor() {
-	const params = useParams();
-	const projectId = params.project_id as string;
+	// The [project_id] dynamic segment is a single path segment, so Next
+	// always supplies it as a string.
+	const { project_id: projectId } = useParams<{ project_id: string }>();
 
 	return (
 		<MobileGate>

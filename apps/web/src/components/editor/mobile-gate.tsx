@@ -20,6 +20,7 @@ export function MobileGate({ children }: MobileGateProps) {
 	useEffect(() => {
 		const isMobile = window.innerWidth < 1024;
 		const acknowledged = localStorage.getItem(STORAGE_KEY) === "true";
+		// eslint-disable-next-line react-hooks/set-state-in-effect -- window size and localStorage exist only after mount; reading them here once avoids a hydration mismatch.
 		setShow(isMobile && !acknowledged);
 	}, []);
 
@@ -52,7 +53,7 @@ export function MobileGate({ children }: MobileGateProps) {
 						Desktop only (for now)
 					</h1>
 					<p className="text-muted-foreground text-sm leading-relaxed">
-						OpenCut isn't optimized for mobile or iPad yet. Things will break
+						OpenCut isn&apos;t optimized for mobile or iPad yet. Things will break
 						and the layout will be a mess. Come back on a desktop for the real
 						experience.
 					</p>

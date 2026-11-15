@@ -40,6 +40,13 @@ const CHECKERBOARD_STYLE = {
 	backgroundColor: "#fff",
 } as const;
 
+// The format <Select> below only offers these four values.
+function isColorFormat(value: string): value is ColorFormat {
+	return (
+		value === "hex" || value === "rgb" || value === "hsl" || value === "hsv"
+	);
+}
+
 interface ColorPickerContentProps {
 	value?: string;
 	onChange?: (value: string) => void;
@@ -78,6 +85,7 @@ function ColorPickerContent({
 	const displayHue = s === 0 || isSameHueWrapped ? internalHue : h;
 
 	useEffect(() => {
+		// eslint-disable-next-line react-hooks/set-state-in-effect -- re-syncs the text field when the controlled value or the format changes from outside.
 		setInputValue(formatColorValue({ hex: value, format: colorFormat }));
 	}, [value, colorFormat]);
 
@@ -372,9 +380,11 @@ function ColorPickerContent({
 				<div className="flex items-center gap-2">
 					<Select
 						value={colorFormat}
-						onValueChange={(selectedFormat) =>
-							setColorFormat(selectedFormat as ColorFormat)
-						}
+						onValueChange={(selectedFormat) => {
+							if (isColorFormat(selectedFormat)) {
+								setColorFormat(selectedFormat);
+							}
+						}}
 					>
 						<SelectTrigger variant="outline" className="min-w-18 max-w-18">
 							<SelectValue />
@@ -432,6 +442,7 @@ const ColorPicker = forwardRef<HTMLDivElement, ColorPickerProps>(
 		const [inputValue, setInputValue] = useState(value);
 
 		useEffect(() => {
+			// eslint-disable-next-line react-hooks/set-state-in-effect -- re-syncs the text field when the controlled value changes from outside.
 			setInputValue(value);
 		}, [value]);
 

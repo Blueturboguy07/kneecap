@@ -218,17 +218,17 @@ export function BackgroundContent() {
 		[editor.project],
 	);
 
-	const isBlurBackground = activeProject.settings.background.type === "blur";
-	const isColorBackground = activeProject.settings.background.type === "color";
+	const background = activeProject.settings.background;
+	const isBlurBackground = background.type === "blur";
+	const isColorBackground = background.type === "color";
 
-	const currentBlurIntensity = isBlurBackground
-		? (activeProject.settings.background as { blurIntensity: number })
-				.blurIntensity
-		: DEFAULT_BACKGROUND_BLUR_INTENSITY;
+	const currentBlurIntensity =
+		background.type === "blur"
+			? background.blurIntensity
+			: DEFAULT_BACKGROUND_BLUR_INTENSITY;
 
-	const currentBackgroundColor = isColorBackground
-		? (activeProject.settings.background as { color: string }).color
-		: DEFAULT_BACKGROUND_COLOR;
+	const currentBackgroundColor =
+		background.type === "color" ? background.color : DEFAULT_BACKGROUND_COLOR;
 
 	const hasPresetColorMatch = colors.some(
 		(color) => color.toLowerCase() === currentBackgroundColor.toLowerCase(),
