@@ -33,10 +33,11 @@ public struct BuiltComposition {
 	/// frames — they only drive the frame clock.
 	public var stillPacerTrackID: CMPersistentTrackID?
 	/// Output spans with NO main-track clip under them — before the first
-	/// clip, or (the -11841 case) after the last one when a PiP overlay or
-	/// audio clip runs longer. A video composition MUST cover its whole
-	/// duration, so `VideoCompositionBuilder` emits a background-only
-	/// instruction for each of these, paced by `stillPacerTrackID`.
+	/// clip, or (the -11841 case) after the last one when a PiP overlay,
+	/// audio, text, sticker or caption clip runs longer. A video composition
+	/// MUST cover its whole duration, so `VideoCompositionBuilder` emits a
+	/// background-only instruction for each of these, paced by
+	/// `stillPacerTrackID`.
 	public var backgroundOnlyRanges: [CMTimeRange]
 	public var audioMix: AVMutableAudioMix?
 	/// The input EDL with every NON-main-track clip's `startTicks` (and
@@ -331,7 +332,23 @@ public enum CompositionBuilder {
 				ticksPerSecond: tps
 			)
 		}
-		let compositionEnd = composition.duration
+		// THE TIMELINE END (blind test round 2, 1.0.5): the latest end over
+		// EVERY track. `composition.duration` alone only sees tracks that got
+		// a composition lane (video, PiP video, audio). Text, sticker and
+		// caption clips have no lane, so a photo 0-3 s under a text clip
+		// 0-5 s exported 3.00 s and lost the last 2 s of the text. The clip
+		// ends below count those clips too (through the same remapTick the
+		// overlays use), and the uncovered tail becomes a background-only
+		// span like any other — the text still draws over the canvas colour.
+		// A project with only text has no main placement at all and is one
+		// background-only span from 0 to the end.
+		let timelineEndTicks = Self.timelineEndTicks(edl: edl, placements: placements, remapTick: remapTick)
+		let lanesEnd = composition.duration
+		let clipsEnd = EdlTime.cmTime(ticks: timelineEndTicks, ticksPerSecond: tps)
+		let compositionEnd =
+			lanesEnd.isValid && lanesEnd.isNumeric
+				? CMTimeMaximum(lanesEnd, clipsEnd)
+				: clipsEnd
 		if compositionEnd.isValid, compositionEnd.isNumeric, compositionEnd > .zero {
 			// Uncovered = [0, compositionEnd] minus the main placements'
 			// output ranges (which are contiguous and ascending by
@@ -408,13 +425,15 @@ public enum CompositionBuilder {
 		// every track), so the export must too — trailing audio over the
 		// canvas background, the common mobile-editor behavior. Using the main-track end
 		// here truncated those exports and made the output-integrity re-probe
-		// disagree with the file it had just written.
+		// disagree with the file it had just written. `timelineEndTicks`
+		// (round 2, 1.0.5) adds the text/sticker/caption clips, which have no
+		// composition track and so never reached `compositionEnd` before.
 		let mainEndTicks = placements.last?.insertEndTicks ?? 0
 		let compositionEndTicks =
 			compositionEnd.isValid && compositionEnd.isNumeric
 				? Int64((compositionEnd.seconds * Double(tps)).rounded())
 				: 0
-		let totalDurationTicks = max(mainEndTicks, compositionEndTicks)
+		let totalDurationTicks = max(mainEndTicks, compositionEndTicks, timelineEndTicks)
 
 		var remappedTracks: [EdlTrack] = []
 		for track in edl.tracks {
@@ -472,6 +491,29 @@ public enum CompositionBuilder {
 
 	static func dbToLinear(_ db: Double) -> Double {
 		pow(10.0, db / 20.0)
+	}
+
+	/// The end of the timeline in OUTPUT ticks: the latest end over the main
+	/// placements, every clip on every other track and every `overlays[]`
+	/// entry, whether or not the clip has a composition lane (text, sticker
+	/// and caption clips never do). Non-main start ticks go through
+	/// `remapTick`, the same nominal-to-output map their frames use. No
+	/// AVFoundation here, so `verify-export-pipeline` can check it directly.
+	static func timelineEndTicks(
+		edl: EdlDocument,
+		placements: [ClipPlacement],
+		remapTick: (Int64) -> Int64
+	) -> Int64 {
+		var end = placements.map(\.insertEndTicks).max() ?? 0
+		for track in edl.tracks where track.kind != "main" {
+			for clip in track.clips where clip.durationTicks > 0 {
+				end = max(end, remapTick(clip.startTicks) + clip.durationTicks)
+			}
+		}
+		for overlay in edl.overlays where overlay.durationTicks > 0 {
+			end = max(end, remapTick(overlay.startTicks) + overlay.durationTicks)
+		}
+		return end
 	}
 
 	/// True when the track holds at least one real (non-empty) segment.

@@ -39,7 +39,7 @@ import type { PublikFileName, PublikHost, PublikLaunch } from "@kneecap/native-b
 
 export const APP_SLUG = "kneecap";
 /** The version in a browser preview. On a phone the module uses the native app version (Info.plist / build.gradle), which is the same. */
-export const APP_VERSION = "1.0.4";
+export const APP_VERSION = "1.0.5";
 /** false: kneecap calls no model (captions and retouch run on the phone). It still signs in and counts users; it skips the plan screen. */
 export const USES_AI = false;
 /** true: a phone that signed in before opens the app when publik does not answer (kneecap is local-first). The first sign-in needs the network. */

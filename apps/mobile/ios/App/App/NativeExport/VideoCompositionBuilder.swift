@@ -27,7 +27,7 @@ public struct PrerenderedOverlayFrame {
 
 public enum VideoCompositionBuilderError: Error, CustomStringConvertible {
 	case emptyTimeline
-	public var description: String { "EDL produced an empty main-track timeline (no clips, or all zero-duration)" }
+	public var description: String { "EDL produced an empty timeline (no clips, or all zero-duration)" }
 }
 
 public enum VideoCompositionBuilder {
@@ -44,7 +44,10 @@ public enum VideoCompositionBuilder {
 		resolveAssetURL: ((EdlAsset) -> URL?)? = nil,
 		overlayFrames: [PrerenderedOverlayFrame] = []
 	) throws -> AVMutableVideoComposition {
-		guard built.totalDurationTicks > 0, !built.mainPlacements.isEmpty else {
+		// No main placement is fine (round 2, 1.0.5): a project with only
+		// text is one background-only span (CompositionBuilder's
+		// backgroundOnlyRanges) with the text drawn over the canvas colour.
+		guard built.totalDurationTicks > 0 else {
 			throw VideoCompositionBuilderError.emptyTimeline
 		}
 		let tps = edl.meta.ticksPerSecond

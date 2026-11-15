@@ -321,15 +321,24 @@ jobs:
             build
         working-directory: apps/mobile/ios/App
 
-      - name: "Editor test: 5 opens, preview, export (on a simulator)"
+      - name: "Editor test: 5 opens, preview, stickers, sound, export, video sweep (on a simulator)"
         # A: the editor opens 5 times (new, back, reopen, relaunch, reopen)
         #    with no crash and no extra empty project.
         # B: screenshots prove that the preview draws a text and a photo.
-        # C: 1 photo + 1 text exported at 1080p/30/High through the real
-        #    bridge; AVFoundation checks the file.
-        # A normal run takes about 5 minutes. The script stops a launch after
-        # 7 (first) and 20 (second) minutes, so 35 lets it write its summary.
-        timeout-minutes: 35
+        # D: every Stickers tab loads all its images (no broken image), a
+        #    sticker and a bundled sound land on the timeline.
+        # C: 1 photo (0-3 s) + 1 text (0-5 s) exported at 1080p/30/High
+        #    through the real bridge; AVFoundation checks the file and its
+        #    length (the latest end over all tracks, +-0.15 s); the sheet
+        #    ends with "Saved to Photos", "Open Photos" and "Share".
+        # E: launch 3, a new project: a generated H.264 + AAC test video
+        #    through the real native proxy, preview pixels, Captions,
+        #    Split/Duplicate/Delete/Mute, Import audio, and an export with a
+        #    video track, a sound track that is not silent and the right length.
+        # A normal run takes about 12 minutes. The script stops a launch after
+        # 7 (first), 20 (second) and 20 (third) minutes, so 55 lets it write
+        # its summary.
+        timeout-minutes: 55
         run: |
           python3 scripts/ios-sim-editor-test.py \
             "$RUNNER_TEMP/editor-test-dd/Build/Products/Debug-iphonesimulator/App.app" \

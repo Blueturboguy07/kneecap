@@ -71,10 +71,14 @@ describe("App Store rule 2.1: no control that does nothing, no placeholder text"
 		expect(captions).not.toMatch(/Caption language|label: "Spanish"/);
 	});
 
-	it("the Export sheet has only real controls: resolution, frame rate, quality and Export video", () => {
+	it("the Export sheet has only real controls: resolution, frame rate, quality, Export video and the result buttons", () => {
 		const sheet = read("packages/mobile-ui/src/components/panels/export-sheet.tsx");
-		const buttons = [...sheet.matchAll(/<button[\s\S]*?>\s*([^<{]+?)\s*</g)].map((m) => m[1]);
-		expect(buttons).toEqual(["Export video"]);
+		// 1.0.5 (blind test round 2): after an export the result block adds
+		// exactly two buttons, Open Photos and Share. Each button has a handler.
+		const buttons = [...sheet.matchAll(/<button\b[\s\S]*?<\/button>/g)].map((m) => m[0]);
+		const labels = buttons.map((button) => />\s*([^<>{}]+?)\s*<\/button>$/.exec(button)?.[1] ?? button);
+		expect([...labels].sort()).toEqual(["Export video", "Open Photos", "Share"]);
+		for (const button of buttons) expect(button).toContain("onClick={");
 	});
 });
 

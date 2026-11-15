@@ -153,6 +153,10 @@ function HomeScreen({
 	// engine 1 / DOM 0). A SELECTOR subscription re-renders on the manager's
 	// array-replace notify.
 	const projects = useEditor((e) => e.project.getSavedProjects());
+	// Blind test round 2, item 7: the list is empty until loadAllProjects (below) has read
+	// storage, which takes about 2 s after sign-in. "No projects yet" shows only after that
+	// first load finished with zero projects; before it, the home shows a quiet loading state.
+	const listLoaded = useEditor((e) => e.project.getIsInitialized());
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(initialError);
 
@@ -216,7 +220,9 @@ function HomeScreen({
 				</div>
 			</header>
 			{error && <p className="kc-home__error">{error}</p>}
-			{projects.length === 0 ? (
+			{projects.length === 0 && !listLoaded ? (
+				<div className="kc-home__loading" role="progressbar" aria-label="Loading projects" />
+			) : projects.length === 0 ? (
 				<p className="kc-home__empty">No projects yet — tap “New project” to start editing.</p>
 			) : (
 				<ul className="kc-home__grid">
@@ -322,6 +328,45 @@ function nextProjectName(existing: string[]): string {
 	return `Project ${n}`;
 }
 
+/** A software keyboard covers at least this much; a smaller difference between the screen
+ *  and the visible area is not a keyboard. */
+const KEYBOARD_MIN_PX = 120;
+
+/**
+ * Blind test round 2, item 5: with the keyboard open (Text panel), iOS pushed the whole page
+ * up to show the text field, and the top bar and the preview went under the status bar. The
+ * app has no Keyboard plugin, so the web view keeps the full screen height and iOS moves the
+ * page instead. This keeps the page at the top, and it tells the CSS how much of the screen
+ * the keyboard covers: `--cc-keyboard-inset` and `data-cc-keyboard="open"` on the root
+ * element. components.css then puts the open sheet (where all text fields are) on the
+ * keyboard. The app is a fixed full-screen surface (app-root.css), so a page scroll is never
+ * wanted.
+ */
+function keepPageAtTopWithKeyboard(): void {
+	const viewport = window.visualViewport;
+	if (!viewport) return;
+	const root = document.documentElement;
+	let appliedInset = -1;
+	const update = () => {
+		// A pinch zoom also makes the visible area smaller: not a keyboard, and not a page scroll to undo.
+		if (viewport.scale > 1.01) return;
+		// The root's clientHeight is the full screen; the keyboard does not change it on iOS.
+		const covered = Math.round(root.clientHeight - viewport.height);
+		const inset = covered >= KEYBOARD_MIN_PX ? covered : 0;
+		if (inset !== appliedInset) {
+			appliedInset = inset;
+			root.style.setProperty("--cc-keyboard-inset", `${inset}px`);
+			if (inset > 0) root.dataset.ccKeyboard = "open";
+			else delete root.dataset.ccKeyboard;
+		}
+		if (Math.abs(window.scrollY) >= 1 || Math.abs(viewport.offsetTop) >= 1) window.scrollTo(0, 0);
+	};
+	viewport.addEventListener("resize", update);
+	viewport.addEventListener("scroll", update);
+	window.addEventListener("scroll", update);
+	update();
+}
+
 export function mountApp() {
 	const container = document.getElementById("app");
 	if (!container) throw new Error("app-root: #app container missing from index.html");
@@ -371,6 +416,7 @@ export function mountApp() {
 			},
 		});
 	});
+	keepPageAtTopWithKeyboard();
 	container.innerHTML = "";
 	createRoot(container).render(
 		<StrictMode>

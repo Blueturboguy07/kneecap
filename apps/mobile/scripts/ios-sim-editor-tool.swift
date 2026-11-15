@@ -5,11 +5,17 @@
 //       x y w h: the preview area in CSS pixels, as the app logged it. The
 //       tool measures the inner 80% of that area in the screenshot.
 //   editor-ci-tool video-check <movie>
-//       duration, tracks, size, and the colours of the frame at 0.5 s.
+//       duration, tracks, size, the colours of the frame at 0.5 s, and the
+//       sound of the first audio track (peak, RMS, audible part) read as PCM.
+//   editor-ci-tool make-video <out.mp4> <tone.wav> <seconds>
+//       the test video: H.264 1280x720 at 30 fps (red, green, blue and
+//       yellow quarters with a moving white bar) plus the WAV as AAC.
 //
 // It prints one JSON object. Exit 0: measured. Exit 1: could not measure.
 import AVFoundation
 import CoreGraphics
+import CoreMedia
+import CoreVideo
 import Foundation
 import ImageIO
 
@@ -208,6 +214,9 @@ func videoCheck(_ path: String) async -> Int32 {
                 }
             }
         }
+        if let track = audio.first {
+            result["audio"] = audioStats(asset: asset, track: track)
+        }
     } catch {
         result["error"] = error.localizedDescription
         printJSON(result)
@@ -217,13 +226,280 @@ func videoCheck(_ path: String) async -> Int32 {
     return 0
 }
 
+/// The sound of one audio track, decoded to 16-bit PCM: peak and RMS (1.0 =
+/// full scale), its length, and the part of its 100 ms windows with an RMS of
+/// at least 0.005 (not silent).
+func audioStats(asset: AVAsset, track: AVAssetTrack) -> [String: Any] {
+    let reader: AVAssetReader
+    do {
+        reader = try AVAssetReader(asset: asset)
+    } catch {
+        return ["error": error.localizedDescription]
+    }
+    let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMIsNonInterleaved: false,
+    ])
+    guard reader.canAdd(output) else { return ["error": "cannot read the audio track as PCM"] }
+    reader.add(output)
+    guard reader.startReading() else {
+        return ["error": reader.error?.localizedDescription ?? "the audio reader did not start"]
+    }
+    var peak = 0.0
+    var squares = 0.0
+    var samples = 0
+    var channels = 1
+    var sampleRate = 0.0
+    var windowSquares = 0.0
+    var windowSamples = 0
+    var windows = 0
+    var audibleWindows = 0
+    while let buffer = output.copyNextSampleBuffer() {
+        if sampleRate == 0,
+           let format = CMSampleBufferGetFormatDescription(buffer),
+           let description = CMAudioFormatDescriptionGetStreamBasicDescription(format) {
+            sampleRate = description.pointee.mSampleRate
+            channels = max(1, Int(description.pointee.mChannelsPerFrame))
+        }
+        guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
+        let count = CMBlockBufferGetDataLength(block) / 2
+        if count == 0 { continue }
+        var pcm = [Int16](repeating: 0, count: count)
+        let status = pcm.withUnsafeMutableBytes { raw -> OSStatus in
+            guard let base = raw.baseAddress else { return -1 }
+            return CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: count * 2, destination: base)
+        }
+        if status != 0 { continue }
+        let windowSize = max(1, Int((sampleRate > 0 ? sampleRate : 44_100) * 0.1)) * channels
+        for value in pcm {
+            let level = Double(value) / 32768.0
+            peak = max(peak, abs(level))
+            squares += level * level
+            samples += 1
+            windowSquares += level * level
+            windowSamples += 1
+            if windowSamples >= windowSize {
+                windows += 1
+                if (windowSquares / Double(windowSamples)).squareRoot() >= 0.005 { audibleWindows += 1 }
+                windowSquares = 0
+                windowSamples = 0
+            }
+        }
+    }
+    var result: [String: Any] = [
+        "peak": peak,
+        "rms": samples > 0 ? (squares / Double(samples)).squareRoot() : 0.0,
+        "channels": channels,
+        "sampleRate": sampleRate,
+        "seconds": sampleRate > 0 ? Double(samples / channels) / sampleRate : 0.0,
+        "audibleFraction": windows > 0 ? Double(audibleWindows) / Double(windows) : 0.0,
+    ]
+    if reader.status == .failed {
+        result["error"] = reader.error?.localizedDescription ?? "the audio read failed"
+    }
+    return result
+}
+
+/// One frame of the test video into a 32BGRA pixel buffer: the four colours of
+/// the test photo in quarters (top: red, green; bottom: blue, yellow) and a
+/// white bar that moves 16 px per frame.
+func paintFrame(_ buffer: CVPixelBuffer, frame: Int, width: Int, height: Int) {
+    CVPixelBufferLockBaseAddress(buffer, [])
+    defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+    guard let base = CVPixelBufferGetBaseAddress(buffer) else { return }
+    let rowBytes = CVPixelBufferGetBytesPerRow(buffer)
+    let pixels = base.assumingMemoryBound(to: UInt8.self)
+    // B, G, R, A
+    let red: [UInt8] = [30, 30, 220, 255]
+    let green: [UInt8] = [60, 180, 30, 255]
+    let blue: [UInt8] = [220, 60, 30, 255]
+    let yellow: [UInt8] = [30, 210, 240, 255]
+    var top = [UInt8](repeating: 0, count: width * 4)
+    var bottom = [UInt8](repeating: 0, count: width * 4)
+    for x in 0..<width {
+        let left = x < width / 2
+        for c in 0..<4 {
+            top[x * 4 + c] = left ? red[c] : green[c]
+            bottom[x * 4 + c] = left ? blue[c] : yellow[c]
+        }
+    }
+    let barStart = (frame * 16) % width
+    let barEnd = min(width, barStart + 24)
+    for y in 0..<height {
+        let row = pixels + y * rowBytes
+        let template = y < height / 2 ? top : bottom
+        template.withUnsafeBufferPointer { source in
+            if let start = source.baseAddress {
+                row.update(from: start, count: width * 4)
+            }
+        }
+        for x in barStart..<barEnd {
+            let pixel = row + x * 4
+            pixel[0] = 255
+            pixel[1] = 255
+            pixel[2] = 255
+            pixel[3] = 255
+        }
+    }
+}
+
+/// Feeds the writer: video frames from paintFrame, sound from the WAV reader.
+/// Returns nil when both inputs are finished, else the problem.
+func pumpMovie(
+    writer: AVAssetWriter,
+    video: AVAssetWriterInput,
+    adaptor: AVAssetWriterInputPixelBufferAdaptor,
+    audio: AVAssetWriterInput,
+    pcm: AVAssetReaderTrackOutput,
+    frames: Int,
+    width: Int,
+    height: Int
+) -> String? {
+    var frame = 0
+    var videoDone = false
+    var audioDone = false
+    let deadline = Date().addingTimeInterval(180)
+    while !(videoDone && audioDone) {
+        if writer.status == .failed {
+            return writer.error?.localizedDescription ?? "the writer failed"
+        }
+        var moved = false
+        if !videoDone && video.isReadyForMoreMediaData {
+            moved = true
+            if frame >= frames {
+                video.markAsFinished()
+                videoDone = true
+            } else {
+                guard let pool = adaptor.pixelBufferPool else { return "the writer has no pixel buffer pool" }
+                var made: CVPixelBuffer?
+                CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &made)
+                guard let buffer = made else { return "no pixel buffer" }
+                paintFrame(buffer, frame: frame, width: width, height: height)
+                if !adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: 30)) {
+                    return writer.error?.localizedDescription ?? "the writer refused video frame \(frame)"
+                }
+                frame += 1
+            }
+        }
+        if !audioDone && audio.isReadyForMoreMediaData {
+            moved = true
+            if let sample = pcm.copyNextSampleBuffer() {
+                if !audio.append(sample) {
+                    return writer.error?.localizedDescription ?? "the writer refused a sound buffer"
+                }
+            } else {
+                audio.markAsFinished()
+                audioDone = true
+            }
+        }
+        if !moved {
+            if Date() > deadline { return "the writer stopped taking data" }
+            usleep(5_000)
+        }
+    }
+    return nil
+}
+
+func makeVideo(_ args: [String]) async -> Int32 {
+    guard args.count == 3, let seconds = Double(args[2]), seconds > 0 else {
+        printJSON(["error": "make-video needs <out.mp4> <tone.wav> <seconds>"])
+        return 1
+    }
+    let output = URL(fileURLWithPath: args[0])
+    try? FileManager.default.removeItem(at: output)
+    let width = 1280
+    let height = 720
+    let tone = AVURLAsset(url: URL(fileURLWithPath: args[1]))
+    do {
+        guard let toneTrack = try await tone.loadTracks(withMediaType: .audio).first else {
+            printJSON(["error": "the WAV has no audio track"])
+            return 1
+        }
+        let reader = try AVAssetReader(asset: tone)
+        let pcm = AVAssetReaderTrackOutput(track: toneTrack, outputSettings: [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false,
+        ])
+        guard reader.canAdd(pcm) else {
+            printJSON(["error": "cannot read the WAV as PCM"])
+            return 1
+        }
+        reader.add(pcm)
+
+        let writer = try AVAssetWriter(outputURL: output, fileType: .mp4)
+        let video = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: 4_000_000,
+                AVVideoMaxKeyFrameIntervalKey: 30,
+            ],
+        ])
+        video.expectsMediaDataInRealTime = false
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: video, sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height,
+        ])
+        let audio = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVNumberOfChannelsKey: 1,
+            AVSampleRateKey: 44_100,
+            AVEncoderBitRateKey: 128_000,
+        ])
+        audio.expectsMediaDataInRealTime = false
+        guard writer.canAdd(video), writer.canAdd(audio) else {
+            printJSON(["error": "the writer cannot take an H.264 and an AAC track"])
+            return 1
+        }
+        writer.add(video)
+        writer.add(audio)
+        guard reader.startReading() else {
+            printJSON(["error": reader.error?.localizedDescription ?? "the WAV reader did not start"])
+            return 1
+        }
+        guard writer.startWriting() else {
+            printJSON(["error": writer.error?.localizedDescription ?? "the writer did not start"])
+            return 1
+        }
+        writer.startSession(atSourceTime: .zero)
+        let frames = Int((seconds * 30).rounded())
+        if let problem = pumpMovie(writer: writer, video: video, adaptor: adaptor, audio: audio, pcm: pcm,
+                                   frames: frames, width: width, height: height) {
+            writer.cancelWriting()
+            printJSON(["error": problem])
+            return 1
+        }
+        await writer.finishWriting()
+        guard writer.status == .completed else {
+            printJSON(["error": writer.error?.localizedDescription ?? "the writer did not complete"])
+            return 1
+        }
+    } catch {
+        printJSON(["error": error.localizedDescription])
+        return 1
+    }
+    printJSON(["file": args[0], "seconds": seconds, "size": [width, height]])
+    return 0
+}
+
 let arguments = Array(CommandLine.arguments.dropFirst())
 switch arguments.first {
 case "image-stats":
     exit(imageStats(Array(arguments.dropFirst())))
 case "video-check" where arguments.count == 2:
     exit(await videoCheck(arguments[1]))
+case "make-video":
+    exit(await makeVideo(Array(arguments.dropFirst())))
 default:
-    FileHandle.standardError.write(Data("usage: editor-ci-tool image-stats <png> <x> <y> <w> <h> <viewportW> <viewportH> | video-check <movie>\n".utf8))
+    FileHandle.standardError.write(Data(("usage: editor-ci-tool image-stats <png> <x> <y> <w> <h> <viewportW> <viewportH>"
+        + " | video-check <movie> | make-video <out.mp4> <tone.wav> <seconds>\n").utf8))
     exit(2)
 }

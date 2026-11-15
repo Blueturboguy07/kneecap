@@ -144,6 +144,51 @@ body {
 	transform: translateY(-50%);
 }
 
+/* The quiet loading state while the project list loads (blind test round 2, item 7:
+   "No projects yet" showed for about 2 s before the projects). No text: a small ring in
+   the free space, which shows only when the load takes longer than 0.4 s. */
+.kc-home__loading {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.kc-home__loading::before {
+	content: "";
+	width: 24px;
+	height: 24px;
+	box-sizing: border-box;
+	border-radius: 50%;
+	border: 2px solid rgb(255 255 255 / 15%);
+	border-top-color: var(--cc-text-secondary, #8b8a90);
+	animation:
+		kc-home-loading-in 0.2s ease 0.4s both,
+		kc-home-loading-spin 0.9s linear infinite;
+}
+
+@keyframes kc-home-loading-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes kc-home-loading-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.kc-home__loading::before {
+		animation: kc-home-loading-in 0.2s ease 0.4s both;
+	}
+}
+
 /* Two-up thumbnail grid (2026-09-07). The screen is fixed-height; a long
    project list scrolls here, not the page. `align-content: start` keeps a
    single row of cards at the top instead of stretching it to fill. */

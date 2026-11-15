@@ -6,7 +6,7 @@ import { ProgressOverlay } from "../progress-overlay";
 import type { EditorCore } from "@kneecap/editor-core";
 import { buildEdl, type Edl } from "@kneecap/editor-core/edl";
 import type { ExportFormat, ExportQuality } from "@kneecap/editor-core/export";
-import { getNativeBridge, type ExportProgress } from "@kneecap/native-bridge";
+import { getNativeBridge, type ExportProgress, type NativeBridge } from "@kneecap/native-bridge";
 import {
 	renderOverlayFrames,
 	type OverlayFrame,
@@ -53,6 +53,20 @@ function isExportQuality(value: string): value is ExportQuality {
 }
 
 type ExportRunState = "idle" | "exporting" | "done" | "error";
+
+/** The export progress label in plain words (blind test round 2): never the raw stage
+ *  name, which is a developer word such as "muxing". */
+const EXPORT_STAGE_WORDS: Record<ExportProgress["stage"], string> = {
+	preparing: "getting ready",
+	encoding: "making the video",
+	muxing: "saving the video",
+	done: "done",
+	error: "stopped",
+};
+
+/** The Photos save after "done" (1.0.5, blind test round 2): "saving" while
+ *  the permission prompt and the save run, then the real result. */
+type PhotosSaveState = "saving" | "saved" | "denied" | "failed";
 
 /**
  * M8 Export sheet — task scope: "resolution/fps/quality." Resolution and
@@ -116,9 +130,20 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 
 	const [runState, setRunState] = useState<ExportRunState>("idle");
 	const [progress, setProgress] = useState<{ stage: ExportProgress["stage"]; fraction: number } | null>(null);
+	// The result block after "done" (1.0.5): the Photos save state, whether a
+	// video file is there to share, and a plain note when Share or Open
+	// Photos could not open.
+	const [photosSave, setPhotosSave] = useState<PhotosSaveState>("saving");
+	const [canShare, setCanShare] = useState(false);
+	const [actionNote, setActionNote] = useState<string | null>(null);
+	// The finished video's `outputUri`, only ever handed back to the bridge
+	// (saveToPhotos / shareFile) — never shown. A ref: it drives no render.
+	const exportedUriRef = useRef<string | null>(null);
+	// Each export run gets a number, so a slow Photos answer from an older
+	// run cannot overwrite the result of a newer one.
+	const exportRunRef = useRef(0);
 	// The sheet shows plain words only: no file path and no error text. The
-	// details go to the console (the native side also adds the video to
-	// Photos, see NativeBridgePlugin+Export.swift).
+	// details go to the console.
 	const failExport = (detail: unknown) => {
 		console.error("export failed:", detail instanceof Error ? detail.message : detail);
 		setRunState("error");
@@ -186,7 +211,76 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 		});
 	};
 
+	/**
+	 * After "done": save the video to Photos and show the real result (1.0.5,
+	 * blind test round 2 — "Export complete." in small grey text, with the
+	 * Photos prompt only after it, read as unfinished). The native side asks
+	 * for Photos access here, while the sheet says "Saving to Photos…".
+	 * `saveToPhotos` never rejects; the catch is only a guard.
+	 */
+	const saveExportToPhotos = async ({
+		bridge,
+		uri,
+		run,
+	}: {
+		bridge: NativeBridge;
+		uri: string | undefined;
+		run: number;
+	}) => {
+		exportedUriRef.current = uri ?? null;
+		setCanShare(Boolean(uri));
+		if (!uri) {
+			setPhotosSave("failed");
+			return;
+		}
+		let next: PhotosSaveState = "failed";
+		try {
+			const result = await bridge.saveToPhotos({ uri });
+			next = result.saved ? "saved" : result.reason === "denied" ? "denied" : "failed";
+		} catch (error) {
+			console.error("save to Photos failed:", error instanceof Error ? error.message : error);
+		}
+		if (exportRunRef.current === run) setPhotosSave(next);
+	};
+
+	const shareVideo = async () => {
+		const uri = exportedUriRef.current;
+		if (!uri) return;
+		setActionNote(null);
+		try {
+			const bridge = await getNativeBridge();
+			await bridge.shareFile({ uri });
+		} catch (error) {
+			console.error("share failed:", error instanceof Error ? error.message : error);
+			setActionNote("Could not open Share.");
+		}
+	};
+
+	const openPhotosApp = async () => {
+		setActionNote(null);
+		try {
+			const bridge = await getNativeBridge();
+			await bridge.openPhotos();
+		} catch (error) {
+			console.error("open Photos failed:", error instanceof Error ? error.message : error);
+			setActionNote("Could not open Photos.");
+		}
+	};
+
+	const handleShare = () => {
+		void shareVideo();
+	};
+	const handleOpenPhotos = () => {
+		void openPhotosApp();
+	};
+
 	const startExport = async () => {
+		const run = exportRunRef.current + 1;
+		exportRunRef.current = run;
+		exportedUriRef.current = null;
+		setCanShare(false);
+		setActionNote(null);
+		setPhotosSave("saving");
 		setProgress({ stage: "preparing", fraction: 0 });
 		setRunState("exporting");
 
@@ -234,6 +328,7 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 				}
 				if (event.stage === "done") {
 					setRunState("done");
+					void saveExportToPhotos({ bridge, uri: event.outputUri, run });
 					break;
 				}
 			}
@@ -300,12 +395,54 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 					Export video
 				</button>
 				{runState === "error" && <p className="cc-panel-note">Export failed. Try again.</p>}
-				{runState === "done" && <p className="cc-panel-note">Export complete.</p>}
+				{runState === "done" && (
+					<div
+						className="cc-export-result"
+						role="status"
+						aria-live="polite"
+						data-kneecap-export-result={photosSave}
+					>
+						{photosSave === "saving" && <p className="cc-export-result__title">Saving to Photos…</p>}
+						{photosSave === "saved" && <p className="cc-export-result__title">Saved to Photos</p>}
+						{(photosSave === "denied" || photosSave === "failed") && (
+							<p className="cc-export-result__title">Could not save to Photos.</p>
+						)}
+						{photosSave === "denied" && (
+							<p className="cc-export-result__detail">Photos access is off for publik kneecap, and you can turn it on in Settings.</p>
+						)}
+						{photosSave === "failed" && canShare && (
+							<p className="cc-export-result__detail">You can still share the video.</p>
+						)}
+						{photosSave !== "saving" && (
+							<div className="cc-export-result__actions">
+								{photosSave === "saved" && (
+									<button
+										type="button"
+										className="cc-export-sheet__action cc-export-result__action"
+										onClick={handleOpenPhotos}
+									>
+										Open Photos
+									</button>
+								)}
+								{canShare && (
+									<button
+										type="button"
+										className="cc-export-sheet__action cc-export-result__action"
+										onClick={handleShare}
+									>
+										Share
+									</button>
+								)}
+							</div>
+						)}
+						{actionNote && <p className="cc-export-result__detail">{actionNote}</p>}
+					</div>
+				)}
 			</PanelSheet>
 			{runState === "exporting" && progress && (
 				<ProgressOverlay
 					percent={progress.fraction * 100}
-					label={`Exporting — ${progress.stage}`}
+					label={`Exporting — ${EXPORT_STAGE_WORDS[progress.stage]}`}
 					onCancel={cancelExport}
 				/>
 			)}

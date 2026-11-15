@@ -1628,3 +1628,91 @@
 	height: var(--cc-touch-target-ios);
 	flex-shrink: 0;
 }
+
+/* 1.0.5: export result */
+/* Blind test round 2. The block under "Export video"
+   after an export: "Saving to Photos…", then "Saved to Photos" with Open
+   Photos and Share, or "Could not save to Photos." with one plain sentence
+   and Share. Body-size primary text, so the outcome no longer reads as a
+   small grey note. A border, not a raised fill: tokens.ts allows only
+   primary text on the raised surface. */
+.cc-export-result {
+	margin-top: var(--cc-space-3);
+	padding: var(--cc-space-3);
+	border: 1px solid var(--cc-border, rgba(255, 255, 255, 0.18));
+	border-radius: 12px;
+}
+.cc-export-result__title {
+	margin: 0;
+	font-size: var(--cc-text-body, 15px);
+	font-weight: 700;
+	line-height: 1.4;
+	color: var(--cc-text-primary);
+}
+.cc-export-result__detail {
+	margin: var(--cc-space-1) 0 0;
+	font-size: var(--cc-text-body, 15px);
+	line-height: 1.4;
+	color: var(--cc-text-primary);
+}
+.cc-export-result__actions {
+	display: flex;
+	gap: var(--cc-space-2);
+}
+.cc-export-result__action {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+/* 1.0.5: blind test round 2, small UI fixes */
+/* Item 4: the keyframe control (the diamond and its previous/next buttons) covered the
+   ruler labels at the right: its 44 pt buttons and its opaque background reached down
+   over the ruler. Now only the time-label row above the ruler is opaque, and the icons
+   sit in that row. Each button keeps its 44 x 44 pt box: the bottom padding is the part
+   over the ruler, and it is transparent, so the ruler labels under it stay visible. */
+.cc-timeline__keyframe-control {
+	height: var(--cc-timecode-row-height, 20px);
+}
+.cc-timeline__keyframe-control .cc-keyframe-control__btn {
+	box-sizing: border-box;
+	padding-bottom: calc(var(--cc-touch-target-ios, 44px) - var(--cc-timecode-row-height, 20px));
+}
+/* Item 4: the keyframe diamonds on a clip (z-index 3) go under the ruler when the
+   tracks scroll up under it, and do not cover its labels. */
+.cc-timeline__ruler {
+	z-index: 4;
+}
+
+/* Item 5: while the keyboard is open, app-root.tsx keeps the page at the top (iOS
+   otherwise pushes the top bar and the preview under the status bar). It sets
+   data-cc-keyboard="open" and --cc-keyboard-inset (the height that the keyboard
+   covers) on the root element. The open sheet then sits on the keyboard, and its top
+   stays 160px below the status bar: the top bar and the top of the preview stay in view. */
+:root[data-cc-keyboard="open"] .cc-sheet {
+	bottom: var(--cc-keyboard-inset, 0px);
+	max-height: min(
+		70vh,
+		max(120px, calc(100vh - var(--cc-keyboard-inset, 0px) - env(safe-area-inset-top, 0px) - 160px))
+	);
+}
+/* The keyboard covers the home indicator: no safe-area space below the last control. */
+:root[data-cc-keyboard="open"] .cc-sheet__body {
+	padding-bottom: var(--cc-space-4);
+}
+
+/* Item 6: the progress overlay (export, import, dead-space check) is opaque. The
+   editor and the export sheet under it do not show through, so its Cancel button is
+   over nothing else. Its content stays inside the safe area. */
+.cc-progress-overlay {
+	background: var(--cc-bg-base, #000000);
+	box-sizing: border-box;
+	padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+		env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+
+/* Item 8: every aspect-ratio button is at least 44 pt wide too. The 9:16 button was
+   40 pt wide (its shape is 25 pt wide); 4:5 and 3:4 were near the limit. */
+.cc-ratio-grid__item {
+	min-width: var(--cc-touch-target-ios);
+	box-sizing: border-box;
+}

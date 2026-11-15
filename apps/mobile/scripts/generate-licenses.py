@@ -7,7 +7,7 @@ Run after `bun install`, when a dependency is added, removed or updated:
     python3 apps/mobile/scripts/generate-licenses.py
 
 It reads the license files from the installed node_modules (the JS that the
-web bundle includes) and from this repo (the fonts). The native libraries
+web bundle includes) and from this repo (the fonts, the flag stickers). The native libraries
 (Capacitor iOS/Android, AndroidX, Media3, Kotlin) have fixed entries below.
 """
 import json
@@ -97,6 +97,14 @@ def main() -> None:
     inter = re.sub(r"^Copyright[^\n]*", "Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)", ofl, count=1)
     entries.append({"name": "Inter (font)", "version": "", "license": "OFL-1.1",
                     "source": "https://github.com/rsms/inter", "note": "", "text": inter})
+
+    # Editor > Stickers > Flags: public/flags/*.svg are the 4x3 flags of
+    # flag-icons 7.5.0 (same bytes, CRLF line ends), one for each code in
+    # packages/editor-core/src/stickers/providers/countries-data.ts.
+    flags = (MOBILE / "public" / "flags" / "LICENSE-flag-icons.txt").read_text(encoding="utf-8").strip()
+    entries.append({"name": "flag-icons (flag stickers)", "version": "7.5.0", "license": "MIT",
+                    "source": "https://github.com/lipis/flag-icons",
+                    "note": "The flag stickers are the 4x3 SVG files of this version, without changes.", "text": flags})
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps({"generatedBy": "apps/mobile/scripts/generate-licenses.py", "entries": entries},

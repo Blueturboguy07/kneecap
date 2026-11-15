@@ -84,6 +84,12 @@ public class NativeBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         // events on).
         CAPPluginMethod(name: "exportProject", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "exportCancel", returnType: CAPPluginReturnPromise),
+        // 1.0.5 (blind test round 2) — the export sheet's result block, see
+        // NativeBridgePlugin+Export.swift: save the finished export to
+        // Photos (awaited, after "done"), share it, open Photos.
+        CAPPluginMethod(name: "saveToPhotos", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "shareFile", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openPhotos", returnType: CAPPluginReturnPromise),
         // M10 round 20: on-device captions via Apple Speech — see
         // NativeBridgePlugin+Transcribe.swift / NativeMedia/AppleSpeechTranscriber.swift.
         CAPPluginMethod(name: "transcribe", returnType: CAPPluginReturnPromise),

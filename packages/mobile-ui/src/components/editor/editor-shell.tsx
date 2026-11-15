@@ -577,6 +577,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 					}
 					onSetSpeed={({ rate, maintainPitch }) => setRetime({ editor, ref: selectedRef, rate, maintainPitch })}
 					onSetVolume={(db) => setElementParam({ editor, ref: selectedRef, key: "volume", value: db })}
+					onSetMuted={(muted) => setElementParam({ editor, ref: selectedRef, key: "muted", value: muted })}
 				/>
 			)}
 

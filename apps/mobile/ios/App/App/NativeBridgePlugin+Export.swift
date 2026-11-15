@@ -3,6 +3,7 @@ import Capacitor
 import Photos
 import CoreImage
 import ImageIO
+import UIKit
 
 /// kneecap M9 — the native half of `NativeBridge.exportProject()`
 /// (packages/native-bridge/src/capacitor-bridge.ts). All the actual mapping
@@ -12,8 +13,9 @@ import ImageIO
 /// just decoding the call's `edl` payload, asset-URI resolution against
 /// real M4 media custody, Capacitor call/event plumbing (same
 /// resolve-immediately-then-stream-`notifyListeners`-events shape as
-/// `NativeBridgePlugin+Media.swift`'s `generateProxy`), and the
-/// Photos-library save (plan M9 item 8).
+/// `NativeBridgePlugin+Media.swift`'s `generateProxy`), and the export
+/// sheet's result block (1.0.5, blind test round 2): `saveToPhotos` (plan
+/// M9 item 8), `shareFile` and `openPhotos`.
 extension NativeBridgePlugin {
 
     @objc func exportProject(_ call: CAPPluginCall) {
@@ -120,25 +122,21 @@ extension NativeBridgePlugin {
                 self.emitExportProgress(exportId: exportId, stage: "muxing", fraction: 0.99)
 
                 // DONE FIRST: the file is already a real, valid deliverable
-                // at result.outputURL. The previous order awaited the Photos
-                // save BEFORE emitting done, and the Photos permission
-                // prompt made export completion hang indefinitely (caught
-                // by the headless #/autotest export phase, 2026-08-20:
-                // encode+mux+integrity all finished, "done" never arrived).
+                // at result.outputURL. An old order awaited the Photos save
+                // BEFORE emitting done, and the Photos permission prompt made
+                // export completion hang indefinitely (caught by the headless
+                // #/autotest export phase, 2026-08-20: encode+mux+integrity
+                // all finished, "done" never arrived). The Photos save is NOT
+                // done here any more (1.0.5): the export sheet calls
+                // `saveToPhotos` after "done", shows "Saving to Photos…" while
+                // the permission prompt and the save run, and then shows the
+                // real result. One save per export, never a silent one.
                 self.emitExportProgress(
                     exportId: exportId,
                     stage: "done",
                     fraction: 1,
                     outputUri: result.outputURL.path
                 )
-
-                // Plan M9 item 8: "Save to Photos / Gallery" — best-effort
-                // AND fire-and-forget: a denied/undetermined/prompting
-                // Photos permission only affects the library copy, never
-                // the export's completion.
-                Task {
-                    await Self.saveToPhotosLibraryBestEffort(url: result.outputURL)
-                }
             } catch {
                 self.emitExportProgress(
                     exportId: exportId,
@@ -172,24 +170,133 @@ extension NativeBridgePlugin {
         notifyListeners("exportProgress", data: data)
     }
 
-    private static func saveToPhotosLibraryBestEffort(url: URL) async {
-        let status = await withCheckedContinuation { (continuation: CheckedContinuation<PHAuthorizationStatus, Never>) in
-            PHPhotoLibrary.requestAuthorization(for: .addOnly) { continuation.resume(returning: $0) }
-        }
-        guard status == .authorized || status == .limited else { return }
-        _ = try? await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAssetOfVideo(atFileURL: url)
+    // MARK: - The export sheet's result block (1.0.5)
+
+    /// Saves one finished export to the Photos library and answers
+    /// `{saved: true}`, or `{saved: false, reason: "denied" | "failed"}`.
+    /// Asks for add-only Photos access first when it was never asked
+    /// (the prompt shows while the sheet says "Saving to Photos…"), and
+    /// resolves only when the save is really done. A pre-granted
+    /// `photos-add` (the simulator test) skips the prompt.
+    @objc func saveToPhotos(_ call: CAPPluginCall) {
+        guard let fileURL = exportedFileURL(call, method: "saveToPhotos") else { return }
+        Task {
+            let outcome = await Self.saveVideoToPhotos(url: fileURL)
+            switch outcome {
+            case .saved:
+                call.resolve(["saved": true])
+            case .denied:
+                call.resolve(["saved": false, "reason": "denied"])
+            case .failed(let detail):
+                print("[kneecap-export] save to Photos failed: \(detail)")
+                call.resolve(["saved": false, "reason": "failed"])
+            }
         }
     }
-}
 
-private extension PHAssetChangeRequest {
-    /// `PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL:)`
-    /// is the real API name; aliased here only so the call site above
-    /// reads unambiguously as "of a video" at a glance. (Kept as a thin
-    /// wrapper rather than inlining the long official name, purely for
-    /// readability — no behavior difference.)
-    static func creationRequestForAssetOfVideo(atFileURL url: URL) -> PHAssetChangeRequest? {
-        PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+    /// Opens the system share sheet for one finished export. Resolves once
+    /// the sheet is on screen (not when the person closes it).
+    @objc func shareFile(_ call: CAPPluginCall) {
+        guard let fileURL = exportedFileURL(call, method: "shareFile") else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard var presenter = self?.bridge?.viewController else {
+                call.reject("no view controller available to present Share from", "IO_ERROR")
+                return
+            }
+            // Present from the top-most screen: a controller that already
+            // presents something ignores a second `present`, and the call
+            // would never resolve.
+            while let presented = presenter.presentedViewController, !presented.isBeingDismissed {
+                presenter = presented
+            }
+            let sheet = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
+            // iPad shows the share sheet as a popover, which needs an anchor:
+            // the centre of the presenting view, with no arrow.
+            if let popover = sheet.popoverPresentationController {
+                let bounds = presenter.view.bounds
+                popover.sourceView = presenter.view
+                popover.sourceRect = CGRect(x: bounds.midX, y: bounds.midY, width: 0, height: 0)
+                popover.permittedArrowDirections = []
+            }
+            presenter.present(sheet, animated: true) {
+                call.resolve(["shown": true])
+            }
+        }
+    }
+
+    /// Opens the Photos app (`photos-redirect://`, the scheme Photos
+    /// registers). Rejects when the system cannot open it.
+    @objc func openPhotos(_ call: CAPPluginCall) {
+        guard let url = URL(string: "photos-redirect://") else {
+            call.reject("no Photos URL", "UNSUPPORTED")
+            return
+        }
+        DispatchQueue.main.async {
+            UIApplication.shared.open(url, options: [:]) { opened in
+                if opened {
+                    call.resolve(["opened": true])
+                } else {
+                    call.reject("Photos could not be opened", "UNSUPPORTED")
+                }
+            }
+        }
+    }
+
+    /// The export file a result-block call names, or nil after rejecting the
+    /// call. Takes a raw path or a `file://` URL, and ONLY a file in the
+    /// exports directory: these calls exist for the video the export sheet
+    /// just made, not for any path the web view sends.
+    private func exportedFileURL(_ call: CAPPluginCall, method: String) -> URL? {
+        guard let raw = call.getString("uri"), !raw.isEmpty else {
+            call.reject("\(method) requires uri", "IO_ERROR")
+            return nil
+        }
+        let named: URL
+        if raw.hasPrefix("file://"), let parsed = URL(string: raw), parsed.isFileURL {
+            named = parsed
+        } else {
+            named = URL(fileURLWithPath: raw)
+        }
+        guard let exportsDirectory = try? MediaSandbox.exportsDirectory() else {
+            call.reject("\(method): no exports directory", "IO_ERROR")
+            return nil
+        }
+        let filePath = named.standardizedFileURL.resolvingSymlinksInPath().path
+        let directoryPath = exportsDirectory.standardizedFileURL.resolvingSymlinksInPath().path
+        guard filePath.hasPrefix(directoryPath + "/") else {
+            call.reject("\(method) only takes a finished export", "UNSUPPORTED")
+            return nil
+        }
+        guard FileManager.default.fileExists(atPath: filePath) else {
+            call.reject("\(method): the exported video is no longer on this device", "IO_ERROR")
+            return nil
+        }
+        return URL(fileURLWithPath: filePath)
+    }
+
+    enum PhotosSaveOutcome {
+        case saved
+        case denied
+        case failed(String)
+    }
+
+    /// Plan M9 item 8, "Save to Photos / Gallery". Add-only access is all
+    /// this needs (NSPhotoLibraryAddUsageDescription in Info.plist).
+    static func saveVideoToPhotos(url: URL) async -> PhotosSaveOutcome {
+        var status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        if status == .notDetermined {
+            status = await withCheckedContinuation { (continuation: CheckedContinuation<PHAuthorizationStatus, Never>) in
+                PHPhotoLibrary.requestAuthorization(for: .addOnly) { continuation.resume(returning: $0) }
+            }
+        }
+        guard status == .authorized || status == .limited else { return .denied }
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                _ = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+            }
+            return .saved
+        } catch {
+            return .failed(String(describing: error))
+        }
     }
 }

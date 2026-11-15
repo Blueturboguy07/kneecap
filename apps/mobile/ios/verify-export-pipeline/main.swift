@@ -629,6 +629,65 @@ check(kfBandEarly > 10.0, "near-opaque frame still shows the clip (got \(kfBandE
 check(kfBandLate < 0.5 * kfBandEarly, "the keyframed opacity fade darkens the clip over time — evaluated per frame, not once (early \(kfBandEarly), late \(kfBandLate))")
 check(kfBandLate > 1.0, "faded frame is dim, not black — opacity 0.16 still leaves a trace (got \(kfBandLate))")
 
+// --- 14. Timeline end (blind test round 2, 1.0.5): a text clip that runs
+// past the last media clip runs the export to the TEXT's end. Text has no
+// composition lane, and the old end (composition.duration) cut a photo 0-3 s
+// + text 0-5 s project to 3.00 s. Landscape timeline of step 1 (media ends at
+// ~3.133 s), text 0.5 s -> 5.0 s, a blue canvas so the tail frames prove the
+// background colour (not black filler) shows under the text. ---
+print("== 14. A text clip past the last media clip: the export runs to the timeline end (5.0 s) ==")
+let tailBackground: (UInt8, UInt8, UInt8) = (32, 64, 160) // #2040A0
+var tailEdlJson = edlJson
+var tailMeta = tailEdlJson["meta"] as! [String: Any]
+tailMeta["background"] = ["type": "color", "color": "#2040A0"]
+tailMeta["durationTicks"] = t(5.0)
+tailEdlJson["meta"] = tailMeta
+var tailTracks = tailEdlJson["tracks"] as! [[String: Any]]
+var tailTextTrack = tailTracks[1]
+tailTextTrack["clips"] = [
+	textClipDict(id: "clip-title", start: t(0.5), duration: t(4.5), content: "kneecap", color: "#00CAE0", fontSize: 6),
+]
+tailTracks[1] = tailTextTrack
+tailEdlJson["tracks"] = tailTracks
+tailEdlJson["overlays"] = [[
+	"overlayId": "track-text:clip-title", "kind": "text", "trackId": "track-text", "clipId": "clip-title",
+	"zIndex": 1, "startTicks": t(0.5), "durationTicks": t(4.5),
+]] as [[String: Any]]
+let tailEdl = try EdlDecoder.decode(jsObject: tailEdlJson)
+let tailMainClips = tailEdl.tracks.first { $0.kind == "main" }!.clips
+let (tailPlacements, _) = try MainTrackPlacement.computePlacements(clips: tailMainClips, transitions: tailEdl.transitions)
+check(
+	CompositionBuilder.timelineEndTicks(edl: tailEdl, placements: tailPlacements, remapTick: { $0 }) == t(5.0),
+	"the timeline end counts the text clip (no composition lane), not only the media clips"
+)
+let tailURL = workDir.appendingPathComponent("text-tail.mp4")
+let tailResult = try await EdlExporter.export(edl: tailEdl, resolveAssetURL: { _ in fixtureURL }, outputURL: tailURL, onProgress: { _ in })
+let tailSeconds = Double(tailResult.durationMicros) / 1_000_000
+check(abs(tailSeconds - 5.0) < 0.35, "export duration == timeline end 5.0 s, not the media end ~3.13 s (got \(String(format: "%.3f", tailSeconds)) s)")
+let tailFrame = try extractFrame(from: tailURL, at: 4.5)
+let tailCyan = fractionOfPixelsNearColor(tailFrame, target: (0, 202, 224), tolerance: 60)
+let tailCanvas = fractionOfPixelsNearColor(tailFrame, target: tailBackground, tolerance: 40, yFraction: 0.80..<0.98)
+print("  at 4.5 s: cyan text fraction=\(String(format: "%.4f", tailCyan)) canvas-colour fraction (bottom band)=\(String(format: "%.3f", tailCanvas))")
+check(tailCyan > 0.0005, "the text still shows after the last media clip (got \(tailCyan))")
+check(tailCanvas > 0.9, "the frames after the last media clip show the canvas colour #2040A0 (got \(tailCanvas))")
+
+// A project with ONLY text: no main clip at all, one background-only span.
+var textOnlyJson = tailEdlJson
+var textOnlyTracks = textOnlyJson["tracks"] as! [[String: Any]]
+var textOnlyMain = textOnlyTracks[0]
+textOnlyMain["clips"] = [] as [[String: Any]]
+textOnlyTracks[0] = textOnlyMain
+textOnlyJson["tracks"] = textOnlyTracks
+textOnlyJson["transitions"] = [] as [[String: Any]]
+let textOnlyEdl = try EdlDecoder.decode(jsObject: textOnlyJson)
+let textOnlyURL = workDir.appendingPathComponent("text-only.mp4")
+let textOnlyResult = try await EdlExporter.export(edl: textOnlyEdl, resolveAssetURL: { _ in fixtureURL }, outputURL: textOnlyURL, onProgress: { _ in })
+let textOnlySeconds = Double(textOnlyResult.durationMicros) / 1_000_000
+check(abs(textOnlySeconds - 5.0) < 0.35, "a text-only project exports to its timeline end 5.0 s (got \(String(format: "%.3f", textOnlySeconds)) s)")
+let textOnlyFrame = try extractFrame(from: textOnlyURL, at: 2.0)
+check(fractionOfPixelsNearColor(textOnlyFrame, target: (0, 202, 224), tolerance: 60) > 0.0005, "the text shows in a text-only export")
+check(fractionOfPixelsNearColor(textOnlyFrame, target: tailBackground, tolerance: 40, yFraction: 0.80..<0.98) > 0.9, "a text-only export shows the canvas colour under the text")
+
 print("\nALL CHECKS PASSED")
 		exitCode = 0
 	} catch {

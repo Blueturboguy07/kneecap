@@ -25,7 +25,6 @@ import {
 } from "@kneecap/editor-core/commands";
 import {
 	buildTextElement,
-	buildLibraryAudioElement,
 	buildStickerElement,
 	buildGraphicElement,
 	findTrackInSceneTracks,
@@ -69,6 +68,7 @@ import {
 	ZERO_MEDIA_TIME,
 	type MediaTime,
 	type NativeImportProgress,
+	type NativeMediaSource,
 } from "@kneecap/editor-core";
 import type { EdlAssetResolver } from "@kneecap/editor-core/edl";
 import {
@@ -965,21 +965,50 @@ export async function importAndPlaceAudio({
 
 // --------------------------------- Audio ------------------------------------
 
-export function insertLocalSound({
+/**
+ * A bundled sound (the Audio panel's list, editor-core `sounds/local-sounds.ts`):
+ * the app's own file `public/<bundledPath>`. Blind test round 2: it goes
+ * through the SAME import as "Import audio from Files" — native copies it
+ * into media custody (pickMedia source "bundled") and the asset gets a
+ * sandbox path — so the native preview mix and both native exports read it.
+ * The old `data:` URI clip had no media asset: the preview skipped it, the
+ * iOS export dropped it and the Android export failed on it.
+ */
+export async function insertLocalSound({
 	editor,
-	sourceUrl,
+	bundledPath,
 	name,
 	durationSeconds,
 }: {
 	editor: EditorCore;
-	sourceUrl: string;
+	bundledPath: string;
 	name: string;
 	durationSeconds: number;
-}): ElementRef | null {
-	const create = buildLibraryAudioElement({
-		sourceUrl,
+}): Promise<ElementRef | null> {
+	const bridge = await getNativeBridge();
+	const source: NativeMediaSource = {
+		pickMedia: ({ onProgress }) =>
+			bridge.pickMedia({ kinds: ["audio"], allowMultiple: false, source: "bundled", bundledPath, onProgress }),
+		generateProxy: () => {
+			throw new Error("a bundled sound is audio: it needs no proxy");
+		},
+		toPlaybackUri: (nativeUri) => bridge.toPlaybackUri(nativeUri),
+		getMediaRoot: () => bridge.getMediaRoot(),
+	};
+	const { imported } = await importMediaFromNative({
+		editor,
+		projectId: editor.project.getActive().metadata.id,
+		source,
+		kinds: ["audio"],
+		allowMultiple: false,
+	});
+	const [asset] = imported;
+	if (!asset) return null;
+	const create = buildElementFromMedia({
+		mediaId: asset.id,
+		mediaType: "audio",
 		name,
-		duration: mediaTimeFromSeconds({ seconds: durationSeconds }),
+		duration: mediaTimeFromSeconds({ seconds: asset.duration || durationSeconds }),
 		startTime: editor.playback.getCurrentTime(),
 	});
 	const command = new InsertElementCommand({ element: create, placement: { mode: "auto", trackType: "audio" } });

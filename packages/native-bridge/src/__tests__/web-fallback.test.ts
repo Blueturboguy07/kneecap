@@ -71,6 +71,28 @@ describe("createWebFallbackBridge", () => {
 		);
 	});
 
+	test("the export result methods fail cleanly: saveToPhotos answers failed, shareFile and openPhotos throw UNSUPPORTED", async () => {
+		expect(await bridge.saveToPhotos({ uri: "blob:web-fallback-export" })).toEqual({
+			saved: false,
+			reason: "failed",
+		});
+		for (const run of [
+			() => bridge.shareFile({ uri: "blob:web-fallback-export" }),
+			() => bridge.openPhotos(),
+		]) {
+			let caught: unknown;
+			try {
+				await run();
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(NativeBridgeError);
+			expect((caught as InstanceType<typeof NativeBridgeError>).code).toBe(
+				"UNSUPPORTED",
+			);
+		}
+	});
+
 	test("transcribe throws a typed NativeBridgeError naming the real (native) implementation", async () => {
 		const handle = { id: "x" } as MediaHandle;
 		const iterator = bridge.transcribe({ handle, opts: { modelSize: "tiny" } });

@@ -657,3 +657,70 @@ describe("createCapacitorBridge (injected fake plugin — DI seam for full orche
 		expect(plugin.exportCancel).not.toHaveBeenCalled();
 	});
 });
+
+describe("createCapacitorBridge: the export result block (1.0.5 — saveToPhotos, shareFile, openPhotos)", () => {
+	const PLAYBACK_URL = "capacitor://localhost/_capacitor_file_/var/mobile/App Support/kneecap/Exports/e1.mp4";
+	const RAW_PATH = "/var/mobile/App Support/kneecap/Exports/e1.mp4";
+
+	test("saveToPhotos hands native the RAW path behind the playback URL and passes the answer through", async () => {
+		const saveToPhotos = mock(async () => ({ saved: true }));
+		const bridge = createCapacitorBridge({ plugin: fakePlugin({ saveToPhotos }) as never });
+		expect(await bridge.saveToPhotos({ uri: PLAYBACK_URL })).toEqual({ saved: true });
+		expect(saveToPhotos).toHaveBeenCalledWith({ uri: RAW_PATH });
+
+		const denied = createCapacitorBridge({
+			plugin: fakePlugin({ saveToPhotos: mock(async () => ({ saved: false, reason: "denied" })) }) as never,
+		});
+		expect(await denied.saveToPhotos({ uri: PLAYBACK_URL })).toEqual({ saved: false, reason: "denied" });
+	});
+
+	test("saveToPhotos never rejects: a native error or an unknown reason is a plain 'failed'", async () => {
+		const throwing = createCapacitorBridge({
+			plugin: fakePlugin({
+				saveToPhotos: mock(async () => {
+					throw { code: "IO_ERROR", message: "the exported video is no longer on this device" };
+				}),
+			}) as never,
+		});
+		expect(await throwing.saveToPhotos({ uri: PLAYBACK_URL })).toEqual({ saved: false, reason: "failed" });
+
+		const odd = createCapacitorBridge({
+			plugin: fakePlugin({ saveToPhotos: mock(async () => ({ saved: false, reason: "something-else" })) }) as never,
+		});
+		expect(await odd.saveToPhotos({ uri: PLAYBACK_URL })).toEqual({ saved: false, reason: "failed" });
+	});
+
+	test("shareFile and openPhotos call native and turn a rejection into a typed NativeBridgeError", async () => {
+		const shareFile = mock(async () => ({ shown: true }));
+		const openPhotos = mock(async () => ({ opened: true }));
+		const bridge = createCapacitorBridge({ plugin: fakePlugin({ shareFile, openPhotos }) as never });
+		await bridge.shareFile({ uri: PLAYBACK_URL });
+		await bridge.openPhotos();
+		expect(shareFile).toHaveBeenCalledWith({ uri: RAW_PATH });
+		expect(openPhotos).toHaveBeenCalledTimes(1);
+
+		const failing = createCapacitorBridge({
+			plugin: fakePlugin({
+				shareFile: mock(async () => {
+					throw { code: "IO_ERROR", message: "no view controller" };
+				}),
+				openPhotos: mock(async () => {
+					throw { code: "UNSUPPORTED", message: "Photos could not be opened" };
+				}),
+			}) as never,
+		});
+		for (const [run, code] of [
+			[() => failing.shareFile({ uri: PLAYBACK_URL }), "IO_ERROR"],
+			[() => failing.openPhotos(), "UNSUPPORTED"],
+		] as const) {
+			let caught: unknown;
+			try {
+				await run();
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(NativeBridgeError);
+			expect((caught as NativeBridgeError).code).toBe(code);
+		}
+	});
+});

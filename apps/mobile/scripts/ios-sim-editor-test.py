@@ -6,24 +6,38 @@ The app under test is a Debug simulator build of the TEST web bundle
 mode in src/autotest.tsx. This script:
   - starts a fake publik server on 127.0.0.1 for the sign-in gate (the Debug
     launch setting PUBLIK_API_BASE_URL); it never talks to publikhq.com;
-  - installs the app fresh, plants a photo and the test flags in its data
-    container, and launches it twice (a relaunch between the phases);
+  - installs the app fresh, plants a photo, a test video (H.264 + AAC tone,
+    made here with AVAssetWriter), a test audio file (AAC tone, afconvert)
+    and the test flags in its data container, grants the Photos "add"
+    permission, and launches it three times (a relaunch between the phases);
   - takes a simulator screenshot for every SHOT line, then writes the ack file;
-  - judges three tests and exits 1 when one fails:
+  - judges five tests and exits 1 when one fails:
       A. the editor opens 5 times (new, reopen, reopen, relaunch, reopen,
          reopen) with no crash screen, no uncaught error, no
          "GPU context not initialized", and exactly 1 project;
       B. the preview is one colour when empty, then shows a text element,
          then the photo, and the photo clip on the timeline shows the photo
          (pixel checks on the screenshots);
-      C. the export (1 photo + 1 text, 1080p, 30 fps, High) makes a file
-         with duration > 0 and a video track (AVFoundation on this Mac).
+      D. every Stickers tab shows its images (no broken image), a sticker
+         tile adds a sticker, a bundled sound adds an audio clip whose file
+         loads (the app undoes both before C);
+      C. the export (1 photo 0-3 s + 1 text 0-5 s, 1080p, 30 fps, High)
+         makes a file with a video track that lasts as long as the timeline
+         (the latest end over all tracks, +-0.15 s), and the export sheet
+         ends with "Saved to Photos", "Open Photos" and "Share";
+      E. launch 3, a new project: the video imports through the native
+         proxy and shows in the preview; Captions "Generate" gives captions
+         or a plain message; Split, Duplicate, Delete and Mute work; Import
+         audio works; the export has a video track, a sound track that is
+         not silent, and the timeline's length.
 
   python3 scripts/ios-sim-editor-test.py <App.app> <output folder>
 
 Exit 0: all tests pass. 1: a test failed. 2: the test could not run.
 """
+import array
 import json
+import math
 import os
 import platform
 import plistlib
@@ -38,6 +52,7 @@ import threading
 import time
 import urllib.parse
 import uuid
+import wave
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -46,8 +61,29 @@ BUNDLE = "dev.kneecap.app"
 SCRIPTS = Path(__file__).resolve().parent
 FAKE_KEY = "pk_live_editorci"
 PHOTO_NAME = "ci-photo.jpg"
+VIDEO_NAME = "ci-video.mp4"  # autotest.tsx CI_VIDEO
+VIDEO_SECONDS = 4  # autotest.tsx CI_VIDEO_SECONDS
+AUDIO_NAME = "ci-audio.m4a"  # autotest.tsx CI_AUDIO
+AUDIO_SECONDS = 3  # autotest.tsx CI_AUDIO_SECONDS
+PHASES = (1, 2, 3)
 START_LIMIT_S = 240  # first launch: boot + gate + app start
-PHASE_LIMIT_S = {1: 420, 2: 1200}  # phase 2 includes the export (software encode on a simulator)
+# Phase 2 has the stickers and the 5 s export (software encode on a simulator);
+# phase 3 has the video proxy, captions and the video export.
+PHASE_LIMIT_S = {1: 420, 2: 1200, 3: 1200}
+EXPORT_LENGTH_TOLERANCE_S = 0.15
+# The plain words the Captions sheet may show (CAPTION_MESSAGES in
+# packages/mobile-ui/src/editor/captions-actions.ts).
+CAPTION_MESSAGES = (
+    "Add a video clip with sound first. Captions come from the sound of your clips.",
+    "Your clips have no sound. Add a video clip with sound to make captions.",
+    "Captions could not read the sound of your clips. Try again.",
+    "No speech was detected anywhere on the timeline.",
+)
+# Developer words that must never reach a person: a path, a fixture, a stack.
+DEV_WORDS = re.compile(
+    r"/[\w.-]+/|\bpath\b|fixture|native|error:|undefined|file://|_capacitor_|\bat \S+:\d+|\.(?:js|ts|tsx|swift):\d+",
+    re.I,
+)
 
 EVENT = re.compile(r"\[editor-ci\] (.*)$")
 SHOT = re.compile(
@@ -170,6 +206,48 @@ def make_photo(out_dir):
     return jpg
 
 
+def write_wav(path, frequency, seconds, amplitude=0.5, rate=44100):
+    """A mono 16-bit sine tone."""
+    count = int(seconds * rate)
+    peak = amplitude * 32767
+    samples = array.array("h", (int(peak * math.sin(2 * math.pi * frequency * i / rate)) for i in range(count)))
+    if sys.byteorder == "big":
+        samples.byteswap()
+    with wave.open(str(path), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(rate)
+        out.writeframes(samples.tobytes())
+
+
+def make_video(out_dir, tool):
+    """The test video: 4 s H.264 1280x720 at 30 fps, red, green, blue and yellow
+    quarters (the photo's colours) and a moving white bar, with a 440 Hz AAC
+    tone. Returns (path, video-check facts)."""
+    tone = out_dir / "ci-video-tone.wav"
+    write_wav(tone, 440, VIDEO_SECONDS)
+    movie = out_dir / VIDEO_NAME
+    out = run([str(tool), "make-video", str(movie), str(tone), str(VIDEO_SECONDS)], check=False, timeout=300)
+    tone.unlink(missing_ok=True)
+    if not movie.exists():
+        raise RuntimeError(f"make-video made no file: {out.strip()[:300]}")
+    try:
+        info = json.loads(run([str(tool), "video-check", str(movie)], check=False, timeout=120))
+    except ValueError:
+        info = {}
+    return movie, info
+
+
+def make_audio(out_dir):
+    """The test audio file for "Import audio": a 3 s 660 Hz tone as AAC (.m4a)."""
+    tone = out_dir / "ci-audio.wav"
+    write_wav(tone, 660, AUDIO_SECONDS)
+    m4a = out_dir / AUDIO_NAME
+    run(["afconvert", "-f", "m4af", "-d", "aac", "-b", "128000", str(tone), str(m4a)], timeout=120)
+    tone.unlink(missing_ok=True)
+    return m4a
+
+
 # ---------------------------------------------------------------- simulator
 
 def runtime_version(key):
@@ -260,6 +338,7 @@ class EditorTest:
         self.shots = {}  # name -> {"path", "rect", "viewport"}
         self.notes = []  # why the run stopped early
         self.results = []  # (test, name, passed, detail)
+        self.fixture_problems = []  # the test video or audio could not be made
         self.udid = None
         self.root = None
 
@@ -287,15 +366,15 @@ class EditorTest:
         run(["xcrun", "simctl", "terminate", self.udid, BUNDLE], check=False)
         run(["xcrun", "simctl", "uninstall", self.udid, BUNDLE], check=False)
         run(["xcrun", "simctl", "install", self.udid, str(self.app)])
-        # The export also saves to Photos: no permission alert over the app.
-        for service in ("photos-add", "photos"):
-            run(["xcrun", "simctl", "privacy", self.udid, "grant", service, BUNDLE], check=False)
+        self.grant_photos()
 
         data = Path(run(["xcrun", "simctl", "get_app_container", self.udid, BUNDLE, "data"]).strip())
         self.root = data / "Library" / "Application Support" / "kneecap"
-        (self.root / "Media").mkdir(parents=True, exist_ok=True)
+        media = self.root / "Media"
+        media.mkdir(parents=True, exist_ok=True)
         photo = make_photo(self.out)
-        shutil.copyfile(photo, self.root / "Media" / PHOTO_NAME)
+        shutil.copyfile(photo, media / PHOTO_NAME)
+        self.plant_video_and_audio(media)
         (self.root / "autotest.flag").write_text("editor-ci\n")
         # Also skip the first-run screen through the preferences file.
         prefs = data / "Library" / "Preferences"
@@ -308,8 +387,51 @@ class EditorTest:
         self.port = self.server.server_address[1]
         say(f"fake publik server: http://127.0.0.1:{self.port}/api/v1")
 
+    def grant_photos(self):
+        """The export saves to Photos with the "add only" permission
+        (PHPhotoLibrary.requestAuthorization(for: .addOnly) in
+        NativeBridgePlugin+Export.swift): simctl's service "photos-add".
+        Granted before the first launch, so no permission alert covers the
+        app and the sheet can show "Saved to Photos"."""
+        results = []
+        for service in ("photos-add", "photos"):
+            try:
+                done = subprocess.run(["xcrun", "simctl", "privacy", self.udid, "grant", service, BUNDLE],
+                                      capture_output=True, text=True, timeout=60)
+                results.append((service, done.returncode, (done.stderr or done.stdout).strip()[:200]))
+            except subprocess.TimeoutExpired:
+                results.append((service, -1, "timed out"))
+        say("Photos permission: " + "; ".join(
+            f"{service} {'granted' if code == 0 else f'NOT granted ({code}: {text})'}" for service, code, text in results))
+        if results[0][1] != 0:
+            listing = subprocess.run(["xcrun", "simctl", "help", "privacy"], capture_output=True, text=True, timeout=60)
+            say("simctl privacy help: " + " ".join((listing.stdout or listing.stderr).split())[:800])
+
+    def plant_video_and_audio(self, media):
+        """The test video (made with the measuring tool) and the test audio
+        file (afconvert). A failure here fails test E, not the whole run."""
+        try:
+            movie, info = make_video(self.out, self.tool)
+            shutil.copyfile(movie, media / VIDEO_NAME)
+            sound = info.get("audio") or {}
+            say(f"test video: {float(info.get('durationSeconds') or -1):.2f} s, {info.get('videoTracks', 0)} video and "
+                f"{info.get('audioTracks', 0)} audio track(s), {movie.stat().st_size // 1024} KB, "
+                f"tone peak {float(sound.get('peak') or 0):.2f} rms {float(sound.get('rms') or 0):.3f}")
+            if info.get("videoTracks", 0) < 1 or info.get("audioTracks", 0) < 1 or float(sound.get("rms") or 0) < 0.05:
+                self.fixture_problems.append(f"the test video is not right: {json.dumps(info)[:300]}")
+        except Exception as error:
+            self.fixture_problems.append(f"the test video could not be made: {error}")
+        try:
+            audio = make_audio(self.out)
+            shutil.copyfile(audio, media / AUDIO_NAME)
+            say(f"test audio: {audio.name}, {audio.stat().st_size // 1024} KB")
+        except Exception as error:
+            self.fixture_problems.append(f"the test audio could not be made: {error}")
+        for problem in self.fixture_problems:
+            say(problem)
+
     def set_phase_flag(self, phase):
-        for p in (1, 2):
+        for p in PHASES:
             flag = self.root / f"editor-ci-phase{p}.flag"
             if p == phase:
                 flag.write_text(f"phase {phase}\n")
@@ -324,9 +446,12 @@ class EditorTest:
     # ----- drive
 
     def drive(self):
-        for phase in (1, 2):
+        """Three launches. A launch that never STARTs stops the run; a launch
+        that starts but does not END still lets the next launch run."""
+        all_ended = True
+        for phase in PHASES:
             self.set_phase_flag(phase)
-            say(f"launch {phase} of 2")
+            say(f"launch {phase} of {len(PHASES)}")
             app = AppRun(self.udid, self.port, self.out / f"app-launch{phase}.log")
             started = ended = False
             begin = time.time()
@@ -369,9 +494,11 @@ class EditorTest:
                     self.screenshot(f"timeout-{phase}")
                     break
             app.stop(self.udid)
-            if not ended:
+            if not started:
                 return False
-        return True
+            if not ended:
+                all_ended = False
+        return all_ended
 
     def collect_crash_reports(self, since):
         """Copies the host crash reports of the app (simulator apps write them to
@@ -430,8 +557,60 @@ class EditorTest:
         if not passed:
             print(f"::error title=editor test {test}::{name}: {detail}", flush=True)
 
-    def texts(self, prefix):
-        return [(phase, text) for phase, text in self.events if text.startswith(prefix)]
+    def texts(self, prefix, phase=None):
+        return [(p, text) for p, text in self.events if text.startswith(prefix) and phase in (None, p)]
+
+    def last(self, prefix, phase=None):
+        """The text of the last line with this prefix, or None."""
+        found = self.texts(prefix, phase)
+        return found[-1][1] if found else None
+
+    def json_line(self, prefix, phase=None):
+        """The JSON object after the prefix of the last such line, or None."""
+        text = self.last(prefix, phase)
+        if text is None:
+            return None
+        try:
+            value = json.loads(text[len(prefix):].strip())
+        except ValueError:
+            return {"_unreadable": text[:200]}
+        return value if isinstance(value, dict) else {"_unreadable": text[:200]}
+
+    def timeline_end(self, phase):
+        """The latest end over all tracks that the app logged before its export."""
+        text = self.last("TIMELINE ", phase)
+        m = re.match(r"TIMELINE end=([\d.]+)", text or "")
+        return (float(m.group(1)), text) if m else (None, text)
+
+    def export_movie(self, phase, copy_name):
+        """The exported file of a launch, checked by the measuring tool.
+        Returns (facts or None, problem text or None)."""
+        text = self.last("EXPORT DONE", phase)
+        failed = self.last("EXPORT FAIL", phase)
+        if failed and not text:
+            return None, failed[:300]
+        if not text:
+            return None, "the app logged no export result"
+        if "via=direct" in text:
+            print(f"::warning title=editor test::launch {phase}: the export sheet was not found, "
+                  "the test used the direct export call", flush=True)
+        logged = urllib.parse.unquote(text.split(" path=", 1)[1].strip()) if " path=" in text else ""
+        movie = Path(logged) if logged else None
+        if not movie or not movie.exists():
+            found = sorted((self.root / "Exports").glob("*.mp4"), key=lambda p: p.stat().st_mtime)
+            movie = found[-1] if found else None
+        if not movie:
+            return None, f"no file at {logged or '(no path)'} and none in Exports/"
+        copy = self.out / copy_name
+        shutil.copyfile(movie, copy)
+        out = run([str(self.tool), "video-check", str(copy)], check=False, timeout=300)
+        try:
+            info = json.loads(out)
+        except ValueError:
+            info = {"error": out.strip()[:200] or "no answer"}
+        info["kilobytes"] = copy.stat().st_size // 1024
+        (self.out / f"{copy.stem}-metrics.json").write_text(json.dumps(info, indent=2))
+        return info, None
 
     def problems(self, steps, kinds):
         found = []
@@ -459,8 +638,8 @@ class EditorTest:
         bad_counts = []
         for phase, text in self.texts("PROJECTS "):
             m = re.match(r"PROJECTS when=(\S+) count=(\d+)", text)
-            if not m:
-                continue
+            if not m or phase == 3:
+                continue  # launch 3 makes its own project on purpose (test E checks its count)
             want = 0 if (phase == 1 and m.group(1) == "start") else 1
             if m.group(1).startswith("before-open-"):
                 continue  # only for the extra opens
@@ -473,7 +652,7 @@ class EditorTest:
         crash += [f"app log: {line}" for line in self.raw_crash]
         self.record("A", "no crash screen or uncaught error", not crash, "; ".join(crash[:3]) if crash else "none")
 
-        gpu = self.problems({"boot", "A", "B", "C"}, {"gpu"}) + [f"app log: {line}" for line in self.raw_gpu]
+        gpu = self.problems({"boot", "A", "B", "C", "D", "E"}, {"gpu"}) + [f"app log: {line}" for line in self.raw_gpu]
         self.record("A", 'no "GPU context not initialized"', not gpu, "; ".join(gpu[:3]) if gpu else "none")
 
     def measure(self, name, rect=None):
@@ -557,47 +736,226 @@ class EditorTest:
         if self.texts("C SKIP"):
             self.record("C", "export makes a playable file", False, "the editor did not open")
             return
-        lines = self.texts("EXPORT DONE") + self.texts("EXPORT FAIL")
-        if not lines:
-            self.record("C", "export makes a playable file", False, "the app logged no export result")
-            return
-        text = lines[-1][1]
-        if "via=direct" in text:
-            print("::warning title=editor test C::the export sheet was not found, the test used the direct export call", flush=True)
-        if text.startswith("EXPORT FAIL"):
-            self.record("C", "export makes a playable file", False, text[:300])
-            return
-        logged = urllib.parse.unquote(text.split(" path=", 1)[1].strip()) if " path=" in text else ""
-        movie = Path(logged) if logged else None
-        if not movie or not movie.exists():
-            found = sorted((self.root / "Exports").glob("*.mp4"), key=lambda p: p.stat().st_mtime)
-            movie = found[-1] if found else None
-        if not movie:
-            self.record("C", "export makes a playable file", False, f"no file at {logged or '(no path)'} and none in Exports/")
-            return
-        copy = self.out / "export.mp4"
-        shutil.copyfile(movie, copy)
-        out = run([str(self.tool), "video-check", str(copy)], check=False, timeout=300)
-        try:
-            info = json.loads(out)
-        except ValueError:
-            info = {"error": out.strip()[:200] or "no answer"}
-        (self.out / "export-metrics.json").write_text(json.dumps(info, indent=2))
-        duration = info.get("durationSeconds", -1) or -1
-        tracks = info.get("videoTracks", 0)
-        ok = duration > 0 and tracks >= 1 and "error" not in info
-        size = info.get("naturalSize", ["?", "?"])
-        self.record("C", "export makes a playable file", ok,
-                    f"{duration:.2f} s, {tracks} video track(s), {size[0]}x{size[1]} at "
-                    f"{info.get('nominalFrameRate', 0):.0f} fps, {copy.stat().st_size // 1024} KB"
-                    + (f"; {info['error']}" if "error" in info else ""))
-        frame = info.get("frame")
-        if ok and frame and frame.get("offFraction", 0) < 0.05:
-            print("::warning title=editor test C::the exported frame at 0.5 s is almost one colour "
-                  "(the photo may be missing from the export)", flush=True)
+        info, error = self.export_movie(2, "export.mp4")
+        if error:
+            self.record("C", "export makes a playable file", False, error)
+        else:
+            duration = float(info.get("durationSeconds", -1) or -1)
+            tracks = info.get("videoTracks", 0)
+            ok = duration > 0 and tracks >= 1 and "error" not in info
+            size = info.get("naturalSize", ["?", "?"])
+            self.record("C", "export makes a playable file", ok,
+                        f"{duration:.2f} s, {tracks} video track(s), {size[0]}x{size[1]} at "
+                        f"{info.get('nominalFrameRate', 0):.0f} fps, {info.get('kilobytes', 0)} KB"
+                        + (f"; {info['error']}" if "error" in info else ""))
+            frame = info.get("frame")
+            if ok and frame and frame.get("offFraction", 0) < 0.05:
+                print("::warning title=editor test C::the exported frame at 0.5 s is almost one colour "
+                      "(the photo may be missing from the export)", flush=True)
+            # Blind test 1.0.5: photo 0-3 s + text 0-5 s exported 3.00 s.
+            end, line = self.timeline_end(2)
+            if end is None:
+                self.record("C", "export lasts as long as the timeline", False, f"no TIMELINE line ({line or 'none'})")
+            else:
+                self.record("C", "export lasts as long as the timeline", abs(duration - end) <= EXPORT_LENGTH_TOLERANCE_S,
+                            f"file {duration:.2f} s, timeline end {end:.2f} s (latest end over all tracks: "
+                            f"{line.split(' tracks=', 1)[-1].split(' ', 1)[0]}), allowed difference "
+                            f"{EXPORT_LENGTH_TOLERANCE_S:.2f} s")
+        self.judge_export_sheet()
         stop = self.problems({"C"}, {"crash", "driver"})
         if stop:
             self.record("C", "no crash during the export", False, "; ".join(stop[:3]))
+
+    def judge_export_sheet(self):
+        """Blind test 1.0.5: a good export ends with "Saved to Photos" and the
+        buttons "Open Photos" and "Share" (Photos add permission granted
+        before launch); a failed export keeps "Export failed. Try again."."""
+        sheet = self.json_line("EXPORT SHEET", 2)
+        name = 'export sheet ends with "Saved to Photos", "Open Photos" and "Share"'
+        if sheet is None:
+            self.record("C", name, False, "the app logged no EXPORT SHEET line (no export through the sheet)")
+            return
+        if "_unreadable" in sheet:
+            self.record("C", name, False, f"could not read: {sheet['_unreadable']}")
+            return
+        buttons = [str(b).strip() for b in sheet.get("buttons", [])]
+        notes = [str(n) for n in sheet.get("notes", [])]
+        folded = {b.casefold() for b in buttons}
+        detail = f"notes {json.dumps(notes)[:200]}; buttons {json.dumps(buttons)[:300]}"
+        if sheet.get("failed"):
+            self.record("C", "a failed export shows the plain message", True, 'the sheet says "Export failed. Try again."')
+            self.record("C", name, False, f"the export failed; {detail}")
+            return
+        ok = bool(sheet.get("saved")) and "open photos" in folded and "share" in folded
+        if not ok and "could not save" in (" ".join(notes) + " " + str(sheet.get("text", ""))).casefold():
+            detail = f"the save to Photos failed (photos-add grant?); {detail}"
+        self.record("C", name, ok, detail)
+
+    def judge_d(self):
+        """Stickers (every tab, every image), one sticker, one bundled sound."""
+        if self.texts("D SKIP"):
+            self.record("D", "stickers and bundled sound", False, "the editor did not open")
+            return
+        tabs = []
+        for _, text in self.texts("STICKERS tab=", 2):
+            m = re.match(r'STICKERS tab=(".*?") state=(\S+) tiles=(\d+) images=(\d+) ok=(\d+) broken=(\d+) '
+                         r"blank=(\d+) timeout=(\d+)(?: first=(\S+))?", text)
+            if m:
+                tabs.append((json.loads(m.group(1)), m.group(2), int(m.group(3)), int(m.group(4)), int(m.group(5)),
+                             int(m.group(6)), int(m.group(7)), int(m.group(8)), m.group(9)))
+        failed_open = self.last("STICKERS FAIL", 2)
+        if failed_open or not tabs:
+            self.record("D", "every sticker tab shows its images", False, failed_open or "the app logged no sticker tab")
+        else:
+            bad = [t for t in tabs if t[3] == 0 or t[4] != t[3]]
+            parts = []
+            for label, state, tiles, images, ok, broken, blank, timeout, first in tabs:
+                part = f"{label} {ok}/{images} images load"
+                if images == 0:
+                    part = f"{label} has no images ({tiles} tiles, {state})"
+                elif ok != images:
+                    part += f" ({broken} broken, {blank} blank, {timeout} timed out; first {first})"
+                parts.append(part)
+            self.record("D", "every sticker tab shows its images", not bad, f"{len(tabs)} tab(s): " + "; ".join(parts))
+        sticker = self.last("STICKER ", 2)
+        self.record("D", "a sticker tile adds a sticker to the timeline", bool(sticker and sticker.startswith("STICKER PASS")),
+                    (sticker or "no STICKER line")[:240])
+        sound = self.last("SOUND ", 2)
+        self.record("D", "a bundled sound adds an audio clip and its file loads",
+                    bool(sound and sound.startswith("SOUND PASS")), (sound or "no SOUND line")[:300])
+        cleanup = self.last("CLEANUP ", 2)
+        if cleanup and not cleanup.startswith("CLEANUP PASS"):
+            print(f"::warning title=editor test D::the sticker and sound were not undone before C: {cleanup[:200]}", flush=True)
+        stop = self.problems({"D"}, {"crash", "driver"})
+        if stop:
+            self.record("D", "no crash during the sticker and sound checks", False, "; ".join(stop[:3]))
+        for warning in self.problems({"D"}, {"uncaught", "unhandled-rejection", "render"})[:3]:
+            print(f"::warning title=editor test D::{warning}", flush=True)
+
+    def judge_e(self):
+        """Launch 3: the video sweep in a new project."""
+        if self.fixture_problems:
+            self.record("E", "test video and audio files", False, "; ".join(self.fixture_problems)[:400])
+        if not any(p == 3 for p, _ in self.events):
+            self.record("E", "video sweep", False, "launch 3 logged nothing")
+            return
+        skip = self.last("E SKIP", 3)
+        if skip and not self.texts("VIDEO-IMPORT", 3):
+            self.record("E", "video sweep", False, skip)
+            return
+
+        counts = {}
+        for _, text in self.texts("PROJECTS ", 3):
+            m = re.match(r"PROJECTS when=(\S+) count=(\d+)", text)
+            if m:
+                counts[m.group(1)] = int(m.group(2))
+        if "sweep-start" in counts and "sweep-end" in counts:
+            self.record("E", "the new project adds exactly one project", counts["sweep-end"] == counts["sweep-start"] + 1,
+                        f"{counts['sweep-start']} before, {counts['sweep-end']} after")
+        else:
+            self.record("E", "the new project adds exactly one project", False, f"PROJECTS lines: {counts}")
+
+        imported = self.last("VIDEO-IMPORT", 3) or "no VIDEO-IMPORT line"
+        self.record("E", "video import through the native proxy", imported.startswith("VIDEO-IMPORT PASS"), imported[:300])
+        if not imported.startswith("VIDEO-IMPORT PASS"):
+            return
+
+        stats, error = self.measure("video")
+        if stats:
+            colours = stats.get("colours", {})
+            found = [c for c in ("red", "green", "blue", "yellow") if colours.get(c, 0) >= 0.005]
+            self.record("E", "preview draws the video", len(found) >= 3 and stats["offFraction"] >= 0.15,
+                        f"video colours found {len(found)}/4 ({', '.join(found) or 'none'}), "
+                        f"{stats['offFraction']:.1%} not the main colour, luma spread {stats['lumaStd']:.0f}")
+        else:
+            self.record("E", "preview draws the video", False, error)
+        (self.out / "video-preview-metrics.json").write_text(json.dumps(stats, indent=2))
+
+        self.judge_captions()
+
+        for op in ("split", "duplicate", "delete", "mute"):
+            line = self.last(f"EDIT op={op} ", 3)
+            self.record("E", f"{op} on the video clip", bool(line and re.match(rf"EDIT op={op} PASS", line)),
+                        (line or f"no EDIT op={op} line")[:300])
+
+        audio = self.last("AUDIO-IMPORT", 3) or "no AUDIO-IMPORT line"
+        self.record("E", "import audio from Files", audio.startswith("AUDIO-IMPORT PASS"), audio[:300])
+
+        self.judge_sweep_export()
+        stop = self.problems({"E"}, {"crash", "driver"})
+        if stop:
+            self.record("E", "no crash during the video sweep", False, "; ".join(stop[:3]))
+        for warning in self.problems({"E"}, {"uncaught", "unhandled-rejection", "render"})[:3]:
+            print(f"::warning title=editor test E::{warning}", flush=True)
+
+    def judge_captions(self):
+        """Captions "Generate" gives captions or one of the plain messages, and
+        never a developer word (a path, "fixture", "native", "Error:", a stack)."""
+        name = "captions give captions or a plain message"
+        line = self.last("CAPTIONS ", 3)
+        if line is None or line.startswith("CAPTIONS FAIL"):
+            self.record("E", name, False, (line or "no CAPTIONS line")[:300])
+            return
+        result = self.json_line("CAPTIONS ", 3)
+        if "_unreadable" in result:
+            self.record("E", name, False, f"could not read: {result['_unreadable']}")
+            return
+        state = result.get("state")
+        captions = int(result.get("captions") or 0)
+        message = str(result.get("message") or "").strip()
+        dev = DEV_WORDS.search(message)
+        plain = message == "" or message in CAPTION_MESSAGES
+        ok = state != "timeout" and not dev and plain and (captions > 0 or message in CAPTION_MESSAGES)
+        detail = (f"{state} after {int(result.get('ms') or 0) / 1000:.0f} s, {captions} caption(s), "
+                  f"message {json.dumps(message)[:200]}")
+        if captions > 0:
+            detail += f', words "{str(result.get("words") or "")[:60]}"'
+        if dev:
+            detail += f'; developer words: "{dev.group(0)}"'
+        elif message and not plain:
+            detail += "; not one of the plain messages"
+        self.record("E", name, ok, detail)
+
+    def judge_sweep_export(self):
+        """The export with video and sound: a video track, a sound track that
+        is not silent, the picture, and the timeline's length."""
+        name = "export has the video, its sound and the timeline length"
+        info, error = self.export_movie(3, "export-sweep.mp4")
+        if error:
+            self.record("E", name, False, error)
+            return
+        duration = float(info.get("durationSeconds", -1) or -1)
+        video_tracks = info.get("videoTracks", 0)
+        audio_tracks = info.get("audioTracks", 0)
+        sound = info.get("audio") or {}
+        peak = float(sound.get("peak") or 0)
+        rms = float(sound.get("rms") or 0)
+        frame = info.get("frame") or {}
+        colours = frame.get("colours", {})
+        found = [c for c in ("red", "green", "blue", "yellow") if colours.get(c, 0) >= 0.005]
+        end, line = self.timeline_end(3)
+        problems = []
+        if "error" in info:
+            problems.append(info["error"])
+        if video_tracks < 1:
+            problems.append("no video track")
+        if audio_tracks < 1:
+            problems.append("no audio track")
+        elif peak < 0.02 or rms < 0.005:
+            problems.append("the sound is silent")
+        if "error" in sound:
+            problems.append(f"sound read: {sound['error']}")
+        if len(found) < 2:
+            problems.append("the exported frame does not show the video's colours")
+        if end is None:
+            problems.append("no TIMELINE line")
+        elif abs(duration - end) > EXPORT_LENGTH_TOLERANCE_S:
+            problems.append(f"{duration:.2f} s is not the timeline end {end:.2f} s")
+        self.record("E", name, not problems,
+                    f"{duration:.2f} s (timeline end {end if end is None else f'{end:.2f}'} s), {video_tracks} video and "
+                    f"{audio_tracks} audio track(s), sound peak {peak:.2f} rms {rms:.3f} audible "
+                    f"{float(sound.get('audibleFraction') or 0):.0%}, frame colours {len(found)}/4, "
+                    f"{info.get('kilobytes', 0)} KB" + (f"; {'; '.join(problems)}" if problems else ""))
 
     def finish(self, drove):
         (self.out / "publik-fake-server.log").write_text("\n".join(SERVER_LOG) + "\n")
@@ -607,7 +965,9 @@ class EditorTest:
             print(f"::error title=editor test::{note}", flush=True)
         self.judge_a()
         self.judge_b()
+        self.judge_d()
         self.judge_c()
+        self.judge_e()
         passed = drove and all(r[2] for r in self.results)
         lines = [f"{t} {n}: {'PASS' if p else 'FAIL'} ({d})" for t, n, p, d in self.results]
         lines.append(f"RESULT: {'PASS' if passed else 'FAIL'}")

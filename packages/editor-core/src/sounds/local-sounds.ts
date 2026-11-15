@@ -16,6 +16,14 @@
  * "small CC0/OFL starter pack") is a content task, not an architecture
  * change — `LocalSound.sourceUrl` can point at a bundled static asset path
  * exactly as easily as a data URI.
+ *
+ * Blind test round 2: a `data:` URI clip has no media asset, so the native
+ * preview mix skipped it and both native exports could not use it. The
+ * mobile app therefore ships the same bytes as files,
+ * `apps/mobile/public/<bundledPath>` (made by
+ * apps/mobile/scripts/generate-bundled-sounds.ts), and the Audio panel
+ * imports that file into media custody like a picked one
+ * (mobile-ui `insertLocalSound`, pickMedia source "bundled").
  */
 
 const SAMPLE_RATE = 8000;
@@ -98,6 +106,8 @@ export interface LocalSound {
 	category: string;
 	durationSeconds: number;
 	sourceUrl: string;
+	/** The same sound as a file of the mobile app's web folder. */
+	bundledPath: string;
 }
 
 const TONE_SPECS: Array<{
@@ -123,6 +133,7 @@ export function getLocalSounds(): LocalSound[] {
 		name: spec.name,
 		category: spec.category,
 		durationSeconds: spec.durationSeconds,
+		bundledPath: `sounds/${spec.id}.wav`,
 		sourceUrl: synthesizeToneWavDataUri({
 			frequencyHz: spec.frequencyHz,
 			durationSeconds: spec.durationSeconds,

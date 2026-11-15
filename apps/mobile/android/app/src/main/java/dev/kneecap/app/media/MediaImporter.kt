@@ -103,6 +103,26 @@ object MediaImporter {
 		)
 	}
 
+	/**
+	 * Copies a file of the APK's assets (a bundled sound,
+	 * `public/sounds/<name>.wav`) into the same custody folder as
+	 * [importInto]. Throws on I/O failure.
+	 */
+	fun importAsset(context: Context, assetPath: String): ImportedFile {
+		val fileName = assetPath.substringAfterLast('/')
+		val ext = fileName.substringAfterLast('.', "bin")
+		val destFile = File(mediaDir(context), "${UUID.randomUUID()}.$ext")
+		val totalBytes = context.assets.open(assetPath).use { inStream ->
+			FileOutputStream(destFile).use { outStream -> inStream.copyTo(outStream, COPY_BUFFER_BYTES) }
+		}
+		return ImportedFile(
+			file = destFile,
+			fileName = fileName,
+			sizeBytes = totalBytes,
+			mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext),
+		)
+	}
+
 	/** Deletes a previously-imported file (e.g. when probing fails after the
 	 * copy succeeded, so we don't leak an orphaned file in app storage). */
 	fun delete(file: File) {

@@ -22,11 +22,14 @@ interface EditPanelProps {
 	onCutDeadSpace?: () => void;
 	onSetSpeed: (args: { rate: number; maintainPitch: boolean }) => void;
 	onSetVolume: (db: number) => void;
+	/** Writes the element's `muted` param. Preview audio (AudioManager) and
+	 *  both native exporters (EDL `clip.muted`) leave a muted clip out. */
+	onSetMuted: (muted: boolean) => void;
 }
 
 /**
- * M8 Edit panel: split, duplicate, delete, cut gaps, speed and volume.
- * Speed and volume only apply to retimable elements (video/audio, per
+ * M8 Edit panel: split, duplicate, delete, cut gaps, speed, volume and mute.
+ * Speed, volume and mute only apply to retimable elements (video/audio, per
  * `RETIMABLE_ELEMENT_TYPES` in the engine) — for a text/sticker/graphic
  * selection those controls are hidden rather than shown-and-disabled,
  * since there is no engine-side field for them to write to on those types.
@@ -43,12 +46,14 @@ export function EditPanel({
 	onCutDeadSpace,
 	onSetSpeed,
 	onSetVolume,
+	onSetMuted,
 }: EditPanelProps) {
 	const isRetimable = RETIMABLE_TYPES.has(element.type);
 	const retime = "retime" in element ? element.retime : undefined;
 	const rate = retime?.rate ?? DEFAULT_RETIME_RATE;
 	const maintainPitch = retime?.maintainPitch ?? false;
 	const volumeDb = typeof element.params.volume === "number" ? element.params.volume : 0;
+	const muted = element.params.muted === true;
 
 	return (
 		<PanelSheet onScrimClick={onClose} header={<SheetHeader onClose={onClose} />}>
@@ -114,6 +119,7 @@ export function EditPanel({
 							)
 						}
 					/>
+					<ToggleRow label="Mute" active={muted} onToggle={() => onSetMuted(!muted)} />
 				</>
 			)}
 		</PanelSheet>

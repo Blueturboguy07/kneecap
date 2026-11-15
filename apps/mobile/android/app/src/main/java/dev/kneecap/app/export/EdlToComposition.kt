@@ -82,9 +82,11 @@ object EdlToComposition {
 
         val sequences = mutableListOf<EditedMediaItemSequence>()
         // The project runs to the LAST thing on any track, which is routinely
-        // a caption or title that outlives the final video clip.
+        // a caption or title that outlives the final video clip. 1.0.5: taken
+        // from every clip and overlay end (`timelineEndTicks`), not only from
+        // `meta.durationTicks`, so a stale meta value cannot cut a tail short.
         val mainEndTicks = mainClips.maxOf { it.startTicks + it.durationTicks }
-        val projectEndTicks = maxOf(edl.meta.durationTicks, mainEndTicks)
+        val projectEndTicks = maxOf(timelineEndTicks(edl), mainEndTicks)
         val transitionWindows = mutableMapOf<Int, TransitionAlphaMath.Window>()
         val overlaySettingsByIndex = mutableMapOf<Int, StaticOverlaySettings>()
         val animatedOverlayAlphaByIndex = mutableMapOf<Int, CrossfadeCompositorSettings.AnimatedOverlayAlpha>()

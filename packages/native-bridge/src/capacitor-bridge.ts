@@ -9,7 +9,8 @@
  * `no-restricted-imports` ESLint rule that mirrors it.
  *
  * WHAT IS REAL: `capabilities()` (M3); `pickMedia()`, `generateProxy()`,
- * `generateThumbnails()` (M4); `exportProject()` (M9) — each calls a
+ * `generateThumbnails()` (M4); `exportProject()` (M9); `saveToPhotos()`,
+ * `shareFile()`, `openPhotos()` (1.0.5, the export result) — each calls a
  * genuinely registered native plugin method on BOTH
  * `apps/mobile/ios/App/App/NativeBridgePlugin{,+Media,+Export}.swift` and
  * `apps/mobile/android/app/src/main/java/dev/kneecap/app/NativeBridgePlugin.kt`.
@@ -83,6 +84,7 @@ import { detectGpuBackend } from "./gpu-detect";
 import { probeCodecs } from "./codec-detect";
 import { subscribeToEvents } from "./event-generator";
 import { smoothWordTimings, type RawWordTiming } from "./caption-smoothing";
+import { nativeFilePathFromUri } from "./native-file-path";
 import type {
 	DeviceCapabilities,
 	ExportOverlayFrame,
@@ -97,6 +99,7 @@ import type {
 	Platform,
 	ProxyProgress,
 	ProxySpec,
+	SaveToPhotosResult,
 	ThumbnailStrip,
 	ThumbnailStripSpec,
 	TranscribeOptions,
@@ -197,6 +200,7 @@ interface NativeBridgePluginSpec {
 		kinds: MediaKind[];
 		allowMultiple: boolean;
 		source?: PickMediaOptions["source"];
+		bundledPath?: string;
 	}): Promise<{ handles: WireMediaHandle[] }>;
 	/** Resolves once the native transcode has STARTED, not once it is done —
 	 * progress/completion arrive as `proxyProgress` events. The two
@@ -228,6 +232,14 @@ interface NativeBridgePluginSpec {
 	 * is what that generator's `finally` block calls so stopping iteration
 	 * actually stops the native encoder, not just the JS-side listener. */
 	exportCancel(params: { exportId: string }): Promise<unknown>;
+	/** The export sheet's result block (1.0.5) — NativeBridgePlugin+Export
+	 * .swift and NativeBridgePlugin.kt. `uri` is the RAW native path of a
+	 * finished export (`nativeFilePathFromUri`), never the web-view URL.
+	 * `saveToPhotos` answers `reason` only when `saved` is false; the two
+	 * others resolve with an acknowledgement nothing here reads. */
+	saveToPhotos(params: { uri: string }): Promise<{ saved: boolean; reason?: string }>;
+	shareFile(params: { uri: string }): Promise<unknown>;
+	openPhotos(): Promise<unknown>;
 	addListener(
 		eventName: "proxyProgress",
 		listenerFunc: (data: RawProxyProgress) => void,
@@ -497,6 +509,7 @@ export function createCapacitorBridge({
 					kinds: opts.kinds,
 					allowMultiple: opts.allowMultiple,
 					source: opts.source,
+					bundledPath: opts.bundledPath,
 				});
 				return handles.map(fromWireMediaHandle);
 			} catch (err) {
@@ -651,6 +664,36 @@ export function createCapacitorBridge({
 					// document a post-terminal cancel as a no-op.
 					await plugin.exportCancel({ exportId }).catch(() => {});
 				}
+			}
+		},
+
+		async saveToPhotos({ uri }: { uri: string }): Promise<SaveToPhotosResult> {
+			try {
+				const result = await plugin.saveToPhotos({ uri: nativeFilePathFromUri(uri) });
+				if (result.saved === true) return { saved: true };
+				return { saved: false, reason: result.reason === "denied" ? "denied" : "failed" };
+			} catch {
+				// Never rejects (types.ts): a missing file, a native error or an
+				// old native build without the method is a plain "failed", and
+				// the export sheet still offers Share. The native side logs the
+				// detail.
+				return { saved: false, reason: "failed" };
+			}
+		},
+
+		async shareFile({ uri }: { uri: string }): Promise<void> {
+			try {
+				await plugin.shareFile({ uri: nativeFilePathFromUri(uri) });
+			} catch (err) {
+				throw toNativeBridgeError({ err, method: "shareFile" });
+			}
+		},
+
+		async openPhotos(): Promise<void> {
+			try {
+				await plugin.openPhotos();
+			} catch (err) {
+				throw toNativeBridgeError({ err, method: "openPhotos" });
 			}
 		},
 

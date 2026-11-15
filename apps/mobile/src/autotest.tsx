@@ -49,7 +49,9 @@ import {
 	registerNativeMediaPathResolver,
 	registerNativeAudioRouter,
 	mediaTimeFromSeconds,
+	mediaTimeToSeconds,
 	videoCache,
+	type MediaTime,
 	type NativeMediaHandle,
 	type NativeMediaSource,
 } from "@kneecap/editor-core";
@@ -60,7 +62,7 @@ import {
 	UpdateProjectSettingsCommand,
 } from "@kneecap/editor-core/commands";
 import { loadFontAtlas } from "@kneecap/editor-core/fonts/local-fonts";
-import { EditorShell, ensurePreviewGpu } from "@kneecap/mobile-ui";
+import { EditorShell, ensurePreviewGpu, getAllCaptions } from "@kneecap/mobile-ui";
 import {
 	getNativeBridge,
 	type ExportProgress,
@@ -819,12 +821,21 @@ export async function mountAutotest(): Promise<void> {
 //   B. the preview: empty, then with a text element (the text sheet's
 //      "Add text"), then with a photo (the timeline "+"; only the OS photo
 //      picker is replaced, it returns the planted photo).
-//   C. export through the export sheet at 1080p, 30 fps, High.
+//   D. (phase 2, after B) every Stickers tab and its images, one sticker on
+//      the timeline, one bundled sound on the timeline (and its file loads).
+//      Both inserts are undone after the checks, so C exports photo + text.
+//   C. export through the export sheet at 1080p, 30 fps, High: the TIMELINE
+//      line gives the latest end over all tracks (the file must last that
+//      long), the EXPORT SHEET line gives what the sheet shows at the end.
+//   E. phase 3 (relaunch, editor-ci-phase3.flag): a NEW project with the
+//      planted video (Media/ci-video.mp4, through the real native proxy):
+//      preview, Captions "Generate", Split, Duplicate, Delete, Mute, Import
+//      audio (Media/ci-audio.m4a), then an export with video and sound.
 // Every line starts with "[editor-ci]". The app reports facts; the runner
 // judges. For each SHOT line the runner takes a simulator screenshot and then
 // writes <mediaRoot>/ci-ack-<name>.
 
-type CiStep = "boot" | "A" | "B" | "C";
+type CiStep = "boot" | "A" | "B" | "C" | "D" | "E";
 
 interface CiPlace {
 	bridge: NativeBridge;
@@ -832,7 +843,7 @@ interface CiPlace {
 }
 
 interface CiContext extends CiPlace {
-	phase: 1 | 2;
+	phase: 1 | 2 | 3;
 	step: CiStep;
 	/** Uncaught errors, crash logs and GPU errors seen so far. */
 	problems: number;
@@ -840,6 +851,12 @@ interface CiContext extends CiPlace {
 }
 
 const CI_PHOTO = "Media/ci-photo.jpg";
+/** The runner's test video: H.264 1280x720, 30 fps, 4 s, with an AAC tone. */
+const CI_VIDEO = "Media/ci-video.mp4";
+const CI_VIDEO_SECONDS = 4;
+/** The runner's test audio file for "Import audio": AAC, 3 s tone. */
+const CI_AUDIO = "Media/ci-audio.m4a";
+const CI_AUDIO_SECONDS = 3;
 const CI_TEXT = "New text";
 const CI_GPU_ERROR = /GPU context not initialized/i;
 
@@ -872,11 +889,12 @@ async function ciFileExists(place: CiPlace, relative: string): Promise<boolean> 
 }
 
 /** The phase the runner asks for, or null when this is not a CI editor test. */
-async function editorCiPhase(): Promise<(CiPlace & { phase: 1 | 2 }) | null> {
+async function editorCiPhase(): Promise<(CiPlace & { phase: 1 | 2 | 3 }) | null> {
 	const bridge = await getNativeBridge();
 	const root = await bridge.getMediaRoot();
 	if (!root) return null;
 	const place = { bridge, root };
+	if (await ciFileExists(place, "editor-ci-phase3.flag")) return { ...place, phase: 3 };
 	if (await ciFileExists(place, "editor-ci-phase2.flag")) return { ...place, phase: 2 };
 	if (await ciFileExists(place, "editor-ci-phase1.flag")) return { ...place, phase: 1 };
 	return null;
@@ -1358,16 +1376,57 @@ async function ciDirectExport(editor: EditorCore, bridge: NativeBridge): Promise
 	}
 }
 
-/** Test C: export 1 photo + 1 text at 1080p / 30 fps / High through the export sheet. */
-async function ciExport(ctx: CiContext, editor: EditorCore): Promise<void> {
+/** The latest end (seconds) over every track of the active scene: the
+ *  length the exported file must have (blind test 1.0.5: a text clip that
+ *  ended at 00:05 over a 3 s photo exported a 3 s file). */
+function ciTimelineEnd(editor: EditorCore): { end: number; detail: string } {
+	const tracks = editor.scenes.getActiveSceneOrNull()?.tracks;
+	if (!tracks) return { end: 0, detail: "no scene" };
+	let end = 0;
+	const parts: string[] = [];
+	const visit = (label: string, elements: readonly { startTime: MediaTime; duration: MediaTime }[]) => {
+		if (elements.length === 0) return;
+		let trackEnd = 0;
+		for (const element of elements) {
+			trackEnd = Math.max(
+				trackEnd,
+				mediaTimeToSeconds({ time: element.startTime }) + mediaTimeToSeconds({ time: element.duration }),
+			);
+		}
+		parts.push(`${label}:${trackEnd.toFixed(3)}`);
+		end = Math.max(end, trackEnd);
+	};
+	visit("main", tracks.main.elements);
+	tracks.overlay.forEach((track, index) => visit(`${track.type}${index}`, track.elements));
+	tracks.audio.forEach((track, index) => visit(`audio${index}`, track.elements));
+	return { end, detail: parts.join(",") || "empty" };
+}
+
+interface CiExportOptions {
+	resolution: string;
+	fps: string;
+	quality: string;
+	/** The SHOT name after the export. */
+	shot: string;
+}
+
+/** Test C: 1 photo + 1 text at 1080p / 30 fps / High. */
+const CI_MAIN_EXPORT: CiExportOptions = { resolution: "1080p", fps: "30", quality: "High", shot: "export" };
+/** Test E: the video sweep, smaller so the simulator's software encoder is quicker. */
+const CI_SWEEP_EXPORT: CiExportOptions = { resolution: "720p", fps: "30", quality: "Medium", shot: "sweep-export" };
+
+/** One export through the export sheet (tests C and E). */
+async function ciExport(ctx: CiContext, editor: EditorCore, options: CiExportOptions): Promise<void> {
 	const { bridge } = ctx;
 	let result: ExportProgress | null = null;
 	let thrown: string | null = null;
 	// Watch the real bridge call; the events pass through unchanged.
 	const originalExport = bridge.exportProject;
 	bridge.exportProject = (params) => {
+		const ticksPerSecond = Number(params.edl.meta.ticksPerSecond);
+		const edlSeconds = ticksPerSecond > 0 ? Number(params.edl.meta.durationTicks) / ticksPerSecond : -1;
 		ciLog(
-			`EXPORT start output=${JSON.stringify(params.edl.output).slice(0, 400)} overlayFrames=${params.overlayFrames?.length ?? 0}`,
+			`EXPORT start output=${JSON.stringify(params.edl.output).slice(0, 400)} overlayFrames=${params.overlayFrames?.length ?? 0} edlSeconds=${edlSeconds.toFixed(3)}`,
 		);
 		const inner = originalExport.call(bridge, params);
 		let lastStage = "";
@@ -1403,14 +1462,21 @@ async function ciExport(ctx: CiContext, editor: EditorCore): Promise<void> {
 				option?.click();
 				return option ? "ok" : "missing";
 			};
-			ciLog(`EXPORT settings resolution=${pick("Resolution", "1080p")} fps=${pick("Frame rate", "30")} quality=${pick("Quality", "High")}`);
+			ciLog(
+				`EXPORT settings resolution=${pick("Resolution", options.resolution)} fps=${pick("Frame rate", options.fps)} ` +
+					`quality=${pick("Quality", options.quality)}`,
+			);
 			await ciSleep(500);
 			const start = ciButton(document, /^Export video$/);
 			if (!start) throw new Error("the Export video button went away");
+			const timeline = ciTimelineEnd(editor);
+			ciLog(`TIMELINE end=${timeline.end.toFixed(3)} tracks=${timeline.detail} timeline=${JSON.stringify(ciCounts(editor))}`);
 			start.click();
 		} else {
 			via = "direct";
 			document.querySelector<HTMLElement>(".cc-sheet-scrim")?.click();
+			const timeline = ciTimelineEnd(editor);
+			ciLog(`TIMELINE end=${timeline.end.toFixed(3)} tracks=${timeline.detail} timeline=${JSON.stringify(ciCounts(editor))}`);
 			void ciDirectExport(editor, bridge).catch((error: unknown) => {
 				thrown = ciDescribe(error);
 			});
@@ -1435,11 +1501,717 @@ async function ciExport(ctx: CiContext, editor: EditorCore): Promise<void> {
 	} finally {
 		bridge.exportProject = originalExport;
 	}
-	await ciShot(ctx, "export");
+	if (via === "sheet") await ciExportSheetEnd();
+	await ciShot(ctx, options.shot);
+}
+
+/**
+ * What the export sheet shows when the export ends (blind test 1.0.5): after
+ * a good save "Saved to Photos" with the buttons "Open Photos" and "Share";
+ * after a failed export "Export failed. Try again.". The Photos save comes
+ * after the native "done" event, so this waits up to 30 s for its words.
+ * Logs one line: EXPORT SHEET {"saved":…,"failed":…,"notes":[…],"buttons":[…],"text":"…"}.
+ */
+async function ciExportSheetEnd(): Promise<void> {
+	const sheetText = () => (document.querySelector(".cc-sheet")?.textContent ?? "").replace(/\s+/g, " ").trim();
+	await ciWait(
+		"the save result in the export sheet",
+		() => /Saved to Photos|Could not save|Export failed/i.test(sheetText()),
+		30_000,
+		false,
+	).catch(() => undefined);
+	const text = sheetText();
+	const notes = [...document.querySelectorAll(".cc-sheet .cc-panel-note")]
+		.map((node) => (node.textContent ?? "").trim())
+		.filter(Boolean);
+	const buttons = [...document.querySelectorAll<HTMLButtonElement>(".cc-sheet button")]
+		.map((button) => ((button.textContent ?? "").trim() || button.getAttribute("aria-label") || "").slice(0, 40))
+		.filter(Boolean);
+	ciLog(
+		`EXPORT SHEET ${JSON.stringify({
+			saved: /Saved to Photos/i.test(text),
+			failed: /Export failed\. Try again\./.test(text),
+			notes: notes.slice(0, 4).map((note) => note.slice(0, 80)),
+			buttons: buttons.slice(0, 20),
+			text: text.slice(0, 120),
+		})}`,
+	);
+}
+
+// ----------------------------------------------------- shared UI helpers (D, E)
+
+/** A button of a toolbar ("Editor tools": the bottom toolbar, "Clip tools":
+ *  the selected-clip row), found by its label. */
+function ciToolbarButton(toolbar: string, label: RegExp): HTMLButtonElement | null {
+	const scope = document.querySelector(`[aria-label="${toolbar}"]`);
+	if (!scope) return null;
+	for (const button of scope.querySelectorAll<HTMLButtonElement>("button")) {
+		const text = (button.querySelector(".cc-toolbar__item-label")?.textContent ?? button.textContent ?? "").trim();
+		if (!button.disabled && label.test(text)) return button;
+	}
+	return null;
+}
+
+/** Opens a bottom-toolbar sheet. Null (and a FAIL line) when it does not open. */
+async function ciOpenSheet(tool: RegExp, tag: string): Promise<Element | null> {
+	document.querySelector<HTMLElement>(".cc-sheet-scrim")?.click();
+	await ciSleep(300);
+	const button = ciToolbarButton("Editor tools", tool);
+	if (!button) {
+		ciLog(`${tag} FAIL no ${tool.source} button in the editor tools`);
+		return null;
+	}
+	button.click();
+	const sheet = await ciWait(`${tag} sheet`, () => document.querySelector(".cc-sheet"), 10_000).catch(() => null);
+	if (!sheet) ciLog(`${tag} FAIL the ${tool.source} sheet did not open`);
+	return sheet;
+}
+
+async function ciCloseSheet(): Promise<void> {
+	document.querySelector<HTMLElement>(".cc-sheet-scrim")?.click();
+	await ciWait("closed sheet", () => !document.querySelector(".cc-sheet"), 5_000, false).catch(() => undefined);
+}
+
+function ciSheetNotes(): string[] {
+	return [...document.querySelectorAll(".cc-sheet .cc-panel-note")].map((node) => (node.textContent ?? "").trim());
+}
+
+/** Audio elements of the active scene, with the fields that find their file. */
+function ciAudioElements(editor: EditorCore): { id: string; sourceUrl?: string; mediaId?: string; sourceType?: string }[] {
+	const tracks = editor.scenes.getActiveSceneOrNull()?.tracks;
+	if (!tracks) return [];
+	return tracks.audio
+		.flatMap((track) => track.elements)
+		.map((element) => {
+			const raw = element as unknown as Record<string, unknown>;
+			return {
+				id: element.id,
+				sourceUrl: typeof raw.sourceUrl === "string" ? raw.sourceUrl : undefined,
+				mediaId: typeof raw.mediaId === "string" ? raw.mediaId : undefined,
+				sourceType: typeof raw.sourceType === "string" ? raw.sourceType : undefined,
+			};
+		});
+}
+
+/** The planted file as the handle NativeBridgePlugin+Media.swift builds for a pick. */
+async function ciPlantedHandle(
+	place: CiPlace,
+	relative: string,
+	fields: Omit<MediaHandle, "id" | "uri" | "fileName" | "sizeBytes">,
+): Promise<MediaHandle | null> {
+	const uri = `${place.root}/${relative}`;
+	let sizeBytes = 0;
+	try {
+		const res = await fetch(place.bridge.toPlaybackUri(`file://${uri}`), { cache: "no-store" });
+		sizeBytes = (await res.blob()).size;
+	} catch {
+		// sizeBytes stays 0: the caller reports the missing file
+	}
+	if (sizeBytes === 0) return null;
+	return {
+		...fields,
+		id: crypto.randomUUID().toUpperCase(),
+		uri,
+		fileName: relative.slice(relative.lastIndexOf("/") + 1),
+		sizeBytes,
+	};
+}
+
+/** Replaces the OS picker with the planted file. Returns the restore function. */
+function ciStubPicker(place: CiPlace, handle: MediaHandle): () => void {
+	const { bridge } = place;
+	const original = bridge.pickMedia;
+	bridge.pickMedia = async (opts) => {
+		ciLog(`pickMedia stand-in: kinds=${opts.kinds.join(",")} -> ${handle.fileName} (${handle.sizeBytes} bytes)`);
+		opts.onProgress?.({ index: 0, total: 1, stage: "loading", fraction: 0 });
+		opts.onProgress?.({ index: 0, total: 1, stage: "loaded", fraction: 1 });
+		return [handle];
+	};
+	return () => {
+		bridge.pickMedia = original;
+	};
+}
+
+// ------------------------------------------------- D: stickers, bundled sound
+
+type CiImageState = "ok" | "broken" | "blank" | "timeout";
+
+/** Loads one image URL again: "broken" when it errors, "blank" when it loads
+ *  but draws nothing (an SVG with only a viewBox has no natural size, so its
+ *  pixels are checked instead of naturalWidth). */
+function ciProbeImage(src: string): Promise<CiImageState> {
+	return new Promise((resolve) => {
+		const probe = new Image();
+		const timer = setTimeout(() => resolve("timeout"), 10_000);
+		probe.onload = () => {
+			clearTimeout(timer);
+			if (probe.naturalWidth > 0 && probe.naturalHeight > 0) {
+				resolve("ok");
+				return;
+			}
+			try {
+				const canvas = document.createElement("canvas");
+				canvas.width = 32;
+				canvas.height = 32;
+				const g = canvas.getContext("2d");
+				if (!g) {
+					resolve("ok");
+					return;
+				}
+				g.drawImage(probe, 0, 0, 32, 32);
+				const data = g.getImageData(0, 0, 32, 32).data;
+				let painted = 0;
+				for (let i = 3; i < data.length; i += 4) if (data[i] > 0) painted++;
+				resolve(painted > 0 ? "ok" : "blank");
+			} catch {
+				resolve("ok"); // the image loaded; a tainted canvas only hides its pixels
+			}
+		};
+		probe.onerror = () => {
+			clearTimeout(timer);
+			resolve("broken");
+		};
+		probe.src = src;
+	});
+}
+
+/** The state of every tile image: waits for them to finish, then checks each. */
+async function ciCheckImages(images: HTMLImageElement[]): Promise<Record<CiImageState, number> & { first: string }> {
+	const deadline = Date.now() + 20_000;
+	while (Date.now() < deadline && images.some((img) => !img.complete)) await ciSleep(200);
+	const states = await Promise.all(
+		images.map((img): Promise<CiImageState> => {
+			const src = img.currentSrc || img.src;
+			if (!src) return Promise.resolve("broken");
+			if (img.complete && img.naturalWidth > 0) return Promise.resolve("ok");
+			return ciProbeImage(src);
+		}),
+	);
+	const counts = { ok: 0, broken: 0, blank: 0, timeout: 0, first: "" };
+	states.forEach((state, index) => {
+		counts[state]++;
+		const img = images[index];
+		if (state !== "ok" && !counts.first && img) counts.first = (img.currentSrc || img.src).slice(0, 100);
+	});
+	return counts;
+}
+
+/** The Stickers sheet's tabs (chips, or a tab bar if the sheet uses one). */
+function ciStickerTabs(): HTMLButtonElement[] {
+	return [...document.querySelectorAll<HTMLButtonElement>('.cc-sheet .cc-chip, .cc-sheet [role="tab"]')];
+}
+
+/** Waits until the open tab shows its tiles (or says it has none). */
+function ciStickerTilesReady(): Promise<string> {
+	return ciWait(
+		"sticker tiles",
+		() => {
+			if (ciSheetNotes().some((text) => /^Loading/i.test(text))) return null;
+			if (document.querySelector(".cc-sheet .cc-thumb")) return "tiles";
+			return ciSheetNotes().some((text) => /no stickers/i.test(text)) ? "empty" : null;
+		},
+		30_000,
+	).catch(() => "timeout");
+}
+
+/**
+ * Blind test 1.0.5: the Flags tab showed only broken images (the flag SVGs
+ * were not in the mobile bundle). Opens EVERY tab, waits for the tiles and
+ * checks every image; then taps one tile. Logs
+ *   STICKERS tab="<label>" state=… tiles=N images=N ok=N broken=N blank=N timeout=N [first=<src>]
+ *   STICKER PASS|FAIL …
+ * Returns 1 when a sticker landed on the timeline (for the undo).
+ */
+async function ciStickers(ctx: CiContext, editor: EditorCore): Promise<number> {
+	if (!(await ciOpenSheet(/^Stickers?$/i, "STICKERS"))) return 0;
+	await ciStickerTilesReady();
+	const labels = ciStickerTabs().map((tab) => (tab.textContent ?? "").trim());
+	ciLog(`STICKERS tabs=${labels.length} names=${JSON.stringify(labels)}`);
+	const tabs = labels.length > 0 ? labels : ["(one grid, no tabs)"];
+	const good: string[] = [];
+	for (let i = 0; i < tabs.length; i++) {
+		const label = tabs[i] ?? "";
+		if (labels.length > 0) {
+			ciStickerTabs()
+				.find((tab) => (tab.textContent ?? "").trim() === label)
+				?.click();
+			await ciSleep(400);
+		}
+		const state = await ciStickerTilesReady();
+		const tiles = document.querySelectorAll(".cc-sheet .cc-thumb").length;
+		const images = [...document.querySelectorAll<HTMLImageElement>(".cc-sheet .cc-thumb img")];
+		const result = await ciCheckImages(images);
+		ciLog(
+			`STICKERS tab=${JSON.stringify(label)} state=${state} tiles=${tiles} images=${images.length} ok=${result.ok} ` +
+				`broken=${result.broken} blank=${result.blank} timeout=${result.timeout}${result.first ? ` first=${result.first}` : ""}`,
+		);
+		if (images.length > 0 && result.ok === images.length) good.push(label);
+		await ciShot(ctx, `stickers-${i + 1}`);
+	}
+
+	// One tile onto the timeline, from a tab whose images all load.
+	const stickers = () => {
+		const counts = ciCounts(editor);
+		return (counts.sticker ?? 0) + (counts.graphic ?? 0);
+	};
+	const before = stickers();
+	const tabName = good[0] ?? tabs[0] ?? "";
+	if (labels.length > 0) {
+		ciStickerTabs()
+			.find((tab) => (tab.textContent ?? "").trim() === tabName)
+			?.click();
+		await ciSleep(400);
+		await ciStickerTilesReady();
+	}
+	const tile = document.querySelector<HTMLButtonElement>(".cc-sheet .cc-thumb");
+	tile?.click();
+	const added = tile
+		? await ciWait("sticker on the timeline", () => stickers() > before, 10_000).then(
+				() => true,
+				() => false,
+			)
+		: false;
+	ciLog(
+		`STICKER ${added ? "PASS" : "FAIL"} via=ui tab=${JSON.stringify(tabName)} ` +
+			`tile=${tile ? JSON.stringify((tile.textContent ?? "").trim().slice(0, 40)) : "none"} timeline=${JSON.stringify(ciCounts(editor))}`,
+	);
+	await ciCloseSheet();
+	if (added) {
+		await ciSettle(editor, 1500);
+		await ciShot(ctx, "sticker");
+	}
+	return added ? 1 : 0;
+}
+
+/** Fetches a sound and decodes it the way WebAudio would play it. "ok …" or the problem. */
+async function ciLoadSound(url: string): Promise<string> {
+	try {
+		const res = await fetch(url, { cache: "no-store" });
+		if (!(res.ok || res.status === 0)) return `http-${res.status}`;
+		const bytes = await res.arrayBuffer();
+		if (bytes.byteLength < 100) return `only-${bytes.byteLength}-bytes`;
+		if (typeof OfflineAudioContext !== "function") return `ok bytes=${bytes.byteLength} decode=n/a`;
+		const audio = await new OfflineAudioContext(1, 1, 44_100).decodeAudioData(bytes);
+		return `ok bytes=${bytes.byteLength} seconds=${audio.duration.toFixed(2)}`;
+	} catch (error) {
+		return `error(${ciDescribe(error).slice(0, 120)})`;
+	}
+}
+
+/**
+ * Blind test 1.0.5: a bundled sound from the Audio sheet lands on the
+ * timeline and its file loads. Logs SOUND PASS|FAIL … Returns 1 when an
+ * audio clip landed (for the undo).
+ */
+async function ciSound(editor: EditorCore): Promise<number> {
+	await ciSettle(editor, 300);
+	if (!(await ciOpenSheet(/^Audio$/i, "SOUND"))) return 0;
+	const inGroup = [...document.querySelectorAll<HTMLButtonElement>(".cc-sheet .cc-panel-actions button")];
+	const anyButton = [...document.querySelectorAll<HTMLButtonElement>(".cc-sheet .cc-sheet__body button")];
+	const candidates = (inGroup.length > 0 ? inGroup : anyButton).filter(
+		(button) => !button.disabled && (button.textContent ?? "").trim() && !/import|files/i.test(button.textContent ?? ""),
+	);
+	const sound = candidates[0];
+	if (!sound) {
+		ciLog(`SOUND FAIL no bundled sound in the Audio sheet (notes=${JSON.stringify(ciSheetNotes())})`);
+		await ciCloseSheet();
+		return 0;
+	}
+	const name = (sound.textContent ?? "").trim().slice(0, 40);
+	const before = ciCounts(editor).audio ?? 0;
+	const known = new Set(ciAudioElements(editor).map((element) => element.id));
+	sound.click();
+	// The sound goes through the native import (a copy into the media
+	// folder and a probe), so it can take some seconds.
+	const added = await ciWait("sound on the timeline", () => (ciCounts(editor).audio ?? 0) > before, 30_000).then(
+		() => true,
+		() => false,
+	);
+	const element = ciAudioElements(editor).find((candidate) => !known.has(candidate.id));
+	const assetUrl = element?.mediaId ? editor.media.getAssets().find((asset) => asset.id === element.mediaId)?.url : undefined;
+	const url = element?.sourceUrl ?? assetUrl ?? null;
+	const load = url ? await ciLoadSound(url) : element ? `no-file-url(sourceType=${element.sourceType ?? "?"})` : "no-element";
+	ciLog(
+		`SOUND ${added && load.startsWith("ok") ? "PASS" : "FAIL"} name=${JSON.stringify(name)} added=${added} load=${load} ` +
+			`url=${url ? url.slice(0, 48) : "none"} sounds=${candidates.length} timeline=${JSON.stringify(ciCounts(editor))}`,
+	);
+	await ciCloseSheet();
+	return added ? 1 : 0;
+}
+
+/** Test D. The inserts are undone at the end, so test C exports photo + text only. */
+async function ciStickersAndSound(ctx: CiContext, editor: EditorCore): Promise<void> {
+	await ciSettle(editor, 300);
+	const start = JSON.stringify(ciCounts(editor));
+	let inserted = 0;
+	try {
+		inserted += await ciStickers(ctx, editor);
+		inserted += await ciSound(editor);
+	} finally {
+		await ciCloseSheet();
+		for (let i = 0; i < inserted; i++) {
+			editor.command.undo();
+			await ciSleep(300);
+		}
+		const end = JSON.stringify(ciCounts(editor));
+		ciLog(`CLEANUP ${end === start ? "PASS" : "FAIL"} undone=${inserted} start=${start} end=${end}`);
+		await ciSettle(editor, 500);
+	}
+}
+
+// ----------------------------------------------------------- E: video sweep
+
+/** Taps a video clip on the timeline (the real pointer path). Returns the selection. */
+async function ciSelectVideoClip(
+	editor: EditorCore,
+	which: "first" | "last",
+): Promise<{ trackId: string; elementId: string } | null> {
+	editor.selection.setSelectedElements({ elements: [] });
+	await ciSleep(300);
+	const nodes = [...document.querySelectorAll<HTMLElement>(".cc-timeline__clip--video")];
+	const node = which === "first" ? nodes[0] : nodes[nodes.length - 1];
+	if (!node) return null;
+	const rect = node.getBoundingClientRect();
+	const pointer = {
+		bubbles: true,
+		cancelable: true,
+		pointerId: 7,
+		pointerType: "touch",
+		clientX: rect.left + rect.width / 2,
+		clientY: rect.top + rect.height / 2,
+	};
+	node.dispatchEvent(new PointerEvent("pointerdown", pointer));
+	node.dispatchEvent(new PointerEvent("pointerup", pointer));
+	await ciSleep(400);
+	const selected = editor.selection.getSelectedElements();
+	return selected.length === 1 && selected[0] ? selected[0] : null;
+}
+
+/** True when the element (or its whole track) is muted in the editor state. */
+function ciIsMuted(editor: EditorCore, ref: { trackId: string; elementId: string }): boolean {
+	const tracks = editor.scenes.getActiveSceneOrNull()?.tracks;
+	if (!tracks) return false;
+	const track = [tracks.main, ...tracks.overlay, ...tracks.audio].find((candidate) => candidate.id === ref.trackId);
+	if (!track) return false;
+	if ("muted" in track && track.muted === true) return true;
+	const elements = track.elements as readonly { id: string }[];
+	const element = elements.find((candidate) => candidate.id === ref.elementId) as Record<string, unknown> | undefined;
+	if (!element) return false;
+	const params = element.params as Record<string, unknown> | undefined;
+	return params?.muted === true || element.isSourceAudioEnabled === false;
+}
+
+/** The Mute (or Unmute) control: in the clip tools row, in the open sheet,
+ *  or (last) on the timeline. */
+function ciMuteControl(): { button: HTMLButtonElement; where: string } | null {
+	const scopes: [string, Element | null][] = [
+		["clip-tools", document.querySelector('[aria-label="Clip tools"]')],
+		["sheet", document.querySelector(".cc-sheet")],
+		["timeline", document.querySelector(".cc-editor-shell__timeline")],
+	];
+	for (const [where, scope] of scopes) {
+		if (!scope) continue;
+		for (const button of scope.querySelectorAll<HTMLButtonElement>("button")) {
+			const text = `${button.textContent ?? ""} ${button.getAttribute("aria-label") ?? ""}`;
+			if (!button.disabled && /\b(un)?mute/i.test(text)) return { button, where };
+		}
+	}
+	return null;
+}
+
+/** The planted video through the timeline "+" (only the OS picker is replaced;
+ *  the native proxy transcode is real). Logs VIDEO-IMPORT PASS|FAIL … */
+async function ciImportVideo(ctx: CiContext, editor: EditorCore): Promise<boolean> {
+	const handle = await ciPlantedHandle(ctx, CI_VIDEO, {
+		kind: "video",
+		durationMicros: CI_VIDEO_SECONDS * 1_000_000,
+		width: 1280,
+		height: 720,
+		rotationDegrees: 0,
+		hasAudio: true,
+		codec: "avc1",
+		frameRate: { numerator: 30, denominator: 1 },
+	});
+	if (!handle) {
+		ciLog(`VIDEO-IMPORT FAIL the planted video ${CI_VIDEO} is missing or empty`);
+		return false;
+	}
+	const plus = await ciWait(
+		"Add clip button",
+		() => document.querySelector<HTMLButtonElement>('button[aria-label="Add clip"]'),
+		10_000,
+	).catch(() => null);
+	if (!plus) {
+		ciLog("VIDEO-IMPORT FAIL no Add clip button on the timeline");
+		return false;
+	}
+	const restore = ciStubPicker(ctx, handle);
+	const before = ciCounts(editor).video ?? 0;
+	const started = Date.now();
+	try {
+		plus.click();
+		const outcome = await ciWait(
+			"video clip on the timeline",
+			() => {
+				if ((ciCounts(editor).video ?? 0) > before) return "placed";
+				const error = document
+					.querySelector(".cc-chrome-error:not(.cc-chrome-error--notice)")
+					?.textContent?.trim();
+				return error ? `error: ${error}` : null;
+			},
+			240_000,
+		).catch((error: unknown) => ciDescribe(error));
+		const asset = editor.media.getAssets().find((candidate) => candidate.type === "video");
+		const assetText = asset
+			? `video ${asset.width ?? "?"}x${asset.height ?? "?"} duration=${asset.duration ?? "?"} hasAudio=${String(asset.hasAudio)}`
+			: "none";
+		ciLog(
+			`VIDEO-IMPORT ${outcome === "placed" ? "PASS" : "FAIL"} ${outcome} ms=${Date.now() - started} asset=${assetText} ` +
+				`timeline=${JSON.stringify(ciCounts(editor))}`,
+		);
+		return outcome === "placed";
+	} finally {
+		restore();
+	}
+}
+
+/**
+ * Captions "Generate" on the video with sound (a tone, no speech). The sheet
+ * must end with captions or with one of the plain messages (CAPTION_MESSAGES
+ * in captions-actions.ts); the runner checks the words. Logs
+ * CAPTIONS {"state":…,"ms":…,"captions":N,"message":"…","words":"…"}.
+ */
+async function ciCaptions(ctx: CiContext, editor: EditorCore): Promise<void> {
+	await ciSettle(editor, 300);
+	const sheet = await ciOpenSheet(/^Captions$/i, "CAPTIONS");
+	if (!sheet) return;
+	const generate = await ciWait(
+		"Generate button",
+		() => {
+			const open = document.querySelector(".cc-sheet");
+			return open ? ciButton(open, /^Generate/) : null;
+		},
+		10_000,
+	).catch(() => null);
+	if (!generate) {
+		ciLog("CAPTIONS FAIL no Generate button in the Captions sheet");
+		await ciCloseSheet();
+		return;
+	}
+	const notesBefore = new Set(ciSheetNotes());
+	const captionsBefore = ciCounts(editor).caption ?? 0;
+	const started = Date.now();
+	generate.click();
+	await ciSleep(800);
+	const state = await ciWait(
+		"the end of Generate",
+		() => {
+			const open = document.querySelector(".cc-sheet");
+			if (!open) return "closed";
+			const busy = [...open.querySelectorAll("button")].some((button) => /Generating/i.test(button.textContent ?? ""));
+			return busy ? null : "settled";
+		},
+		300_000,
+	).catch(() => "timeout");
+	await ciSleep(800);
+	const fresh = ciSheetNotes().filter((text) => text && !notesBefore.has(text));
+	const chromeError = document.querySelector(".cc-chrome-error")?.textContent?.trim() ?? "";
+	const words = getAllCaptions({ editor })
+		.flatMap(({ element }) => element.words.map((word) => word.text))
+		.join(" ");
+	ciLog(
+		`CAPTIONS ${JSON.stringify({
+			state,
+			ms: Date.now() - started,
+			captions: (ciCounts(editor).caption ?? 0) - captionsBefore,
+			message: (fresh.join(" ") || chromeError).slice(0, 300),
+			words: words.slice(0, 120),
+		})}`,
+	);
+	await ciShot(ctx, "captions");
+	await ciCloseSheet();
+}
+
+/** Split, Duplicate and Delete from the selected-clip row, then Mute.
+ *  Logs EDIT op=<split|duplicate|delete|mute> PASS|FAIL … */
+async function ciVideoEdits(editor: EditorCore): Promise<void> {
+	const videos = () => ciCounts(editor).video ?? 0;
+	const edit = async (op: string, which: "first" | "last", label: RegExp, change: number, prepare?: () => void) => {
+		await ciSettle(editor, 300);
+		const before = videos();
+		const ref = await ciSelectVideoClip(editor, which);
+		if (!ref) {
+			ciLog(`EDIT op=${op} FAIL could not select a video clip (${before} on the timeline)`);
+			return;
+		}
+		prepare?.();
+		await ciSleep(400);
+		const button = await ciWait(`${op} button`, () => ciToolbarButton("Clip tools", label), 5_000).catch(() => null);
+		if (!button) {
+			ciLog(`EDIT op=${op} FAIL no ${label.source} button in the clip tools`);
+			return;
+		}
+		button.click();
+		const ok = await ciWait(`${op} result`, () => videos() === before + change, 5_000).then(
+			() => true,
+			() => false,
+		);
+		ciLog(
+			`EDIT op=${op} ${ok ? "PASS" : "FAIL"} video clips ${before}->${videos()} (want ${before + change}) ` +
+				`end=${ciTimelineEnd(editor).end.toFixed(2)} timeline=${JSON.stringify(ciCounts(editor))}`,
+		);
+	};
+	// Split the 4 s clip at 2 s, duplicate the first piece, delete the last clip.
+	await edit("split", "first", /^Split$/i, 1, () =>
+		editor.playback.seek({ time: mediaTimeFromSeconds({ seconds: CI_VIDEO_SECONDS / 2 }) }),
+	);
+	await edit("duplicate", "first", /^Duplicate$/i, 1);
+	await edit("delete", "last", /^Delete$/i, -1);
+
+	// Mute: the control may be on the clip tools row or in the Edit sheet.
+	await ciSettle(editor, 300);
+	const ref = await ciSelectVideoClip(editor, "first");
+	if (!ref) {
+		ciLog("EDIT op=mute FAIL could not select a video clip");
+		return;
+	}
+	// The clip tools row first; then the Edit sheet (opened from that row).
+	let control = ciMuteControl();
+	if (!control || control.where === "timeline") {
+		ciToolbarButton("Clip tools", /^Edit$/i)?.click();
+		await ciWait("Edit sheet", () => document.querySelector(".cc-sheet"), 5_000).catch(() => null);
+		control = ciMuteControl() ?? control;
+	}
+	if (!control) {
+		ciLog(`EDIT op=mute FAIL no Mute control in the clip tools, the Edit sheet or the timeline (muted=${ciIsMuted(editor, ref)})`);
+		await ciCloseSheet();
+		return;
+	}
+	const { where } = control;
+	const label = `${control.button.textContent ?? ""} ${control.button.getAttribute("aria-label") ?? ""}`.trim().slice(0, 30);
+	const start = ciIsMuted(editor, ref);
+	control.button.click();
+	const muted = await ciWait("muted", () => ciIsMuted(editor, ref), 5_000).then(
+		() => true,
+		() => false,
+	);
+	await ciSleep(400);
+	// Unmute with the same control (its label may now say Unmute).
+	const again = ciMuteControl();
+	again?.button.click();
+	const unmuted = again
+		? await ciWait("unmuted", () => !ciIsMuted(editor, ref), 5_000).then(
+				() => true,
+				() => false,
+			)
+		: false;
+	ciLog(
+		`EDIT op=mute ${!start && muted && unmuted ? "PASS" : "FAIL"} where=${where} muted ${start}->${muted ? "true" : "false"}` +
+			`->${unmuted ? "false" : "true"} control=${JSON.stringify(label)}`,
+	);
+	// The export below needs the sound: undo a mute the control could not undo.
+	for (let i = 0; i < 2 && ciIsMuted(editor, ref); i++) {
+		editor.command.undo();
+		await ciSleep(300);
+	}
+	await ciCloseSheet();
+}
+
+/** The Audio sheet's "Import audio" with the planted audio file. Logs AUDIO-IMPORT PASS|FAIL … */
+async function ciImportAudio(ctx: CiContext, editor: EditorCore): Promise<void> {
+	await ciSettle(editor, 300);
+	const handle = await ciPlantedHandle(ctx, CI_AUDIO, {
+		kind: "audio",
+		durationMicros: CI_AUDIO_SECONDS * 1_000_000,
+		width: 0,
+		height: 0,
+		rotationDegrees: 0,
+		hasAudio: true,
+		codec: "m4a",
+		frameRate: null,
+	});
+	if (!handle) {
+		ciLog(`AUDIO-IMPORT FAIL the planted audio ${CI_AUDIO} is missing or empty`);
+		return;
+	}
+	if (!(await ciOpenSheet(/^Audio$/i, "AUDIO-IMPORT"))) return;
+	const button = await ciWait(
+		"Import audio button",
+		() => {
+			const open = document.querySelector(".cc-sheet");
+			return open ? ciButton(open, /import audio/i) : null;
+		},
+		10_000,
+	).catch(() => null);
+	if (!button) {
+		ciLog("AUDIO-IMPORT FAIL no Import audio button in the Audio sheet");
+		await ciCloseSheet();
+		return;
+	}
+	const notesBefore = new Set(ciSheetNotes());
+	const before = ciCounts(editor).audio ?? 0;
+	const restore = ciStubPicker(ctx, handle);
+	const started = Date.now();
+	try {
+		button.click();
+		const outcome = await ciWait(
+			"imported audio on the timeline",
+			() => {
+				if ((ciCounts(editor).audio ?? 0) > before) return "placed";
+				const note = ciSheetNotes().find((text) => text && !notesBefore.has(text));
+				const error = document.querySelector(".cc-chrome-error:not(.cc-chrome-error--notice)")?.textContent?.trim();
+				return note ? `error: ${note}` : error ? `error: ${error}` : null;
+			},
+			120_000,
+		).catch((error: unknown) => ciDescribe(error));
+		const asset = editor.media.getAssets().find((candidate) => candidate.type === "audio");
+		ciLog(
+			`AUDIO-IMPORT ${outcome === "placed" ? "PASS" : "FAIL"} ${outcome} ms=${Date.now() - started} ` +
+				`asset=${asset ? `audio duration=${asset.duration ?? "?"}` : "none"} timeline=${JSON.stringify(ciCounts(editor))}`,
+		);
+	} finally {
+		restore();
+	}
+	await ciCloseSheet();
+}
+
+/** Test E (phase 3): a new project with the planted video, every edit, then an export. */
+async function ciVideoSweep(ctx: CiContext, editor: EditorCore): Promise<void> {
+	ctx.step = "E";
+	await ciWait("home screen", () => document.querySelector(".kc-home"), 120_000);
+	await ciProjects(editor, "sweep-start");
+	// The OPEN line says extra=1: this open does not count for test A.
+	const open = await ciOpen(ctx, editor, 8, "new", null, { stay: true, extra: true });
+	if (!open) {
+		ciLog("E SKIP the editor did not open");
+		return;
+	}
+	if (await ciImportVideo(ctx, editor)) {
+		await ciSettle(editor, 500);
+		editor.playback.seek({ time: mediaTimeFromSeconds({ seconds: 1 }) });
+		await ciSleep(4000);
+		await ciShot(ctx, "video");
+		await ciCaptions(ctx, editor);
+		await ciVideoEdits(editor);
+		await ciImportAudio(ctx, editor);
+		await ciSettle(editor, 1500);
+		await ciShot(ctx, "sweep-timeline");
+		await ciExport(ctx, editor, CI_SWEEP_EXPORT);
+	} else {
+		ciLog("E SKIP the video did not import");
+	}
+	await ciCloseSheet();
+	await ciBack(editor, "sweep-end").catch((error: unknown) => ciLog(`PROBLEM step=E kind=driver back: ${ciDescribe(error)}`));
 }
 
 async function ciRun(ctx: CiContext): Promise<void> {
 	const editor = EditorCore.getInstance();
+	if (ctx.phase === 3) {
+		await ciVideoSweep(ctx, editor);
+		await ciSleep(3000); // storage writes finish before the runner ends the app
+		ciLog("END phase=3");
+		return;
+	}
 	ctx.step = "A";
 	await ciWait("home screen", () => document.querySelector(".kc-home"), 120_000);
 	const atStart = await ciProjects(editor, "start");
@@ -1470,18 +2242,21 @@ async function ciRun(ctx: CiContext): Promise<void> {
 	}
 	if (!open) {
 		ciLog("B SKIP the editor did not open");
+		ciLog("D SKIP the editor did not open");
 		ciLog("C SKIP the editor did not open");
 		ciLog("END phase=2");
 		return;
 	}
 	ctx.step = "B";
 	await ciPreview(ctx, editor);
+	ctx.step = "D";
+	await ciStickersAndSound(ctx, editor);
 	ctx.step = "C";
-	await ciExport(ctx, editor);
+	await ciExport(ctx, editor, CI_MAIN_EXPORT);
 	ciLog("END phase=2");
 }
 
-async function mountEditorCi(found: CiPlace & { phase: 1 | 2 }): Promise<void> {
+async function mountEditorCi(found: CiPlace & { phase: 1 | 2 | 3 }): Promise<void> {
 	const ctx: CiContext = { ...found, step: "boot", problems: 0, gpuProblems: 0 };
 	ciWatchProblems(ctx);
 	ciLog(

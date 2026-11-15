@@ -190,11 +190,22 @@ describe("item 11: a photo clip shows the photo on the timeline", () => {
 
 describe("the export sheet uses plain words", () => {
 	const sheet = code("packages/mobile-ui/src/components/panels/export-sheet.tsx");
+	// The JSX the sheet renders (the last `return (` of the component).
+	const view = sheet.slice(sheet.lastIndexOf("return ("));
+	const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	/** The text is the whole content of one element (a title, a note or a button). */
+	const shows = (text: string) => new RegExp(`>\\s*${escapeRe(text)}\\s*<`);
 
 	it("shows no file path and no error text", () => {
-		expect(sheet).toContain('<p className="cc-panel-note">Export complete.</p>');
 		expect(sheet).toContain('<p className="cc-panel-note">Export failed. Try again.</p>');
-		expect(sheet).not.toContain("outputUri");
+		// 1.0.5 (blind test round 2): the result block replaced "Export complete.".
+		for (const text of ["Saved to Photos", "Could not save to Photos.", "Open Photos", "Share"]) {
+			expect(view).toMatch(shows(text));
+		}
+		expect(view).toMatch(/>Photos access is off[^<]*Settings\.</);
+		expect(sheet).not.toContain("Export complete.");
+		// The video's path goes back to the bridge only; the sheet never renders it.
+		expect(view).not.toMatch(/\b(outputUri|exportedUriRef|uri)\b/);
 		expect(sheet).not.toMatch(/Export failed: \{/);
 	});
 });
