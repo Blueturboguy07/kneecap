@@ -6,6 +6,13 @@
 # secret); the Xcode Release build gets APP_STORE_BUILD=1 too, so the "Debug-only items"
 # phase refuses developer tools and test hooks.
 #
+# The bundled assets: the web bundle (www/, copied to App/public by cap sync) carries the
+# 254 flag images (public/flags), the sounds (public/sounds) and the wasm engine
+# (opencut-wasm = rust/wasm/pkg, emitted as public/assets/opencut_wasm_bg-*.wasm). All of them
+# are in git; no step generates them. A step after the ipa check unpacks the ipa and fails
+# when one is missing or differs from the repo file, and when the web bundle in the app is
+# not the store bundle with the gate required (the same marker check as ios-sim-app-store).
+#
 # Run it by hand (Actions > App Store upload > Run workflow):
 #   upload false (default): archive, export (method app-store-connect), check the ipa and
 #                           validate it with App Store Connect. Nothing is uploaded.
@@ -428,6 +435,59 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit $fail
 
+      # The flag images, the sounds and the wasm engine are inside the ipa, with the same bytes
+      # as the repo files, and the web bundle is the store bundle with the gate required.
+      - name: The bundled assets are inside the ipa (flags, sounds, wasm engine, store web bundle)
+        run: |
+          set +e -u
+          W="$RUNNER_TEMP/ipa-assets"
+          rm -rf "$W"; mkdir -p "$W"
+          ditto -x -k "$IPA" "$W"
+          APP=$(ls -d "$W"/Payload/*.app | head -n 1)
+          P="$APP/public"
+          fail=0
+          bad() { echo "::error::ipa assets: $*"; fail=1; }
+          ok() { echo "ok:   $*"; }
+          [ -d "$P" ] || { echo "::error::ipa assets: no public/ (web bundle) in the app"; exit 1; }
+
+          # Flag images: every file of apps/mobile/public/flags (254 svg + the license).
+          want=$(find apps/mobile/public/flags -name '*.svg' -type f | wc -l | tr -d ' ')
+          NFLAGS=$(find "$P/flags" -name '*.svg' -type f -size +0 2>/dev/null | wc -l | tr -d ' ')
+          echo "      flags: $NFLAGS svg in the app, $want in the repo, $(du -sk "$P/flags" 2>/dev/null | cut -f1) KB"
+          [ "$want" -ge 254 ] && [ "$NFLAGS" = "$want" ] && ok "$NFLAGS flag images in public/flags" || bad "$NFLAGS flag images in the app, want $want (at least 254)"
+          diff -rq apps/mobile/public/flags "$P/flags" && ok "public/flags = apps/mobile/public/flags (same files, same bytes)" || bad "public/flags in the app differs from apps/mobile/public/flags"
+
+          # Sounds: every file of apps/mobile/public/sounds.
+          want=$(find apps/mobile/public/sounds -type f | wc -l | tr -d ' ')
+          NSOUNDS=$(find "$P/sounds" -type f -size +1k 2>/dev/null | wc -l | tr -d ' ')
+          for f in "$P"/sounds/*; do [ -f "$f" ] && echo "      sound: ${f#$APP/} $(stat -f %z "$f") bytes"; done
+          [ "$want" -ge 1 ] && [ "$NSOUNDS" = "$want" ] && ok "$NSOUNDS sounds in public/sounds" || bad "$NSOUNDS sounds in the app, want $want"
+          diff -rq apps/mobile/public/sounds "$P/sounds" && ok "public/sounds = apps/mobile/public/sounds (same files, same bytes)" || bad "public/sounds in the app differs from apps/mobile/public/sounds"
+
+          # The wasm engine: one opencut_wasm_bg-*.wasm, a wasm file, the bytes of rust/wasm/pkg.
+          N=$(find "$P/assets" -name 'opencut_wasm_bg-*.wasm' -type f | wc -l | tr -d ' ')
+          WASM=$(find "$P/assets" -name 'opencut_wasm_bg-*.wasm' -type f -print -quit)
+          WSZ=0
+          if [ -z "$WASM" ]; then
+            bad "no opencut_wasm_bg-*.wasm in public/assets"
+          else
+            WSZ=$(stat -f %z "$WASM")
+            echo "      wasm engine: ${WASM#$APP/} $WSZ bytes ($N file)"
+            [ "$N" = 1 ] && ok "one wasm engine file" || bad "$N wasm engine files (want 1)"
+            [ "$(head -c 4 "$WASM" | xxd -p)" = 0061736d ] && ok "wasm engine starts with the wasm magic" || bad "the wasm engine is not a wasm file"
+            [ "$WSZ" -ge 1000000 ] && ok "wasm engine size $WSZ bytes" || bad "wasm engine size $WSZ bytes (want at least 1,000,000)"
+            cmp -s "$WASM" rust/wasm/pkg/opencut_wasm_bg.wasm && ok "wasm engine = rust/wasm/pkg/opencut_wasm_bg.wasm" || bad "the wasm engine in the app is not rust/wasm/pkg/opencut_wasm_bg.wasm"
+          fi
+
+          # The store web bundle with the gate required (the ios-sim-app-store marker check).
+          markers="$(grep -rhoE 'publik-build:[a-z-]+|publik-gate-mode:[a-z]+' "$P/assets" | sort -u | tr '\n' ' ')"
+          echo "      web bundle markers: $markers"
+          [ "$markers" = "publik-build:store publik-gate-mode:required " ] && ok "store web bundle, gate required" || bad "the web bundle is not the store bundle with the gate required: $markers"
+
+          rm -rf "$W"
+          echo "- assets in the ipa: $NFLAGS flags, $NSOUNDS sounds, wasm engine $WSZ bytes ($([ $fail = 0 ] && echo passed || echo FAILED))" >> "$GITHUB_STEP_SUMMARY"
+          exit $fail
+
       # altool needs the app record in App Store Connect. Without it, this step reports the error
       # (it fails the job only when the upload is on).
       - name: Validate the ipa with App Store Connect
@@ -457,7 +517,7 @@ jobs:
       - name: Delete the key, the keychain and the build output
         if: always()
         run: |
-          rm -rf "$RUNNER_TEMP/asc-keys" "$RUNNER_TEMP/dist.p12" "$RUNNER_TEMP/out" "$RUNNER_TEMP/ipa-check"
+          rm -rf "$RUNNER_TEMP/asc-keys" "$RUNNER_TEMP/dist.p12" "$RUNNER_TEMP/out" "$RUNNER_TEMP/ipa-check" "$RUNNER_TEMP/ipa-assets"
           if [ -n "${KEYCHAIN_PATH:-}" ]; then security delete-keychain "$KEYCHAIN_PATH" || true; fi
           rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.mobileprovision
           echo "Cleaned up."
