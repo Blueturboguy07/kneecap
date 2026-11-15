@@ -24,6 +24,11 @@ jobs:
     name: invariants (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      # Every OS reports its own result. With the default (fail-fast: true)
+      # one failing OS cancelled the other two, so from Aug to Nov 2026 the
+      # Windows and macOS jobs almost never reached invariants.sh. The run
+      # still fails when any one of the three fails.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
