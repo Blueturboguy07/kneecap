@@ -14,6 +14,8 @@
  * no bun types).
  */
 import { afterEach, beforeAll, describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { PublikHost, PublikLaunch, PublikRequest } from "@kneecap/native-bridge/publik-host";
 
 type Gate = typeof import("../src/publik/publik");
@@ -62,9 +64,12 @@ function phone(settings: PublikLaunch["settings"] = {}) {
 		installsAnswers: [] as Array<{ status: number; data: unknown }>,
 		/** GET /wallet waits for this promise before it answers (a slow network). */
 		walletHold: null as Promise<void> | null,
-		/** false: the answers carry no claim_url. */
-		claimUrl: true,
+		/** false: the answers carry no claim_url. A string: the answers carry this claim_url. */
+		claimUrl: true as boolean | string,
 	};
+	/** How many times the app closed the in-app browser (closeBrowser). */
+	let closes = 0;
+	const claimUrlOf = () => (server.claimUrl === false ? null : typeof server.claimUrl === "string" ? server.claimUrl : `${ORIGIN}/claim/abc`);
 	const host: PublikHost = {
 		async launch() {
 			return { platform: "ios", appVersion: "1.0.1", deviceName: "iPhone", arch: "arm64", settings };
@@ -82,13 +87,13 @@ function phone(settings: PublikLaunch["settings"] = {}) {
 				if (next) return next;
 				if (server.installsStatus !== 201) return { status: server.installsStatus, data: { error: { type: "invalid_app_token", message: "This app token is not valid." } } };
 				const sent = JSON.parse(req.body ?? "{}") as { install_id: string };
-				return { status: 201, data: { key: "pk_live_gatetest", install_id: sent.install_id, claim_url: server.claimUrl ? `${ORIGIN}/claim/abc` : null, claim_state: "anonymous" } };
+				return { status: 201, data: { key: "pk_live_gatetest", install_id: sent.install_id, claim_url: claimUrlOf(), claim_state: "anonymous" } };
 			}
 			if (path.endsWith("/wallet")) {
 				if (server.walletHold) await server.walletHold;
 				if (server.walletStatus !== 200) return { status: server.walletStatus, data: { error: { type: "invalid_key", message: "This key is not valid." } } };
 				const w = server.wallets.length > 1 ? server.wallets.shift()! : server.wallets[0]!;
-				return { status: 200, data: { ...w, claim_url: server.claimUrl ? `${ORIGIN}/claim/abc` : null, top_up_url: `${ORIGIN}/wallet?top_up=1`, linked_at: null } };
+				return { status: 200, data: { ...w, claim_url: claimUrlOf(), top_up_url: `${ORIGIN}/wallet?top_up=1`, linked_at: null } };
 			}
 			if (path.endsWith("/telemetry")) return { status: 204, data: "" };
 			return { status: 404, data: {} };
@@ -110,7 +115,9 @@ function phone(settings: PublikLaunch["settings"] = {}) {
 		async openUrl({ url }) {
 			opened.push(url);
 		},
-		async closeBrowser() {},
+		async closeBrowser() {
+			closes++;
+		},
 		async finishSelfTest({ line }) {
 			selfTest.push(line);
 		},
@@ -128,7 +135,7 @@ function phone(settings: PublikLaunch["settings"] = {}) {
 		},
 		async showFirstRun() {},
 	};
-	return { host, files, requests, opened, selfTest, server, comeToFront: () => foreground?.(), goToBackground: () => background?.() };
+	return { host, files, requests, opened, selfTest, server, closes: () => closes, comeToFront: () => foreground?.(), goToBackground: () => background?.() };
 }
 
 /** Presses a button by screen title, or the first button of a screen with no note; else waits. Gives up after 7 screens of one title. */
@@ -167,7 +174,7 @@ describe("the publik gate on a phone", () => {
 			[WORDS.title, WORDS.waiting],
 		]);
 		expect(seen[0]).toMatchObject({ title: WORDS.title, body: WORDS.signInBody, buttons: [{ action: "sign_in", label: WORDS.signInButton }] });
-		expect(p.opened).toEqual([`${ORIGIN}/claim/abc`]);
+		expect(p.opened).toEqual([`${ORIGIN}/claim/abc?in_app=1`]);
 		expect(result).toMatchObject({ key: "pk_live_gatetest", choice: null, offline: false });
 		await tick();
 		const events = p.requests.filter((r) => r.url === `${ORIGIN}/api/v1/telemetry`);
@@ -324,7 +331,7 @@ describe("PUBLIK_GATE_MODE", () => {
 		});
 		expect(result).toBe("signed_in");
 		expect(waited).toBe(1);
-		expect(p.opened).toEqual([`${ORIGIN}/claim/abc`]);
+		expect(p.opened).toEqual([`${ORIGIN}/claim/abc?in_app=1`]);
 		expect(gate.getStatus()).toMatchObject({ mode: "optional", signedIn: true, handle: "mann" });
 		await tick();
 		expect(telemetry(p).map((r) => r.body!.event)).toEqual(["app_opened"]);
@@ -412,7 +419,7 @@ describe("Settings: Sign out, Delete account, usage counting", () => {
 		expect(p.files.has("apps/kneecap.json")).toBe(false);
 		expect(p.files.has("telemetry.json")).toBe(false);
 		expect(JSON.parse(p.files.get("consent.json")!)).toEqual({ usage: false });
-		expect(gate.DELETE_ACCOUNT_URL).toBe("https://publikhq.com/settings/profile#delete-account-title");
+		expect(gate.DELETE_ACCOUNT_URL).toBe("https://publikhq.com/in-app/delete-account");
 	});
 
 	it("the usage switch saves the choice in consent.json; off sends nothing more, and the launch opt-out locks it", async () => {
@@ -806,5 +813,71 @@ describe("founder checks, Nov 14: kneecap shows no purchase link", () => {
 		await gate.startPublik(noScreen, q.host, "optional");
 		await expect(gate.signIn({ signal: new AbortController().signal })).rejects.toThrow("publik sent no sign-in link. Try again.");
 		expect(q.opened).toEqual([]);
+	});
+});
+
+describe("founder checks, Nov 14 (1.0.3): the in-app browser opens only publik's bare in-app pages", () => {
+	it("the gate opens the claim page with in_app=1 added, keeps the other query items, and closes the sheet by itself after the sign-in", async () => {
+		const p = phone();
+		p.server.claimUrl = `${ORIGIN}/claim/abc?ref=kneecap&lang=fr#start`;
+		p.server.wallets = [anonymous, anonymous, claimed, claimed];
+		let closesWhileWaiting = -1;
+		const { ui } = scriptedUI(p, {}, () => {
+			closesWhileWaiting = p.closes();
+			p.comeToFront();
+		});
+		await gate.ensureSignedIn(ui, p.host);
+		expect(p.opened).toEqual([`${ORIGIN}/claim/abc?ref=kneecap&lang=fr&in_app=1#start`]);
+		expect(closesWhileWaiting).toBe(0);
+		expect(p.closes()).toBe(1);
+	});
+
+	it("Settings > Sign in with publik opens the same in_app=1 page, and the sheet closes by itself after the sign-in", async () => {
+		const p = phone();
+		p.server.wallets = [anonymous, claimed];
+		await gate.startPublik(noScreen, p.host, "optional");
+		let closesWhileWaiting = -1;
+		const result = await gate.signIn({
+			signal: new AbortController().signal,
+			onWaiting: () => {
+				closesWhileWaiting = p.closes();
+				setTimeout(p.comeToFront, 5);
+			},
+		});
+		expect(result).toBe("signed_in");
+		expect(p.opened).toEqual([`${ORIGIN}/claim/abc?in_app=1`]);
+		expect(closesWhileWaiting).toBe(0);
+		expect(p.closes()).toBe(1);
+	});
+
+	it("sets an in_app item that is there already to 1 (never twice); a claim_url that is not a web address opens nothing", async () => {
+		expect(gate.inAppClaimUrl(`${ORIGIN}/claim/abc?in_app=0&ref=x`)).toBe(`${ORIGIN}/claim/abc?in_app=1&ref=x`);
+		expect(gate.inAppClaimUrl(`${ORIGIN}/claim/abc?in_app=1`)).toBe(`${ORIGIN}/claim/abc?in_app=1`);
+		expect(gate.inAppClaimUrl(`${ORIGIN}/claim/abc?`)).toBe(`${ORIGIN}/claim/abc?in_app=1`);
+		expect(gate.inAppClaimUrl("javascript:alert(1)")).toBeNull();
+		expect(gate.inAppClaimUrl("not a web address")).toBeNull();
+		expect(gate.inAppClaimUrl(null)).toBeNull();
+		const p = phone();
+		p.server.claimUrl = "not a web address";
+		const seen: GateScreen[] = [];
+		const ui = {
+			show: (s: GateScreen) => {
+				seen.push(s);
+				return s.id === "sign_in" ? Promise.resolve("sign_in" as const) : Promise.reject(new Error("stop"));
+			},
+			openUrl: (url: string) => void p.host.openUrl({ url }),
+		};
+		await expect(gate.ensureSignedIn(ui, p.host)).rejects.toThrow("stop");
+		expect(p.opened).toEqual([]);
+		expect(seen.at(-1)).toMatchObject({ id: "unreachable", body: "publik sent no sign-in link. Try again." });
+	});
+
+	it("Delete account and Privacy policy open publik's bare in-app pages, and Settings opens no other publik page", () => {
+		expect(gate.DELETE_ACCOUNT_URL).toBe("https://publikhq.com/in-app/delete-account");
+		expect(gate.PRIVACY_URL).toBe("https://publikhq.com/in-app/privacy");
+		const settings = readFileSync(join(import.meta.dir, "../src/app/settings-screen.tsx"), "utf8");
+		expect([...settings.matchAll(/openUrl\(\{ url: ([A-Z_]+) \}\)/g)].map((m) => m[1]).sort()).toEqual(["DELETE_ACCOUNT_URL", "PRIVACY_URL"]);
+		expect(settings.match(/openUrl\(/g)?.length).toBe(2);
+		expect(settings).not.toContain("publikhq.com");
 	});
 });

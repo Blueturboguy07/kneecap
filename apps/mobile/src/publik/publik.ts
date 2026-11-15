@@ -31,19 +31,39 @@
 // reads the key again and writes nothing when it is gone (keyStillSaved).
 // kneecap shows no purchase link: USES_AI is false, so the plan screen ("Get a plan") never shows, and
 // the sign-in button opens only publik's claim page (never the wallet page).
+// The in-app browser opens only publik's bare in-app pages (no site menu, footer, prices or plan links):
+// the claim page with in_app=1 added (inAppClaimUrl()), DELETE_ACCOUNT_URL and PRIVACY_URL.
 import type { PublikFileName, PublikHost, PublikLaunch } from "@kneecap/native-bridge/publik-host";
 
 export const APP_SLUG = "kneecap";
 /** The version in a browser preview. On a phone the module uses the native app version (Info.plist / build.gradle), which is the same. */
-export const APP_VERSION = "1.0.2";
+export const APP_VERSION = "1.0.3";
 /** false: kneecap calls no model (captions and retouch run on the phone). It still signs in and counts users; it skips the plan screen. */
 export const USES_AI = false;
 /** true: a phone that signed in before opens the app when publik does not answer (kneecap is local-first). The first sign-in needs the network. */
 export const OFFLINE_AFTER_SIGN_IN = true;
 const ORIGIN = "https://publikhq.com";
 export const DEFAULT_BASE_URL = `${ORIGIN}/api/v1`;
-/** Settings > Delete account opens this publik page in the in-app browser. publik deletes the account there. */
-export const DELETE_ACCOUNT_URL = `${ORIGIN}/settings/profile#delete-account-title`;
+/** Settings > Delete account opens this bare publik page in the in-app browser. publik deletes the account there. */
+export const DELETE_ACCOUNT_URL = `${ORIGIN}/in-app/delete-account`;
+/** Settings > Privacy policy opens this bare publik page in the in-app browser (App Store guideline 5.1.1(i)). */
+export const PRIVACY_URL = `${ORIGIN}/in-app/privacy`;
+
+/**
+ * The sign-in page for the in-app browser: the server's claim_url with in_app=1 added. The other query items
+ * stay as they are. publik then sends the browser to its bare page /in-app/claim/<code>. null when the
+ * claim_url is not a web address.
+ */
+export function inAppClaimUrl(claimUrl: string | null | undefined): string | null {
+  if (!claimUrl) return null;
+  let url: URL | null = null;
+  try { url = new URL(claimUrl); } catch { /* not a web address */ }
+  if (!url || (url.protocol !== "https:" && url.protocol !== "http:")) return null;
+  const query = new URLSearchParams(url.search);
+  if (query.has("in_app")) { query.set("in_app", "1"); url.search = query.toString(); }
+  else url.search = url.search ? `${url.search}&in_app=1` : "?in_app=1";
+  return url.toString();
+}
 
 export type GateMode = "required" | "optional";
 /** The gate mode, put in at build time from PUBLIK_GATE_MODE (vite.config.ts). Anything but "optional" is "required". */
@@ -373,8 +393,8 @@ export async function ensureSignedIn(ui: GateUI, h: PublikHost): Promise<GateRes
       if (c.claimed_at) { c = { ...c, claimed_at: null }; await writeIfStillSaved(c, since); }
       const a = await ask(ui, gateScreen("sign_in", w, signNote), c.key, signPoll ? (x) => x.claim_state === "claimed" : undefined);
       if (a === "sign_in") {
-        // Only publik's claim page opens here: never the wallet page, which sells plans.
-        const claimUrl = w.claim_url ?? c.claim_url;
+        // Only publik's bare in-app claim page opens here: never the wallet page, which sells plans.
+        const claimUrl = inAppClaimUrl(w.claim_url) ?? inAppClaimUrl(c.claim_url);
         if (!claimUrl) { await ask(ui, gateScreen("unreachable", null, null, NO_SIGN_IN_LINK)); continue; }
         ui.openUrl(claimUrl); signNote = "Waiting for you to sign in in your browser."; signPoll = true;
       }
@@ -489,8 +509,8 @@ export async function signIn(opts: { signal: AbortSignal; onWaiting?: () => void
       if (!r.wallet) throw new Error(r.message ?? `publik answered ${r.status}.`);
       if (r.wallet.claim_state === "claimed") return await signedIn(c, r.wallet, since);
       if (signal.aborted) return "cancelled";
-      // Only publik's claim page opens here: never the wallet page, which sells plans.
-      const claimUrl = r.wallet.claim_url ?? c.claim_url;
+      // Only publik's bare in-app claim page opens here: never the wallet page, which sells plans.
+      const claimUrl = inAppClaimUrl(r.wallet.claim_url) ?? inAppClaimUrl(c.claim_url);
       if (!claimUrl) throw new Error(NO_SIGN_IN_LINK);
       await host.openUrl({ url: claimUrl });
       opts.onWaiting?.();

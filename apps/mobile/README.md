@@ -105,9 +105,12 @@ brings the app back in front (iOS: dismiss; Android: MainActivity with
 `CLEAR_TOP | SINGLE_TOP`).
 
 - **Sign in with publik** opens the sign-in page in the in-app browser
-  (SFSafariViewController / a Custom Tab). The app checks the wallet every
-  3 seconds for up to 10 minutes while it is in front, and again at once when
-  it comes back to the front. In required mode there is no other way past
+  (SFSafariViewController / a Custom Tab): the server's `claim_url` with
+  `in_app=1` added (the other query items stay). publik then shows its bare
+  page `/in-app/claim/<code>`. The in-app browser opens only publik's in-app
+  pages, which have no site menu, footer, prices or plan links. The app
+  checks the wallet every 3 seconds for up to 10 minutes while it is in
+  front, and again at once when it comes back to the front. In required mode there is no other way past
   the screen.
 - **Settings** (the "Settings" button on the home screen,
   `src/app/settings-screen.tsx`):
@@ -118,10 +121,12 @@ brings the app back in front (iOS: dismiss; Android: MainActivity with
     without a network. In required mode the gate shows again.
   - **Delete account**: the same order for the publik data on this phone
     (the key and the install ID; the usage opt-out stays), then opens
-    `https://publikhq.com/settings/profile#delete-account-title` in the
-    in-app browser, where the person confirms.
+    `https://publikhq.com/in-app/delete-account` in the in-app browser,
+    where the person confirms.
   - **Count app use**: the usage-counting switch (`consent.json`). It is
     off and locked when `DO_NOT_TRACK` or `PUBLIK_TELEMETRY=0` is set.
+  - **Privacy policy**: opens `https://publikhq.com/in-app/privacy` in the
+    in-app browser (App Store guideline 5.1.1(i)).
   - **Licenses** (`src/app/licenses-screen.tsx`): the third-party software
     in the app and its license texts, from
     `public/licenses/third-party-licenses.json`. After a dependency change,
