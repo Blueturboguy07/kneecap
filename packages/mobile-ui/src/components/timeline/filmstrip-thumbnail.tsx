@@ -21,10 +21,11 @@ export function FilmstripThumbnail({
 	slotSec: number;
 }) {
 	if (realUri) {
+		// Quoted, so a URI with spaces or brackets still works.
 		return (
 			<div
 				className="cc-timeline__clip-thumbnail"
-				style={{ width: widthPx, backgroundImage: `url(${realUri})` }}
+				style={{ width: widthPx, backgroundImage: `url(${JSON.stringify(realUri)})` }}
 			/>
 		);
 	}

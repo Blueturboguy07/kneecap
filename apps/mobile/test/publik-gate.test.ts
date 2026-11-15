@@ -30,9 +30,9 @@ afterEach(() => gate._resetForTests());
 
 const WORDS = {
 	title: "Sign in with publik",
-	signInBody: "This app uses your publik account. Click Sign in with publik, then sign in in your browser. This window continues when you are signed in.",
+	signInBody: "This app uses your publik account. Tap Sign in with publik, then sign in on the publik page. This screen continues when you are signed in.",
 	signInButton: "Sign in with publik",
-	waiting: "Waiting for you to sign in in your browser.",
+	waiting: "Waiting for you to sign in on the publik page.",
 	unreachable: "publik is not reachable. Check your connection.",
 	retry: "Retry",
 };
@@ -49,6 +49,7 @@ function phone(settings: PublikLaunch["settings"] = {}) {
 	const selfTest: string[] = [];
 	let foreground: (() => void) | null = null;
 	let background: (() => void) | null = null;
+	let browserTick: (() => void) | null = null;
 	const server = {
 		offline: false,
 		installsStatus: 201,
@@ -133,9 +134,15 @@ function phone(settings: PublikLaunch["settings"] = {}) {
 				background = null;
 			};
 		},
+		onBrowserTick(listener) {
+			browserTick = listener;
+			return () => {
+				browserTick = null;
+			};
+		},
 		async showFirstRun() {},
 	};
-	return { host, files, requests, opened, selfTest, server, closes: () => closes, comeToFront: () => foreground?.(), goToBackground: () => background?.() };
+	return { host, files, requests, opened, selfTest, server, closes: () => closes, comeToFront: () => foreground?.(), goToBackground: () => background?.(), browserTick: () => browserTick?.() };
 }
 
 /** Presses a button by screen title, or the first button of a screen with no note; else waits. Gives up after 7 screens of one title. */
@@ -881,5 +888,52 @@ describe("founder checks, Nov 14 (1.0.3): the in-app browser opens only publik's
 		expect(settings.match(/openUrl\(/g)?.length).toBe(3);
 		expect(settings).toContain("<span>Help and support</span>");
 		expect(settings).not.toContain("publikhq.com");
+	});
+});
+
+describe("blind test round 1 (1.0.4): the sign-in browser closes within seconds", () => {
+	/** Fails when `work` needs the 3-second web timer: only the native browser tick can make it this fast. */
+	const withinOneTick = <T>(work: Promise<T>) =>
+		Promise.race([work, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("the poll waited for the web timer")), 1500))]);
+
+	it("the gate: a native browser tick checks the wallet while the browser covers the app, and the browser closes", async () => {
+		const p = phone();
+		p.server.wallets = [anonymous, anonymous, claimed, claimed];
+		let closesWhileWaiting = -1;
+		const { ui } = scriptedUI(p, {}, () => {
+			closesWhileWaiting = p.closes();
+			p.browserTick(); // the app never comes to the front: the browser still covers it
+		});
+		const started = Date.now();
+		await withinOneTick(gate.ensureSignedIn(ui, p.host));
+		expect(closesWhileWaiting).toBe(0);
+		expect(p.closes()).toBe(1);
+		expect(Date.now() - started).toBeLessThan(1500);
+	});
+
+	it("Settings > Sign in with publik: the same tick drives the check, and the browser closes", async () => {
+		const p = phone();
+		p.server.wallets = [anonymous, claimed];
+		await gate.startPublik(noScreen, p.host, "optional");
+		const result = await withinOneTick(
+			gate.signIn({ signal: new AbortController().signal, onWaiting: () => setTimeout(p.browserTick, 5) }),
+		);
+		expect(result).toBe("signed_in");
+		expect(p.closes()).toBe(1);
+	});
+
+	it("a tick does not wake a screen that waits for the person (no flicker, no extra wallet checks)", async () => {
+		const p = phone();
+		p.server.offline = true; // the gate shows "not reachable" and waits for Retry or the app coming to the front
+		const shown: GateScreen[] = [];
+		const ui = { show: (s: GateScreen) => (shown.push(s), new Promise<never>(() => {})), openUrl: () => undefined };
+		void gate.ensureSignedIn(ui, p.host);
+		await tick(50);
+		const requests = p.requests.length;
+		p.browserTick();
+		p.browserTick();
+		await tick(50);
+		expect(shown.length).toBe(1);
+		expect(p.requests.length).toBe(requests);
 	});
 });

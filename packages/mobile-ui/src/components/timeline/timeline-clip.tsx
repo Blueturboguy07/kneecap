@@ -520,7 +520,7 @@ function ClipFilmstrip({
 				>
 					<FilmstripThumbnail
 						widthPx={slotWidthPx}
-						realUri={clip.thumbnails?.[slotSec]}
+						realUri={clip.thumbnails?.[slotSec] ?? clip.posterUri}
 						colorHue={clip.colorHue}
 						slotSec={slotSec}
 					/>

@@ -201,6 +201,9 @@
 .cc-sheet__body {
 	overflow-y: auto;
 	padding: var(--cc-space-4);
+	/* The sheet is fixed to the screen bottom: keep its last control (for
+	   example "Export video") above the home indicator (blind test 1.0.4). */
+	padding-bottom: calc(var(--cc-space-4) + env(safe-area-inset-bottom, 0px));
 }
 
 /* ============================== Sheet header =============================== */
@@ -561,6 +564,10 @@
 	flex-direction: column;
 	background: var(--cc-bg-base);
 	overflow: hidden;
+	/* A row of its own for the time label (.cc-timeline__timecode), so the
+	   label never sits over the ruler numbers (blind test 1.0.4). */
+	box-sizing: border-box;
+	padding-top: var(--cc-timecode-row-height, 20px);
 	touch-action: none; /* all gestures here are interpreted by our own pointer handlers */
 }
 .cc-timeline__scroll {
@@ -938,7 +945,9 @@
    (the reference editor shows no zoom indicator). */
 .cc-timeline__timecode {
 	position: absolute;
-	top: 2px;
+	top: 0;
+	height: var(--cc-timecode-row-height, 20px);
+	line-height: var(--cc-timecode-row-height, 20px);
 	left: var(--cc-space-3);
 	background: transparent;
 	color: var(--cc-text-primary);
@@ -1548,7 +1557,9 @@
 /* Round 21: the Text panel's content editor (founder: "text isn't
    editable when I add text" — the panel had styles but no words). */
 .cc-text-content-input {
+	box-sizing: border-box;
 	width: 100%;
+	max-width: 100%;
 	background: var(--cc-bg-raised, rgba(255, 255, 255, 0.06));
 	color: var(--cc-text-primary, #f5f5f5);
 	border: 1px solid rgba(255, 255, 255, 0.14);
@@ -1562,4 +1573,58 @@
 }
 .cc-text-content-input:focus {
 	border-color: var(--cc-accent, #00cae0);
+}
+
+/* ===================== Blind test 1.0.4: hint and tap targets ===================== */
+/* The "Select an element first" hint (PanelSelectPrompt in editor-shell.tsx)
+   is a .cc-panel-note inside a full-screen scrim. Without this rule it sat at
+   the top-left corner, under the status bar and the clock, and was cut off.
+   It now shows as a card above the bottom toolbar, inside the safe area. */
+.cc-sheet-scrim > .cc-panel-note {
+	position: absolute;
+	left: calc(env(safe-area-inset-left, 0px) + var(--cc-space-4));
+	right: calc(env(safe-area-inset-right, 0px) + var(--cc-space-4));
+	bottom: calc(env(safe-area-inset-bottom, 0px) + var(--cc-toolbar-height) + var(--cc-space-4));
+	margin: 0;
+	box-sizing: border-box;
+	justify-content: center;
+	padding: var(--cc-space-3) var(--cc-space-4);
+	border-radius: 12px;
+	background: var(--cc-bg-panel);
+	color: var(--cc-text-primary);
+	font-size: var(--cc-text-body);
+	text-align: center;
+}
+
+/* Every tap target is at least 44 x 44 pt (Apple HIG). min-width and
+   min-height win over the fixed sizes above, so the look of each control
+   stays the same apart from its size. */
+.cc-topbar__icon-btn,
+.cc-keyframe-control__btn,
+.cc-timeline__quick-add-btn {
+	min-width: var(--cc-touch-target-ios);
+	min-height: var(--cc-touch-target-ios);
+}
+.cc-export-btn,
+.cc-topbar__resolution-pill,
+.cc-playbackbar__play,
+.cc-timeline__add-audio,
+.cc-chip,
+.cc-segmented__option,
+.cc-tabbar__tab,
+.cc-toggle-row,
+.cc-panel-actions__btn,
+.cc-export-sheet__action,
+.cc-progress-overlay__cancel,
+.cc-ratio-grid__item {
+	min-height: var(--cc-touch-target-ios);
+}
+.cc-export-sheet__action,
+.cc-progress-overlay__cancel {
+	box-sizing: border-box;
+}
+.cc-swatch {
+	width: var(--cc-touch-target-ios);
+	height: var(--cc-touch-target-ios);
+	flex-shrink: 0;
 }

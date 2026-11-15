@@ -10,11 +10,12 @@
  *   1. a scene-sync effect maps live engine state -> buildScene() ->
  *      editor.renderer.setRenderTree()
  *   2. a CanvasRenderer draws the tree into its output canvas (wgpu/wasm
- *      compositor underneath — WebGPU preferred, WebGL2 fallback)
+ *      compositor underneath — WebGPU preferred, WebGL2 fallback; Canvas 2D
+ *      when there is no GPU)
  *   3. a rAF loop renders the frame under the playhead, skipping when
  *      neither the frame index nor the tree changed (same guard as web).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
 	NO_SNAP,
 	SNAP_CAPTURE_PX,
@@ -37,55 +38,63 @@ import {
 	type ClipKeyframeValues,
 } from "../../editor/keyframes";
 import { useSelectedElement } from "../../editor/use-live-editor";
-import { CanvasRenderer } from "@kneecap/editor-core/services/renderer/canvas-renderer";
+import {
+	CanvasRenderer,
+	ensureGpu,
+	type RendererBackend,
+} from "@kneecap/editor-core/services/renderer/canvas-renderer";
 import { buildScene } from "@kneecap/editor-core/services/renderer/scene-builder";
 import type { RootNode } from "@kneecap/editor-core/services/renderer/nodes/root-node";
-import { initializeGpu } from "opencut-wasm";
 
-/** Same contract as apps/web's `initializeGpuRenderer()`: init once per
- *  process, NEVER reject — a GPU-less environment degrades (the compositor
- *  falls back off the wgpu path) instead of crashing. Constructing
- *  `CanvasRenderer` before this resolves was CRITICAL finding #1 of the
- *  2026-08-18 test sweep: `initializeGpu()` had never been called on the
- *  mobile shell, the first render threw "GPU context not initialized"
- *  inside React render, and the entire app unmounted to a black screen. */
-let gpuInitPromise: Promise<boolean> | null = null;
+/** Starts the GPU once per process and never rejects (false: the preview
+ *  draws with Canvas 2D). Do NOT import `initializeGpu` from `opencut-wasm`
+ *  in this package: the bundle then holds a second wasm copy, the GPU starts
+ *  in that copy, and the compositor (in editor-core's copy) throws "GPU
+ *  context not initialized" on every editor open. editor-core starts it in
+ *  its own copy. */
 export function ensurePreviewGpu(): Promise<boolean> {
 	return ensureGpu();
 }
-function ensureGpu(): Promise<boolean> {
-	if (!gpuInitPromise) {
-		gpuInitPromise = initializeGpu()
-			.then(() => true)
-			.catch((error: unknown) => {
-				console.warn(
-					`GPU renderer unavailable: ${error instanceof Error ? error.message : String(error)}`,
-				);
-				return false;
-			});
-	}
-	return gpuInitPromise;
-}
 
 export function PreviewRenderer() {
-	const editor = useEditor();
-	const [gpuReady, setGpuReady] = useState(false);
+	const [gpuSettled, setGpuSettled] = useState(false);
 
 	useEffect(() => {
 		let cancelled = false;
-		void ensureGpu().then((ok) => {
-			if (cancelled) return;
-			editor.renderer.setDegraded(!ok);
-			setGpuReady(true);
+		// Wait for the GPU start (it has a time limit) so the renderer can
+		// pick the GPU when there is one; else it draws with Canvas 2D.
+		void ensureGpu().then(() => {
+			if (!cancelled) setGpuSettled(true);
 		});
 		return () => {
 			cancelled = true;
 		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- editor is the process singleton.
 	}, []);
 
-	if (!gpuReady) return null;
-	return <PreviewRendererInner />;
+	if (!gpuSettled) return null;
+	return (
+		<PreviewErrorBoundary>
+			<PreviewRendererInner />
+		</PreviewErrorBoundary>
+	);
+}
+
+/** A preview failure must not close the editor: log it and show only the
+ *  stage background. The rest of the editor keeps working. */
+class PreviewErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+	state = { failed: false };
+
+	static getDerivedStateFromError() {
+		return { failed: true };
+	}
+
+	componentDidCatch(error: unknown) {
+		console.error("preview failed:", error);
+	}
+
+	render() {
+		return this.state.failed ? null : this.props.children;
+	}
 }
 
 function PreviewRendererInner() {
@@ -125,25 +134,36 @@ function PreviewRendererInner() {
 		[width, height, fps],
 	);
 
+	const lastFrameRef = useRef(-1);
+	const lastTreeRef = useRef<RootNode | null>(null);
+	const renderingRef = useRef(false);
+	// Bumped when the renderer moves from the GPU to Canvas 2D, so the new
+	// output canvas replaces the old one on screen.
+	const [canvasVersion, setCanvasVersion] = useState(0);
+	const mountedBackendRef = useRef<RendererBackend | null>(null);
+
 	const mountRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		const mount = mountRef.current;
 		if (!mount) return;
 		const outputCanvas = renderer.getOutputCanvas();
+		const backend = renderer.getBackend();
+		mountedBackendRef.current = backend;
+		editor.renderer.setDegraded(backend !== "gpu");
+		console.info(`preview renderer: ${backend}`);
 		outputCanvas.style.display = "block";
 		outputCanvas.style.width = "100%";
 		outputCanvas.style.height = "100%";
 		mount.appendChild(outputCanvas);
+		// Draw the current frame again into this canvas.
+		lastFrameRef.current = -1;
 		return () => {
 			if (outputCanvas.parentElement === mount) {
 				mount.removeChild(outputCanvas);
 			}
 		};
-	}, [renderer]);
-
-	const lastFrameRef = useRef(-1);
-	const lastTreeRef = useRef<RootNode | null>(null);
-	const renderingRef = useRef(false);
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- `editor` is the process-wide singleton.
+	}, [renderer, canvasVersion]);
 
 	const renderFrame = useCallback(() => {
 		if (!renderTree || renderingRef.current) return;
@@ -167,6 +187,9 @@ function PreviewRendererInner() {
 			})
 			.finally(() => {
 				renderingRef.current = false;
+				if (renderer.getBackend() !== mountedBackendRef.current) {
+					setCanvasVersion((version) => version + 1);
+				}
 			});
 	}, [editor.playback, editor.timeline, renderTree, renderer]);
 

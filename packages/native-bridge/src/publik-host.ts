@@ -21,7 +21,9 @@
  * - onForeground(): the app came back to the front, or the in-app browser
  *   closed. onBackground(): the app went to the background (Capacitor's
  *   document `pause` event, or the page became hidden). Usage counting stops
- *   its 30-minute timer there.
+ *   its 30-minute timer there. onBrowserTick(): every 3 s while the in-app
+ *   browser is open (a native timer), so the wallet poll does not stall when
+ *   the browser covers the web view.
  * - showFirstRun(): kneecap's native first-run screen, once per install.
  *   It is here, not in NativeBridge, because the gate decides when it shows:
  *   after "Sign in with publik" (with PUBLIK_GATE_MODE=required the gate is
@@ -87,6 +89,11 @@ export interface PublikHost {
 	onForeground(listener: () => void): () => void;
 	/** The app went to the background. Returns the function that stops the listener. */
 	onBackground(listener: () => void): () => void;
+	/**
+	 * Every 3 s while the in-app browser (openUrl) is open, from the native side: the web view's own timers
+	 * can stall while the browser covers the app. Returns the function that stops the listener.
+	 */
+	onBrowserTick(listener: () => void): () => void;
 	/** Shows the native first-run screen if this install has not seen it; resolves when it closes. */
 	showFirstRun(): Promise<void>;
 }
@@ -105,7 +112,7 @@ interface PublikGatePluginSpec {
 	closeBrowser(): Promise<void>;
 	finishSelfTest(args: { line: string }): Promise<void>;
 	showFirstRun(): Promise<void>;
-	addListener(eventName: "foreground", listenerFunc: () => void): Promise<PluginListenerHandle>;
+	addListener(eventName: "foreground" | "browserTick", listenerFunc: () => void): Promise<PluginListenerHandle>;
 }
 
 const PublikGatePlugin = registerPlugin<PublikGatePluginSpec>("PublikGate");
@@ -222,6 +229,18 @@ function createNativeHost(platform: "ios" | "android"): PublikHost {
 		onBackground(listener) {
 			return onDocumentBackground(listener);
 		},
+		onBrowserTick(listener) {
+			let handle: PluginListenerHandle | null = null;
+			let stopped = false;
+			void PublikGatePlugin.addListener("browserTick", listener).then((h) => {
+				if (stopped) void h.remove();
+				else handle = h;
+			});
+			return () => {
+				stopped = true;
+				if (handle) void handle.remove();
+			};
+		},
 		async showFirstRun() {
 			await PublikGatePlugin.showFirstRun();
 		},
@@ -275,6 +294,9 @@ function createWebHost(): PublikHost {
 		},
 		onBackground(listener) {
 			return onDocumentBackground(listener);
+		},
+		onBrowserTick() {
+			return () => {}; // the browser preview opens a new tab: its own timers keep running
 		},
 		async showFirstRun() {}, // the browser preview has no native first-run screen
 	};

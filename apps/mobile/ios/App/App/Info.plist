@@ -27,9 +27,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>kneecap saves exported videos back to your library when you tap Export.</string>
+	<string>publik kneecap saves exported videos back to your library when you tap Export.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>kneecap transcribes your clips' audio on this device to generate captions. Audio never leaves your phone.</string>
+	<string>publik kneecap transcribes your clips' audio on this device to generate captions. Audio never leaves your phone.</string>
 	<!-- No camera or microphone strings: no code uses them (App Store
 	     guideline 5.1.1(iii)). No URL types: the M1 spike's kneecap-spike://
 	     scheme is a developer tool, added to Debug builds only by the

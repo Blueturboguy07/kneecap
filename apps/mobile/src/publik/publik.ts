@@ -8,8 +8,10 @@
 // "required" (the default): startPublik() runs ensureSignedIn(ui, host). It
 //   1. loads or provisions this phone's publik key (POST /api/v1/installs);
 //   2. shows Sign in with publik until GET /api/v1/wallet says "claimed" (no other way past it). The
-//      button opens claim_url in the in-app browser; the app checks every 3 s for up to 10 minutes
-//      while it is in front, and checks again at once when it comes back to the front;
+//      button opens claim_url in the in-app browser; the app checks every 3 s for up to 10 minutes,
+//      also while the browser covers the app (the native side sends a tick every 3 s then, because
+//      the web view's own timers can stall under the browser), and at once when the app comes back
+//      to the front. When the check sees the sign-in, the app closes the browser;
 //   3. when USES_AI: asks once how the app pays for AI and stores the answer (setChoice() changes it);
 //   4. starts usage counting: app_opened now, active_session every 30 minutes (POST /api/v1/telemetry).
 // "optional": startPublik() shows no screen and the editor opens. Settings has "Sign in with publik"
@@ -147,8 +149,11 @@ let host: PublikHost;
 let launch: PublikLaunch;
 let apiBase: string | null = null;
 const wakers = new Set<() => void>();
+/** The naps of a wallet poll: the in-app browser's tick (every 3 s while it is open) also ends them. */
+const tickWakers = new Set<() => void>();
 let foregroundOff: (() => void) | null = null;
 let backgroundOff: (() => void) | null = null;
+let browserTickOff: (() => void) | null = null;
 let inBackground = false;
 let mode: GateMode = GATE_MODE;
 let session: { handle: string | null; offline: boolean } | null = null;
@@ -172,6 +177,7 @@ function notify(): void { const s = getStatus(); for (const l of [...statusListe
 export async function attachHost(h: PublikHost): Promise<PublikLaunch> {
   foregroundOff?.();
   backgroundOff?.();
+  browserTickOff?.();
   host = h;
   launch = await h.launch();
   apiBase = testBaseUrl(launch.settings.PUBLIK_API_BASE_URL);
@@ -184,6 +190,11 @@ export async function attachHost(h: PublikHost): Promise<PublikLaunch> {
   backgroundOff = h.onBackground(() => {
     inBackground = true;
     pauseTimer(); // no active_session while the app is in the background
+  });
+  // While the in-app browser covers the app, the web view's timers can stall: the native tick keeps the
+  // wallet poll at one check every 3 s, so the browser closes within seconds of the sign-in.
+  browserTickOff = h.onBrowserTick(() => {
+    for (const wake of [...tickWakers]) wake();
   });
   return launch;
 }
@@ -307,7 +318,7 @@ const dollars = (micros: number) => `$${(micros / 1_000_000).toFixed(2)}`;
 export function gateScreen(id: GateScreen["id"], w: Wallet | null, note: string | null = null, message?: string): GateScreen {
   if (id === "unreachable") return { id, title: "Sign in with publik", body: message ?? "publik is not reachable. Check your connection.", note, buttons: [{ action: "retry", label: "Retry" }] };
   if (id === "sign_in") return { id, title: "Sign in with publik", note, buttons: [{ action: "sign_in", label: "Sign in with publik" }],
-    body: "This app uses your publik account. Click Sign in with publik, then sign in in your browser. This window continues when you are signed in." };
+    body: "This app uses your publik account. Tap Sign in with publik, then sign in on the publik page. This screen continues when you are signed in." };
   const who = w?.account?.handle ? `You are signed in as @${w.account.handle}.` : "You are signed in to publik.";
   if (!w || (w.plan.kind === "none" && w.balance_micros === 0)) return { id, title: "Choose how to pay for AI", note,
     body: `${who} This app uses AI. Get a publik plan, or use your own key.`, buttons: [{ action: "get_plan", label: "Get a plan" }, { action: "own_key", label: "Use my own key" }] };
@@ -316,26 +327,30 @@ export function gateScreen(id: GateScreen["id"], w: Wallet | null, note: string 
     buttons: [{ action: "connect", label: "Connect your plan" }, { action: "own_key", label: "Use my own key" }] };
 }
 
-/** Resolves after `ms`, or earlier: when the app comes back to the front, or when `signal` aborts. */
-function nap(ms: number, signal: AbortSignal): Promise<void> {
+/**
+ * Resolves after `ms`, or earlier: when the app comes back to the front, or when `signal` aborts. A poll nap
+ * (`poll`) also ends at the in-app browser's tick, so the poll does not stall while the browser covers the app.
+ */
+function nap(ms: number, signal: AbortSignal, poll = false): Promise<void> {
   return new Promise((resolve) => {
-    const done = () => { clearTimeout(timeout); wakers.delete(done); signal.removeEventListener("abort", done); resolve(); };
+    const done = () => { clearTimeout(timeout); wakers.delete(done); tickWakers.delete(done); signal.removeEventListener("abort", done); resolve(); };
     const timeout = setTimeout(done, ms);
     wakers.add(done);
+    if (poll) tickWakers.add(done);
     signal.addEventListener("abort", done);
   });
 }
 
 /**
  * Show a screen. With `until`, also poll GET /wallet every 3 s for at most 10 minutes (wall time: time in the
- * background counts), and at once when the app comes back to the front. "done": the poll saw it; "timeout": it
+ * background counts; no back-off), at each in-app browser tick, and at once when the app comes back to the front. "done": the poll saw it; "timeout": it
  * did not. Without `until`, coming back to the front answers "retry", so the gate looks again.
  */
 async function ask(ui: GateUI, screen: GateScreen, key?: string, until?: (w: Wallet) => boolean): Promise<GateAction | "done" | "timeout"> {
   const stop = new AbortController();
   const poll = async (): Promise<"done" | "timeout"> => {
     for (const end = Date.now() + POLL_LIMIT_MS; !stop.signal.aborted; ) {
-      await nap(POLL_MS, stop.signal);
+      await nap(POLL_MS, stop.signal, true);
       if (stop.signal.aborted) break;
       const w = await readWallet(key!).then((r) => r.wallet, () => null);
       if (stop.signal.aborted) break;
@@ -398,9 +413,9 @@ export async function ensureSignedIn(ui: GateUI, h: PublikHost): Promise<GateRes
         // Only publik's bare in-app claim page opens here: never the wallet page, which sells plans.
         const claimUrl = inAppClaimUrl(w.claim_url) ?? inAppClaimUrl(c.claim_url);
         if (!claimUrl) { await ask(ui, gateScreen("unreachable", null, null, NO_SIGN_IN_LINK)); continue; }
-        ui.openUrl(claimUrl); signNote = "Waiting for you to sign in in your browser."; signPoll = true;
+        ui.openUrl(claimUrl); signNote = "Waiting for you to sign in on the publik page."; signPoll = true;
       }
-      if (a === "timeout") { signNote = "No sign-in after 10 minutes. Click Sign in with publik to try again."; signPoll = false; }
+      if (a === "timeout") { signNote = "No sign-in after 10 minutes. Tap Sign in with publik to try again."; signPoll = false; }
       continue;
     }
     if (!c.claimed_at) { c = { ...c, claimed_at: new Date().toISOString() }; await writeIfStillSaved(c, since); }
@@ -410,8 +425,8 @@ export async function ensureSignedIn(ui: GateUI, h: PublikHost): Promise<GateRes
       if (w.plan.kind !== "none" || w.balance_micros > 0) { planNote = null; planPoll = false; } // the plan is there: Connect your plan
       const a = await ask(ui, gateScreen("choose", w, planNote), c.key, planPoll ? (x) => x.plan.kind !== "none" || x.balance_micros > 0 : undefined);
       planNote = null; planPoll = false;
-      if (a === "get_plan") { ui.openUrl(w.top_up_url); planNote = "Waiting for your plan. Finish in your browser."; planPoll = true; }
-      if (a === "timeout") planNote = "No plan after 10 minutes. Click Get a plan to try again.";
+      if (a === "get_plan") { ui.openUrl(w.top_up_url); planNote = "Waiting for your plan. Finish on the publik page."; planPoll = true; }
+      if (a === "timeout") planNote = "No plan after 10 minutes. Tap Get a plan to try again.";
       if (a !== "connect" && a !== "own_key") continue; // "done": the plan is there; the next screen is Connect your plan
       choice = a === "connect" ? "publik" : "own_key";
       await quietly(setChoice(choice));
@@ -517,7 +532,7 @@ export async function signIn(opts: { signal: AbortSignal; onWaiting?: () => void
       await host.openUrl({ url: claimUrl });
       opts.onWaiting?.();
       for (const end = Date.now() + POLL_LIMIT_MS; ; ) {
-        await nap(POLL_MS, signal);
+        await nap(POLL_MS, signal, true);
         if (signal.aborted) return "cancelled";
         const w = await readWallet(c.key).then((x) => x.wallet, () => null);
         if (signal.aborted) return "cancelled";
@@ -657,6 +672,7 @@ export function _telemetryTimerRunning(): boolean {
 /** Tests only: stops the timer and forgets the module's state. */
 export function _resetForTests(): void {
   stopTelemetry();
-  installIdOnce = null; wakers.clear(); foregroundOff?.(); foregroundOff = null; backgroundOff?.(); backgroundOff = null; inBackground = false;
+  installIdOnce = null; wakers.clear(); tickWakers.clear(); foregroundOff?.(); foregroundOff = null; backgroundOff?.(); backgroundOff = null;
+  browserTickOff?.(); browserTickOff = null; inBackground = false;
   mode = GATE_MODE; session = null; checking = false; statusListeners.clear();
 }

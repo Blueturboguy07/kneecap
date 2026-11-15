@@ -108,10 +108,13 @@ public enum EdlExporter {
 		do {
 			reader = try AVAssetReader(asset: composition)
 		} catch {
-			throw EdlExportError.readerSetupFailed(error.localizedDescription)
+			throw EdlExportError.readerSetupFailed(describe(error))
 		}
 
-		let videoTracks = composition.tracks(withMediaType: .video)
+		let videoTracks = composition.tracks(withMediaType: .video).filter { CompositionBuilder.hasMedia($0) }
+		guard !videoTracks.isEmpty else {
+			throw EdlExportError.readerSetupFailed("the timeline has no video or photo frames to export")
+		}
 		let videoOutput = AVAssetReaderVideoCompositionOutput(
 			videoTracks: videoTracks,
 			videoSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
@@ -123,7 +126,10 @@ public enum EdlExporter {
 		}
 		reader.add(videoOutput)
 
-		let audioTracks = composition.tracks(withMediaType: .audio)
+		// Only tracks with real media: an audio-mix output over empty tracks
+		// makes startReading fail (-11800, underlying -12710). A project with
+		// no audio (photos, muted or silent clips) exports video only.
+		let audioTracks = composition.tracks(withMediaType: .audio).filter { CompositionBuilder.hasMedia($0) }
 		var audioOutput: AVAssetReaderAudioMixOutput?
 		if edl.output.includeAudio, !audioTracks.isEmpty {
 			// LINEAR PCM, not passthrough (round 39): boosting a clip past
@@ -161,7 +167,7 @@ public enum EdlExporter {
 		do {
 			writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
 		} catch {
-			throw EdlExportError.writerSetupFailed(error.localizedDescription)
+			throw EdlExportError.writerSetupFailed(describe(error))
 		}
 
 		let videoCodec: AVVideoCodecType = edl.output.videoCodec.lowercased().contains("hevc")
@@ -214,13 +220,15 @@ public enum EdlExporter {
 			print("[kneecap-export] video composition: \(videoComposition.instructions.count) instruction(s) covering \(covered.start.seconds)s–\(covered.end.seconds)s of \(composition.duration.seconds)s, renderSize=\(Int(videoComposition.renderSize.width))x\(Int(videoComposition.renderSize.height))")
 		}
 
+		print("[kneecap-export] reader: \(videoTracks.count) video track(s), \(audioOutput == nil ? 0 : audioTracks.count) audio track(s) mixed")
+
 		resetLimiter()
 
 		guard reader.startReading() else {
-			throw EdlExportError.readerFailed(reader.error?.localizedDescription ?? "unknown")
+			throw EdlExportError.readerFailed(describe(reader.error))
 		}
 		guard writer.startWriting() else {
-			throw EdlExportError.writerFailed(writer.error?.localizedDescription ?? "unknown")
+			throw EdlExportError.writerFailed(describe(writer.error))
 		}
 		writer.startSession(atSourceTime: .zero)
 
@@ -295,7 +303,7 @@ public enum EdlExporter {
 		await writer.finishWriting()
 		if writer.status != .completed {
 			try? FileManager.default.removeItem(at: outputURL)
-			throw EdlExportError.writerFailed(writer.error?.localizedDescription ?? "writer ended in status \(writer.status.rawValue)")
+			throw EdlExportError.writerFailed(writer.error.map { describe($0) } ?? "writer ended in status \(writer.status.rawValue)")
 		}
 
 		onProgress?(0.98)
@@ -327,6 +335,19 @@ public enum EdlExporter {
 			height: probed.height,
 			hasAudio: probed.hasAudio
 		)
+	}
+
+	/// Error text with its domain and code, plus the underlying code when
+	/// there is one. AVFoundation's -11800 text alone ("The operation could
+	/// not be completed") does not say what went wrong.
+	static func describe(_ error: Error?) -> String {
+		guard let error else { return "unknown" }
+		let nsError = error as NSError
+		var text = "\(nsError.localizedDescription) (\(nsError.domain) \(nsError.code)"
+		if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+			text += ", underlying \(underlying.domain) \(underlying.code)"
+		}
+		return text + ")"
 	}
 
 	/// Shared drain loop for both the video and audio reader outputs —
@@ -533,14 +554,14 @@ public enum EdlExporter {
 					if reader.status != .reading {
 						writerInput.markAsFinished()
 						finish(reader.status == .failed
-							? EdlExportError.readerFailed(reader.error?.localizedDescription ?? "unknown")
+							? EdlExportError.readerFailed(Self.describe(reader.error))
 							: nil)
 						return
 					}
 					guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
 						writerInput.markAsFinished()
 						finish(reader.status == .failed
-							? EdlExportError.readerFailed(reader.error?.localizedDescription ?? "unknown")
+							? EdlExportError.readerFailed(Self.describe(reader.error))
 							: nil)
 						return
 					}

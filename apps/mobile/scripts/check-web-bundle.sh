@@ -12,6 +12,10 @@
 #     must have exactly one marker "publik-gate-mode:<mode>" (src/main.ts);
 #   - no publik app token (pat_) is in the bundle. PUBLIK_ALLOW_NO_TOKEN=1
 #     (a fork's pull-request CI only) makes this a warning;
+#   - a chunk starts the opencut-wasm module more than once, or the app-root
+#     chunks start it more than once in all (two wasm instances: the GPU
+#     starts in one and the compositor runs in the other, so the editor
+#     crashed with "GPU context not initialized"; blind test 1.0.4);
 #   - the bundle does not have exactly one build marker "publik-build:<kind>"
 #     (src/main.ts, vite.config.ts). With the third argument "store" (a
 #     bundle for the App Store or a release, APP_STORE_BUILD=1) the kind must
@@ -69,6 +73,20 @@ esac
 if [ "$KIND" = "store" ] && [ "$build" != "publik-build:store" ]; then
 	bad "a store bundle must be built with APP_STORE_BUILD=1 (marker publik-build:store), not \"$build\""
 fi
+
+# One opencut-wasm instance (vite.config.ts, resolve.dedupe). The 1.0.3
+# bundle had two "await __vite__initWasm(" calls for opencut_wasm_bg.js in
+# app-root-*.js. A web worker may have its own instance, so the limit is per
+# chunk, plus one for all app-root chunks together.
+app_root_wasm=0
+for js in "$WWW"/assets/*.js; do
+	[ -f "$js" ] || continue
+	n="$(grep -c 'await __vite__initWasm(.*opencut_wasm_bg' "$js" || true)"
+	if [ "${n:-0}" -gt 1 ]; then bad "$(basename "$js") starts the opencut-wasm module $n times (one instance only)"; fi
+	case "$(basename "$js")" in app-root-*) app_root_wasm=$((app_root_wasm + ${n:-0})) ;; esac
+done
+if [ "$app_root_wasm" -gt 1 ]; then bad "the app-root chunks start the opencut-wasm module $app_root_wasm times (one instance only)"; fi
+echo "opencut-wasm instances in the app-root chunks: $app_root_wasm"
 
 # The publik app token: only whether it is there; the value is never printed.
 if ! grep -rqE 'pat_[A-Za-z0-9_-]{8,}' "$WWW/assets"; then

@@ -18,7 +18,7 @@
 import "@kneecap/mobile-ui/tokens.css";
 import "@kneecap/mobile-ui/components.css";
 import "./app-root.css";
-import { Component, StrictMode, useEffect, useState, type ReactNode } from "react";
+import { Component, StrictMode, useEffect, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import {
 	EditorCore,
@@ -31,73 +31,89 @@ import { getNativeBridge } from "@kneecap/native-bridge";
 import { loadFontAtlas, loadFonts } from "@kneecap/editor-core/fonts/local-fonts";
 import { useEditor } from "@kneecap/editor-core/react";
 import { EditorShell, ensurePreviewGpu } from "@kneecap/mobile-ui";
+import { CrashBoundary } from "./crash-screen";
 import { SettingsScreen } from "./settings-screen";
 
 const NOOP_BOOTSTRAP = async () => {};
 
-/** CRITICAL finding #3 of the 2026-08-18 test sweep: a throw during React
- *  render unmounted the entire root with ZERO console output and no visible
- *  surface — the app just went black (third instance of the silent-death
- *  class). Every crash must be loud: this boundary paints the error +
- *  component stack on screen and logs it. */
-class CrashBoundary extends Component<
-	{ children: ReactNode },
-	{ error: unknown; stack: string | null }
-> {
-	state: { error: unknown; stack: string | null } = { error: null, stack: null };
-
-	static getDerivedStateFromError(error: unknown) {
-		return { error };
-	}
-
-	componentDidCatch(error: unknown, info: { componentStack?: string | null }) {
-		console.error("kneecap crashed:", error, info.componentStack);
-		this.setState({ stack: info.componentStack ?? null });
-	}
-
-	render() {
-		if (this.state.error !== null) {
-			const err = this.state.error;
-			const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-			return (
-				<div className="kc-crash">
-					<p className="kc-crash__title">kneecap crashed</p>
-					<pre className="kc-crash__detail">
-						{detail}
-						{this.state.stack ? `\n${this.state.stack}` : ""}
-					</pre>
-					<button
-						type="button"
-						className="kc-home__new"
-						onClick={() => this.setState({ error: null, stack: null })}
-					>
-						Try again
-					</button>
-				</div>
-			);
-		}
-		return this.props.children;
-	}
-}
 
 type Screen = { name: "home" } | { name: "editor" } | { name: "settings" };
 
+/** Catches an error in the editor screen, logs it, and calls `onError` so
+ *  the app goes back to the project list instead of the crash screen. */
+class EditorErrorGuard extends Component<
+	{ onError: (error: unknown) => void; children: ReactNode },
+	{ failed: boolean }
+> {
+	state = { failed: false };
+
+	static getDerivedStateFromError() {
+		return { failed: true };
+	}
+
+	componentDidCatch(error: unknown, info: { componentStack?: string | null }) {
+		console.error("kneecap editor failed:", error, info.componentStack);
+		this.props.onError(error);
+	}
+
+	render() {
+		return this.state.failed ? null : this.props.children;
+	}
+}
+
+/** Deletes the project that "New project" made when the editor failed and
+ *  the project is still empty, so no empty card stays on the home grid. */
+async function discardEmptyNewProject({ id }: { id: string | null }): Promise<void> {
+	if (!id) return;
+	const editor = EditorCore.getInstance();
+	try {
+		if (editor.project.getActiveOrNull()?.metadata.id !== id) return;
+		const isEmpty =
+			editor.timeline.getTotalDuration() === 0 && editor.media.getAssets().length === 0;
+		if (isEmpty) await editor.project.deleteProjects({ ids: [id] });
+	} catch (error) {
+		console.error("Failed to remove the empty new project:", error);
+	}
+}
+
 function App() {
 	const [screen, setScreen] = useState<Screen>({ name: "home" });
+	/** Shown on the home screen after the editor failed. */
+	const [editorError, setEditorError] = useState<string | null>(null);
+	/** The project that "New project" made for this editor visit. */
+	const newProjectIdRef = useRef<string | null>(null);
 
 	if (screen.name === "editor") {
 		return (
-			<EditorShell
-				bootstrap={NOOP_BOOTSTRAP}
-				onBack={() => {
-					// Fire-and-forget save: ProjectManager.saveCurrentProject persists
-					// the active project; the home screen re-runs loadAllProjects on
-					// mount, so the refreshed metadata (name/duration/updatedAt) shows
-					// up without waiting here.
-					void EditorCore.getInstance().project.saveCurrentProject();
-					setScreen({ name: "home" });
+			<EditorErrorGuard
+				onError={(error) => {
+					// EditorErrorGuard already logged the error. The home screen shows
+					// plain words only: no error text, stack or file path (blind test 1.0.4).
+					void error;
+					const newProjectId = newProjectIdRef.current;
+					newProjectIdRef.current = null;
+					// Delete first, so the home grid never loads the empty card.
+					void discardEmptyNewProject({ id: newProjectId }).finally(() => {
+						setEditorError(
+							"The editor had a problem and closed. Try again. If it happens again, open Settings > Help and support.",
+						);
+						setScreen({ name: "home" });
+					});
 				}}
-			/>
+			>
+				<EditorShell
+					bootstrap={NOOP_BOOTSTRAP}
+					onBack={() => {
+						newProjectIdRef.current = null;
+						// Fire-and-forget save: ProjectManager.saveCurrentProject persists
+						// the active project; the home screen re-runs loadAllProjects on
+						// mount, so the refreshed metadata (name/duration/updatedAt) shows
+						// up without waiting here.
+						void EditorCore.getInstance().project.saveCurrentProject();
+						setScreen({ name: "home" });
+					}}
+				/>
+			</EditorErrorGuard>
 		);
 	}
 
@@ -107,13 +123,26 @@ function App() {
 
 	return (
 		<HomeScreen
-			onOpenEditor={() => setScreen({ name: "editor" })}
+			initialError={editorError}
+			onOpenEditor={({ newProjectId }) => {
+				newProjectIdRef.current = newProjectId;
+				setEditorError(null);
+				setScreen({ name: "editor" });
+			}}
 			onOpenSettings={() => setScreen({ name: "settings" })}
 		/>
 	);
 }
 
-function HomeScreen({ onOpenEditor, onOpenSettings }: { onOpenEditor: () => void; onOpenSettings: () => void }) {
+function HomeScreen({
+	initialError,
+	onOpenEditor,
+	onOpenSettings,
+}: {
+	initialError: string | null;
+	onOpenEditor: (opened: { newProjectId: string | null }) => void;
+	onOpenSettings: () => void;
+}) {
 	const editor = useEditor();
 	// CRITICAL finding #2 of the 2026-08-18 test sweep ("saved projects never
 	// appear"): this originally read `editor.project.getSavedProjects()`
@@ -125,7 +154,7 @@ function HomeScreen({ onOpenEditor, onOpenSettings }: { onOpenEditor: () => void
 	// array-replace notify.
 	const projects = useEditor((e) => e.project.getSavedProjects());
 	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(initialError);
 
 	useEffect(() => {
 		// Run once per mount; `editor` is the process-wide singleton and never
@@ -139,13 +168,20 @@ function HomeScreen({ onOpenEditor, onOpenSettings }: { onOpenEditor: () => void
 	 *  whether the editor is entered afterwards: creating/loading a project
 	 *  does, deleting one must NOT (the row-era code routed Delete through
 	 *  the same helper and landed in the editor with no active project). */
-	const run = async (task: () => Promise<unknown>, { open }: { open: boolean }) => {
+	const run = async (
+		task: () => Promise<unknown>,
+		{ open, isNewProject = false }: { open: boolean; isNewProject?: boolean },
+	) => {
 		if (busy) return;
 		setBusy(true);
 		setError(null);
 		try {
 			await task();
-			if (open) onOpenEditor();
+			if (open) {
+				onOpenEditor({
+					newProjectId: isNewProject ? (editor.project.getActiveOrNull()?.metadata.id ?? null) : null,
+				});
+			}
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Something went wrong");
 		} finally {
@@ -171,7 +207,7 @@ function HomeScreen({ onOpenEditor, onOpenSettings }: { onOpenEditor: () => void
 						onClick={() =>
 							void run(
 								() => editor.project.createNewProject({ name: nextProjectName(projects.map((p) => p.name)) }),
-								{ open: true },
+								{ open: true, isNewProject: true },
 							)
 						}
 					>
@@ -295,12 +331,13 @@ export function mountApp() {
 	(window as unknown as Record<string, unknown>).__kneecap = {
 		editor: EditorCore.getInstance(),
 	};
-	// Boot-time runtime prep, mirroring apps/web's editor-provider ordering:
-	// GPU first (the project-thumbnail snapshot path throws "GPU context not
-	// initialized" if anything renders before this), font atlas alongside
-	// (text renders with a fallback face without it). Both are cached
-	// one-shot promises; PreviewRenderer awaits the same GPU promise.
-	void ensurePreviewGpu().then(() => loadFontAtlas());
+	// Boot-time runtime prep. The GPU start runs inside editor-core, in the
+	// same wasm copy as the compositor; it never rejects and has a time
+	// limit, and the renderer draws with Canvas 2D when there is no GPU.
+	// PreviewRenderer waits for the same cached promise. The font atlas is
+	// only a fetch, so it does not wait for the GPU.
+	void ensurePreviewGpu();
+	void loadFontAtlas();
 	// The DEFAULT face (Albert Sans, round 31) must be decoded before the
 	// first text/caption render or canvas fillText falls back to the system
 	// font for that frame — @font-face alone only loads on first CSS use,

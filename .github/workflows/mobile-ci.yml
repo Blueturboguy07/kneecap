@@ -39,6 +39,11 @@ name: Mobile CI
 #     CI). A fork's pull request (no secrets) builds without APP_STORE_BUILD.
 #     The optional-gate artifacts stay CI test artifacts only.
 #   - No committed app token: no tracked file has a pat_<slug>_<secret> value.
+#   - Editor test (iOS job, last steps): a separate test app (developer tools
+#     on, own DerivedData) opens the editor 5 times, checks the preview with
+#     simulator screenshots, and exports 1 photo + 1 text at 1080p/30. The
+#     gate talks to a local fake publik server. Artifact: ios-sim-editor-test.
+#     It never changes the store builds or the artifacts above.
 
 concurrency:
   group: mobile-ci-${{ github.ref }}
@@ -229,6 +234,61 @@ jobs:
       - name: publik self-test (gate optional, on a simulator)
         run: bash ../../scripts/ios-sim-self-test.sh DerivedData/Build/Products/Debug-iphonesimulator/App.app
         working-directory: apps/mobile/ios/App
+
+      # Editor test. These steps come after every store build and artifact
+      # above, so the test bundle never goes into them.
+      - name: "Editor test: build the test web bundle (developer tools on, gate required)"
+        # KNEECAP_DEBUG_TOOLS=1 puts the #/autotest chunk in. The token is a
+        # placeholder: the gate talks to the test's local fake publik server.
+        env:
+          KNEECAP_DEBUG_TOOLS: "1"
+          PUBLIK_GATE_MODE: required
+          PUBLIK_APP_TOKEN: pat_ci_editortest
+        run: |
+          set -euo pipefail
+          bun run build
+          ls www/assets | grep -q '^autotest-' || { echo "::error::the test bundle has no autotest chunk"; exit 1; }
+          grep -rqs 'publik-gate-mode:required' www/assets || { echo "::error::the test bundle does not have the gate required"; exit 1; }
+          bunx cap copy ios
+        working-directory: apps/mobile
+
+      - name: "Editor test: xcodebuild (Debug, iphonesimulator, own DerivedData)"
+        run: |
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/editor-test-dd" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+        working-directory: apps/mobile/ios/App
+
+      - name: "Editor test: 5 opens, preview, export (on a simulator)"
+        # A: the editor opens 5 times (new, back, reopen, relaunch, reopen)
+        #    with no crash and no extra empty project.
+        # B: screenshots prove that the preview draws a text and a photo.
+        # C: 1 photo + 1 text exported at 1080p/30/High through the real
+        #    bridge; AVFoundation checks the file.
+        # A normal run takes about 5 minutes. The script stops a launch after
+        # 7 (first) and 20 (second) minutes, so 35 lets it write its summary.
+        timeout-minutes: 35
+        run: |
+          python3 scripts/ios-sim-editor-test.py \
+            "$RUNNER_TEMP/editor-test-dd/Build/Products/Debug-iphonesimulator/App.app" \
+            "$RUNNER_TEMP/ios-sim-editor-test"
+        working-directory: apps/mobile
+
+      - name: Upload the editor test screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-sim-editor-test
+          path: ${{ runner.temp }}/ios-sim-editor-test
+          if-no-files-found: warn
 
   android-debug-build:
     name: Android (debug APK)

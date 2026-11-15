@@ -39,6 +39,9 @@ import kotlin.system.exitProcess
  *    ends the app;
  *  - the "foreground" event: the app came back to the front (for example
  *    when the Custom Tab closes);
+ *  - the "browserTick" event: every 3 s while the Custom Tab is open. The
+ *    WebView's own timers can stall behind the tab; the tick keeps the
+ *    3-second wallet poll going;
  *  - showFirstRun: kneecap's first-run screen (FirstRunActivity), once per
  *    install. The web app calls it AFTER the gate, so "Sign in with publik"
  *    is the first screen of a new install (PUBLIK_GATE_MODE=required).
@@ -80,9 +83,29 @@ class PublikGatePlugin : Plugin() {
 	@Volatile
 	private var browserOpen = false
 
+	/** The 3-second tick while the Custom Tab is open (main looper). */
+	private val tickHandler = Handler(Looper.getMainLooper())
+	private val tick = object : Runnable {
+		override fun run() {
+			if (!browserOpen) return
+			notifyListeners("browserTick", JSObject())
+			tickHandler.postDelayed(this, 3000)
+		}
+	}
+
+	private fun startBrowserTicks() {
+		tickHandler.removeCallbacks(tick)
+		tickHandler.postDelayed(tick, 3000)
+	}
+
+	private fun stopBrowserTicks() {
+		tickHandler.removeCallbacks(tick)
+	}
+
 	override fun handleOnResume() {
 		super.handleOnResume()
 		browserOpen = false // the app is in front: the tab is closed or behind it
+		stopBrowserTicks()
 		notifyListeners("foreground", JSObject())
 	}
 
@@ -191,6 +214,7 @@ class PublikGatePlugin : Plugin() {
 			try {
 				act.startActivity(intent)
 				browserOpen = true
+				startBrowserTicks()
 				call.resolve()
 			} catch (e: ActivityNotFoundException) {
 				call.reject("publik: no browser on this phone.")
@@ -204,6 +228,7 @@ class PublikGatePlugin : Plugin() {
 		val act = activity
 		if (!browserOpen || act == null) return call.resolve()
 		browserOpen = false
+		stopBrowserTicks()
 		act.runOnUiThread {
 			try {
 				act.startActivity(

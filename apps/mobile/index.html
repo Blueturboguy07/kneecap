@@ -10,7 +10,25 @@
 			http-equiv="Content-Security-Policy"
 			content="default-src 'self' data: blob: https://appassets.androidplatform.net capacitor://appassets.androidplatform.net capacitor://localhost https://localhost; img-src 'self' data: blob: https://appassets.androidplatform.net capacitor://appassets.androidplatform.net; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'"
 		/>
+		<meta name="color-scheme" content="dark" />
 		<title>publik kneecap</title>
+		<!-- Black from the first frame, like the launch screen and the app
+		     (blind test 1.0.4: a cold launch showed a white page for seconds
+		     while the bundle loaded). app-root.css repeats the black. -->
+		<style>
+			html,
+			body {
+				margin: 0;
+				background: #000;
+				color: #8b8a90;
+			}
+			#app > p {
+				margin: 0;
+				padding-top: 45vh;
+				text-align: center;
+				font: 15px -apple-system, BlinkMacSystemFont, sans-serif;
+			}
+		</style>
 		<!-- No global stylesheet: src/style.css is the LEGACY M3/M4 harness
 		     sheet (its global `button {padding; min-height}` rules crushed the
 		     editor's 36px icon buttons to a 4px content box — measured live).

@@ -316,10 +316,11 @@ public enum CompositionBuilder {
 		//     killed the whole export (founder's device, 2026-08-23). Same for
 		//     any gap before the first main clip.
 		//
-		// Both are solved the same way: looped 1s/30fps 64×64 black filler in
-		// a dedicated lane, required by the instructions that have no real
-		// source. The compositor never reads its frames — they only drive the
-		// frame clock; uncovered spans render as canvas background.
+		// Both are solved the same way: looped ~1s 64×64 black filler, at the
+		// export frame rate, in a dedicated lane, required by the
+		// instructions that have no real source. The compositor never reads
+		// its frames — they only drive the frame clock; uncovered spans
+		// render as canvas background.
 		var stillPacerTrackID: CMPersistentTrackID?
 		var backgroundOnlyRanges: [CMTimeRange] = []
 		let imageRanges: [CMTimeRange] = sortedMainClips.compactMap { clip in
@@ -358,7 +359,12 @@ public enum CompositionBuilder {
 				withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
 				throw CompositionBuilderError.noMainTrack
 			}
-			let filler = try await Self.blackFillerAsset()
+			// Filler at the OUTPUT frame rate: the reader emits still and
+			// background frames at the filler's cadence, so a 30 fps filler
+			// gave a 60 fps export only 30 still frames per second.
+			let filler = try await Self.blackFillerAsset(
+				frameDuration: EdlTime.frameDuration(fps: edl.output.fps)
+			)
 			let fillerTracks = try await filler.load(.tracks)
 			guard let fillerTrack = fillerTracks.first(where: { $0.mediaType == .video }) else {
 				throw CompositionBuilderError.noMainTrack
@@ -380,6 +386,21 @@ public enum CompositionBuilder {
 			stillPacerTrackID = pacerLane.trackID
 			print("[kneecap-export] pacer lane \(pacerLane.trackID): \(imageRanges.count) still segment(s), \(backgroundOnlyRanges.count) uncovered span(s); composition=\(compositionEnd.seconds)s")
 		}
+
+		// DROP LANES WITH NO MEDIA. Both main video lanes and both main audio
+		// lanes are always created, so a project with only photos (or only
+		// muted or silent clips) leaves every audio track empty. A reader
+		// that mixes only empty audio tracks fails in startReading with
+		// -11800 (underlying -12710), which the app showed as "reader failed:
+		// The operation could not be completed". No lane ID is recorded
+		// before a real insert, so no instruction refers to a removed lane.
+		let emptyTracks = composition.tracks.filter { !Self.hasMedia($0) }
+		for track in emptyTracks {
+			composition.removeTrack(track)
+		}
+		let liveTrackIDs = Set(composition.tracks.map(\.trackID))
+		audioMix.inputParameters = audioMix.inputParameters.filter { liveTrackIDs.contains($0.trackID) }
+		print("[kneecap-export] composition tracks: \(composition.tracks(withMediaType: .video).count) video, \(composition.tracks(withMediaType: .audio).count) audio (\(emptyTracks.count) empty lane(s) removed)")
 
 		// The WHOLE timeline, not just the main track (round 32): a PiP
 		// overlay or audio clip may run past the last main clip, and the
@@ -453,17 +474,44 @@ public enum CompositionBuilder {
 		pow(10.0, db / 20.0)
 	}
 
-	/// A ~1s, 64×64 black H.264 clip synthesized once per process, used
-	/// ONLY as composition-duration filler under trailing main-track
-	/// stills (see the padding block above). Its frames are never
-	/// composited — still-segment instructions require no source tracks.
-	private static var cachedFillerURL: URL?
-	static func blackFillerAsset() async throws -> AVURLAsset {
-		if let cached = cachedFillerURL, FileManager.default.fileExists(atPath: cached.path) {
+	/// True when the track holds at least one real (non-empty) segment.
+	static func hasMedia(_ track: AVCompositionTrack) -> Bool {
+		track.segments.contains { !$0.isEmpty }
+	}
+
+	/// A ~1s, 64×64 black H.264 clip synthesized once per process and frame
+	/// rate, used ONLY as pacer filler under stills and uncovered spans (see
+	/// the pacer block above). Its frames are never composited; they only
+	/// set the frame clock, so it is written at the export frame duration.
+	private static let fillerCacheLock = NSLock()
+	nonisolated(unsafe) private static var cachedFillerURLs: [String: URL] = [:]
+
+	private static func cachedFillerURL(key: String) -> URL? {
+		fillerCacheLock.lock()
+		defer { fillerCacheLock.unlock() }
+		return cachedFillerURLs[key]
+	}
+
+	private static func storeFillerURL(_ url: URL, key: String) {
+		fillerCacheLock.lock()
+		defer { fillerCacheLock.unlock() }
+		cachedFillerURLs[key] = url
+	}
+
+	static func blackFillerAsset(frameDuration requested: CMTime = CMTime(value: 1, timescale: 30)) async throws -> AVURLAsset {
+		// Any frame duration from 1/240 s to 1 s; anything else falls back to 30 fps.
+		let frameDuration: CMTime =
+			requested.isValid && requested.isNumeric && requested.seconds >= 1.0 / 240 && requested.seconds <= 1
+				? requested
+				: CMTime(value: 1, timescale: 30)
+		let frameCount = max(1, Int((1.0 / frameDuration.seconds).rounded(.up)))
+		let key = "\(frameDuration.value)x\(frameDuration.timescale)"
+
+		if let cached = cachedFillerURL(key: key), FileManager.default.fileExists(atPath: cached.path) {
 			return AVURLAsset(url: cached)
 		}
 		let url = FileManager.default.temporaryDirectory
-			.appendingPathComponent("kneecap-black-filler-\(ProcessInfo.processInfo.processIdentifier).mp4")
+			.appendingPathComponent("kneecap-black-filler-\(ProcessInfo.processInfo.processIdentifier)-\(key).mp4")
 		try? FileManager.default.removeItem(at: url)
 
 		let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
@@ -501,18 +549,22 @@ public enum CompositionBuilder {
 		}
 		CVPixelBufferUnlockBaseAddress(buffer, [])
 
-		// 1s at 30fps — real sample density matters: the reader's composed-
-		// frame cadence follows source sample timing (see the padding block).
-		for frame in 0..<30 {
+		// About 1s of frames — real sample density matters: the reader's
+		// composed-frame cadence follows source sample timing.
+		for frame in 0..<frameCount {
 			while !input.isReadyForMoreMediaData {
 				try await Task.sleep(nanoseconds: 5_000_000)
 			}
-			adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: 30))
+			let time = CMTimeMultiply(frameDuration, multiplier: Int32(frame))
+			guard adaptor.append(buffer, withPresentationTime: time) else {
+				writer.cancelWriting()
+				throw writer.error ?? CompositionBuilderError.noMainTrack
+			}
 		}
 		input.markAsFinished()
 		await writer.finishWriting()
 		if let error = writer.error { throw error }
-		cachedFillerURL = url
+		storeFillerURL(url, key: key)
 		return AVURLAsset(url: url)
 	}
 }

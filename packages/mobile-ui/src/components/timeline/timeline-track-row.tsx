@@ -282,7 +282,7 @@ function ReorderTile({
 		>
 			<FilmstripThumbnail
 				widthPx={REORDER_TILE_PX}
-				realUri={clip.thumbnails?.[0]}
+				realUri={clip.thumbnails?.[0] ?? clip.posterUri}
 				colorHue={clip.colorHue}
 				slotSec={0}
 			/>

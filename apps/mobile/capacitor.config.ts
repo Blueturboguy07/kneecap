@@ -25,11 +25,18 @@ import type { CapacitorConfig } from "@capacitor/cli";
  * already satisfies Apple 2.5.6 (WKWebView, not the deprecated UIWebView) and
  * already avoids file:// by construction — there is no bundled iOS analogue
  * to appassets.androidplatform.net to opt into.
+ *
+ * `backgroundColor` is black on both platforms: the web view is black from
+ * its first frame, like the launch screen and every app screen (blind test
+ * 1.0.4: a cold launch showed a white web view for seconds before the bundle
+ * painted). KneecapBridgeViewController (SceneDelegate.swift) also makes the
+ * iOS web view non-opaque, so nothing white shows through.
  */
 const config: CapacitorConfig = {
 	appId: "dev.kneecap.app",
 	appName: "publik kneecap",
 	webDir: "www",
+	backgroundColor: "#000000",
 	android: {
 		allowMixedContent: false,
 	},

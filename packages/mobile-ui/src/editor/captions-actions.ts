@@ -62,6 +62,19 @@ import {
 	type TranscriptSegment,
 } from "@kneecap/native-bridge";
 
+/**
+ * The words the Captions panel shows when Generate cannot make captions
+ * (blind test 1.0.4: the panel showed "audio not readable:
+ * /kneecap-dev-fixture:sample-v1", a developer fixture). The messages never
+ * name a file, a path or a developer fixture; the details go to the console.
+ */
+export const CAPTION_MESSAGES = {
+	noClip: "Add a video clip with sound first. Captions come from the sound of your clips.",
+	noAudio: "Your clips have no sound. Add a video clip with sound to make captions.",
+	unreadable: "Captions could not read the sound of your clips. Try again.",
+	noSpeech: "No speech was detected anywhere on the timeline.",
+} as const;
+
 export interface GenerateCaptionsResult {
 	trackId: string;
 	elementIds: string[];
@@ -135,6 +148,9 @@ export function collectTranscriptionJobs({
 				? resolveNativeMediaRawPath(asset.nativeRelativePath)
 				: null;
 		if (!asset || !rawPath) return;
+		// A clip without an audio track has nothing to transcribe (a photo, or
+		// a video with no sound): it is not a job, so it cannot fail as one.
+		if (asset.hasAudio === false) return;
 		jobs.push({
 			rawPath,
 			assetId: asset.id,
@@ -192,7 +208,7 @@ export async function generateCaptionsForClip({
 		track.elements.some((el) => el.type === "audio"),
 	);
 	if (!hasAnyVideo && !hasAnyAudioClip) {
-		throw new Error("Add a video clip first — captions transcribe the clip's audio.");
+		throw new Error(CAPTION_MESSAGES.noClip);
 	}
 
 	const jobs = collectTranscriptionJobs({
@@ -200,9 +216,8 @@ export async function generateCaptionsForClip({
 		assets: editor.media.getAssets(),
 	});
 	if (jobs.length === 0) {
-		throw new Error(
-			"This clip has no on-device media file to transcribe (web dev harness clips can't be transcribed — native builds only).",
-		);
+		// Every clip is muted, has no audio track, or has no file on this phone.
+		throw new Error(CAPTION_MESSAGES.noAudio);
 	}
 
 	const bridge = await getNativeBridge();
@@ -262,8 +277,9 @@ export async function generateCaptionsForClip({
 		);
 	}
 
+	if (failures.length > 0) console.error("captions: transcription failed for", failures);
 	if (allElements.length === 0 && failures.length === jobs.length && failures.length > 0) {
-		throw new Error(`Transcription failed: ${failures[0]}`);
+		throw new Error(CAPTION_MESSAGES.unreadable);
 	}
 
 	const elements = inheritSharedCaptionParams({ editor, elements: allElements });
@@ -272,19 +288,17 @@ export async function generateCaptionsForClip({
 		// Round 21.1: an empty result must SAY so — the device bug shipped a
 		// single empty token and the panel silently reported "done" with
 		// nothing inserted.
-		throw new Error(
-			"No speech was detected anywhere on the timeline.",
-		);
+		throw new Error(CAPTION_MESSAGES.noSpeech);
 	}
 	return inserted;
 }
 
 /**
- * The panel's one entry point: try the real clip first; when the failure
- * is the KNOWN "nothing transcribable here" class (no clip / no native
- * file — i.e. the web dev harness), fall back to the bundled sample so
- * the dev flow keeps demonstrating the pipeline. Real native errors
- * (permission denied, unsupported locale, IO) propagate untouched.
+ * The panel's one entry point: the person's own clips only. Before 1.0.4 a
+ * timeline with no transcribable clip fell back to the developer sample
+ * clip (`generateCaptionsFromSampleClip`); on a phone that showed "audio not
+ * readable: /kneecap-dev-fixture:sample-v1". Now every failure is one of the
+ * plain CAPTION_MESSAGES.
  */
 export async function generateCaptions({
 	editor,
@@ -293,19 +307,11 @@ export async function generateCaptions({
 	editor: EditorCore;
 	stylePresetId: string;
 }): Promise<GenerateCaptionsResult | null> {
-	try {
-		return await generateCaptionsForClip({ editor, stylePresetId });
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		const noTranscribableClip =
-			message.includes("Add a video clip first") ||
-			message.includes("no on-device media file");
-		if (!noTranscribableClip) throw error;
-		return generateCaptionsFromSampleClip({ editor, stylePresetId });
-	}
+	return generateCaptionsForClip({ editor, stylePresetId });
 }
 
-/** Runs the real generate pipeline against the dev-fixture sample clip and
+/** Developer harness only (the app never calls it, see generateCaptions).
+ *  Runs the real generate pipeline against the dev-fixture sample clip and
  *  lands real `CaptionElement`s on a real caption track. Returns `null` if
  *  the fixture yields zero usable segments (shouldn't happen with the
  *  bundled sample, but `insertGeneratedCaptions` itself returns `null` for

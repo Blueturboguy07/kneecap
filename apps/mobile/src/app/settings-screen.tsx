@@ -7,9 +7,10 @@
  *    comes back to the front.
  *  - signed in: who is signed in, and "Sign out". In required mode the app
  *    then starts again, so the gate shows.
- *  - "Delete account": deletes the publik data on this phone, then opens
- *    publik's bare delete-account page in the in-app browser (App Store
- *    guideline 5.1.1(v)).
+ *  - "Delete account" (signed in only): deletes the publik data on this
+ *    phone, then opens publik's bare delete-account page in the in-app
+ *    browser (App Store guideline 5.1.1(v)). Signed out, there is no account
+ *    to delete, so the row is not there.
  *  - "Count app use": the usage-counting switch (consent.json).
  *  - "Help and support": publik's bare support page in the in-app browser.
  *  - "Privacy policy": publik's bare privacy page in the in-app browser (App
@@ -81,7 +82,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 		try {
 			const result = await signIn({
 				signal: abort.signal,
-				onWaiting: () => setNote("Waiting for you to sign in in your browser."),
+				onWaiting: () => setNote("Waiting for you to sign in on the publik page."),
 			});
 			if (result === "signed_in") setNote(null);
 			if (result === "timeout") setNote("No sign-in after 10 minutes. Tap Sign in with publik to try again.");
@@ -193,14 +194,16 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 								{status.checking ? "Checking your sign-in…" : "Sign in with publik"}
 							</button>
 						)}
-						<button
-							type="button"
-							className="kc-settings__row kc-settings__row--danger"
-							disabled={busy}
-							onClick={() => void doDeleteAccount()}
-						>
-							Delete account
-						</button>
+						{account ? (
+							<button
+								type="button"
+								className="kc-settings__row kc-settings__row--danger"
+								disabled={busy}
+								onClick={() => void doDeleteAccount()}
+							>
+								Delete account
+							</button>
+						) : null}
 					</div>
 					<p className="kc-settings__note" role="status">
 						{note ?? ""}

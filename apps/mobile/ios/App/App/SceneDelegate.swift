@@ -13,6 +13,14 @@ import Capacitor
 /// project.pbxproj file-list surgery is needed.
 class KneecapBridgeViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
+        // Black from the first frame, like LaunchScreen.storyboard and every
+        // app screen. A WKWebView draws white until the bundle paints its
+        // first frame (blind test 1.0.4: seconds of white on a cold launch);
+        // a non-opaque web view shows this black instead. Capacitor calls
+        // capacitorDidLoad from loadView, after it made the web view.
+        webView?.isOpaque = false
+        webView?.backgroundColor = .black
+        webView?.scrollView.backgroundColor = .black
         bridge?.registerPluginInstance(NativeBridgePlugin())
         #if DEBUG
         // The M1 spike's diagnostics plugin is a developer tool: Debug builds only.
@@ -30,6 +38,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = scene as? UIWindowScene else { return }
 
         window = UIWindow(windowScene: windowScene)
+        window?.backgroundColor = .black
 
         // The WebView loads first. "Sign in with publik" (with
         // PUBLIK_GATE_MODE=required) is the first screen of a new install;

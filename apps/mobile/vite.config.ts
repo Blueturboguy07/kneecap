@@ -229,6 +229,12 @@ export default defineConfig(({ command }) => {
 			alias: {
 				"@": editorCoreSrc,
 			},
+			// ONE opencut-wasm module for the whole bundle (blind test 1.0.4,
+			// "GPU context not initialized"): bun installs a copy of the package
+			// for each workspace package, and Vite bundled two wasm instances.
+			// The GPU started in one instance and the compositor ran in the other.
+			// scripts/check-web-bundle.sh fails a bundle with two instances.
+			dedupe: ["opencut-wasm"],
 		},
 		build: {
 			outDir: "www",

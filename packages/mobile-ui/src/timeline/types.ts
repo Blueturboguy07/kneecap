@@ -87,6 +87,9 @@ export interface TimelineClipVM {
 	 * consumer of this package has real entries to put here today.
 	 */
 	thumbnails?: Record<number, string>;
+	/** One image for each filmstrip slot that has no real frame in
+	 *  `thumbnails`: a photo clip shows the photo itself. */
+	posterUri?: string;
 	/** Audio-only: amplitude samples 0..1 across the clip's SOURCE duration. */
 	waveformPeaks?: number[];
 	keyframes?: TimelineKeyframeVM[];

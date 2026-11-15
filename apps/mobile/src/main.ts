@@ -91,17 +91,62 @@ let appMounted = false;
 
 /** A boot failure must never strand the user on index.html's static
  *  "Loading…" placeholder (exactly what a silent dynamic-import rejection
- *  did on the first real-device run) — surface the error on screen, where
- *  it is also screenshot-debuggable without a Web Inspector attach. */
+ *  did on the first real-device run). The screen has the words of the crash
+ *  screen (app/crash-screen.tsx): a plain message, "Try again" (loads the app
+ *  again) and "Report" (opens the support page in the in-app sheet). It never
+ *  shows the error, a stack trace or a file path in a store build: the error
+ *  goes to the console, and only a debug build (KNEECAP_DEBUG_TOOLS=1) adds
+ *  the details. Plain DOM with inline styles: React and the app styles may be
+ *  the part that failed to load. */
 function showBootError(err: unknown) {
-	const detail =
-		err instanceof Error ? `${err.name}: ${err.message}\n\n${err.stack ?? ""}` : String(err);
+	console.error("publik kneecap could not start:", err);
 	const container = document.getElementById("app") ?? document.body;
-	const pre = document.createElement("pre");
-	pre.style.cssText =
-		"padding:16px;white-space:pre-wrap;word-break:break-word;color:#ff5c5c;font:12px/1.5 ui-monospace,monospace;";
-	pre.textContent = `publik kneecap failed to start\n\n${detail}`;
-	container.replaceChildren(pre);
+	const screen = document.createElement("div");
+	screen.className = "kc-crash";
+	screen.dataset.kneecapCrash = "1";
+	screen.setAttribute("role", "alert");
+	screen.style.cssText =
+		"box-sizing:border-box;height:100dvh;overflow-y:auto;background:#000;color:#f5f5f5;display:flex;flex-direction:column;align-items:flex-start;gap:16px;padding:calc(env(safe-area-inset-top, 0px) + 24px) 16px 24px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;";
+	const title = document.createElement("p");
+	title.style.cssText = "margin:0;font-size:17px;font-weight:700;color:#ff9c9c;";
+	title.textContent = "publik kneecap stopped working";
+	const message = document.createElement("p");
+	message.style.cssText = "margin:0;font-size:15px;line-height:1.4;";
+	message.textContent =
+		"The app could not start. Your projects are safe on this phone. Tap Try again. If it happens again, tap Report and tell us what you did.";
+	const actions = document.createElement("div");
+	actions.style.cssText = "display:flex;flex-wrap:wrap;gap:12px;";
+	const button = (label: string, primary: boolean, onClick: () => void) => {
+		const b = document.createElement("button");
+		b.type = "button";
+		b.textContent = label;
+		b.style.cssText = `min-height:44px;min-width:44px;box-sizing:border-box;border:none;border-radius:8px;padding:10px 16px;font:600 14px -apple-system,BlinkMacSystemFont,sans-serif;${
+			primary ? "background:#00cae0;color:#000;" : "background:#262626;color:#f5f5f5;"
+		}`;
+		b.addEventListener("click", onClick);
+		return b;
+	};
+	actions.append(
+		button("Try again", true, () => window.location.reload()),
+		button("Report", false, () => {
+			void (async () => {
+				const [{ getPublikHost }, { SUPPORT_URL }] = await Promise.all([
+					import("@kneecap/native-bridge/publik-host"),
+					import("./publik/publik"),
+				]);
+				await getPublikHost().openUrl({ url: SUPPORT_URL });
+			})().catch(() => {});
+		}),
+	);
+	screen.append(title, message, actions);
+	if (__KNEECAP_DEBUG_TOOLS__) {
+		// Debug builds only: the details, for a screenshot without a Web Inspector attach.
+		const pre = document.createElement("pre");
+		pre.style.cssText = "margin:0;white-space:pre-wrap;word-break:break-word;color:#ff9c9c;font:11px/1.5 ui-monospace,monospace;";
+		pre.textContent = err instanceof Error ? `${err.name}: ${err.message}\n\n${err.stack ?? ""}` : String(err);
+		screen.append(pre);
+	}
+	container.replaceChildren(screen);
 }
 
 window.addEventListener("unhandledrejection", (event) => {

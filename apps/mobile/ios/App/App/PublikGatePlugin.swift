@@ -16,6 +16,9 @@ import UIKit
 ///   - `openBrowser` / `closeBrowser`: the sign-in page in an SFSafariViewController;
 ///   - `finishSelfTest`: prints the self-test line to stdout, then ends the app;
 ///   - the `foreground` event: the app became active, or the browser closed;
+///   - the `browserTick` event: every 3 s while the browser is open. The web view's own timers can
+///     stall while the browser covers it; the tick keeps the 3-second wallet poll going, so the
+///     browser closes within seconds of the sign-in;
 ///   - `showFirstRun`: kneecap's first-run screen (FirstRunView.swift), once per install. The
 ///     web app calls it AFTER the gate, so "Sign in with publik" is the first screen of a new
 ///     install (PUBLIK_GATE_MODE=required).
@@ -147,14 +150,18 @@ public class PublikGatePlugin: CAPPlugin, CAPBridgedPlugin, SFSafariViewControll
             let safari = SFSafariViewController(url: url)
             safari.delegate = self
             safari.dismissButtonStyle = .done
+            // Over the app, not instead of it: the web view stays in the window, so its page stays live.
+            safari.modalPresentationStyle = .overFullScreen
             self.browser = safari
             presenter.present(safari, animated: true)
+            self.startBrowserTicks()
             call.resolve()
         }
     }
 
     @objc func closeBrowser(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
+            self?.stopBrowserTicks()
             if let browser = self?.browser, browser.presentingViewController != nil { browser.dismiss(animated: true) }
             self?.browser = nil
             call.resolve()
@@ -162,8 +169,26 @@ public class PublikGatePlugin: CAPPlugin, CAPBridgedPlugin, SFSafariViewControll
     }
 
     public func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
+        stopBrowserTicks()
         browser = nil
         notifyListeners("foreground", data: [:])
+    }
+
+    /// The 3-second tick while the browser is open (main run loop, common modes: it fires during scrolling too).
+    private var browserTicks: Timer?
+
+    private func startBrowserTicks() {
+        stopBrowserTicks()
+        let timer = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
+            self?.notifyListeners("browserTick", data: [:])
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        browserTicks = timer
+    }
+
+    private func stopBrowserTicks() {
+        browserTicks?.invalidate()
+        browserTicks = nil
     }
 
     // MARK: first-run screen

@@ -14,13 +14,14 @@ body,
 	   the WebView page-scroll or rubber-band (on device, any layout
 	   overflow otherwise becomes a scrollable page — 2026-08-19). Screens
 	   that need scrolling own it internally (.kc-home__grid,
-	   .kc-crash__detail). */
+	   .kc-crash). */
 	overflow: hidden;
 	overscroll-behavior: none;
 }
 #app {
 	height: 100dvh;
 }
+html,
 body {
 	background: #000;
 	color: #f5f5f5;
@@ -48,13 +49,36 @@ body {
 	margin: 0;
 }
 
-.kc-crash__detail {
-	white-space: pre-wrap;
-	word-break: break-word;
-	font: 11px/1.5 ui-monospace, monospace;
+/* The crash screen (crash-screen.tsx) shows a plain message only: never the
+   error text, a stack trace or a file path. */
+.kc-crash__message {
 	margin: 0;
-	max-height: 60dvh;
-	overflow-y: auto;
+	font-size: 15px;
+	line-height: 1.4;
+	color: #f5f5f5;
+}
+
+.kc-crash__actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+}
+
+.kc-crash__button {
+	min-height: 44px;
+	min-width: 44px;
+	box-sizing: border-box;
+}
+
+.kc-crash__button--secondary {
+	font-family: inherit;
+	background: var(--cc-surface-raised, #262626);
+	color: #f5f5f5;
+	border: none;
+	border-radius: 8px;
+	padding: 10px 16px;
+	font-size: 14px;
+	font-weight: 600;
 }
 
 .kc-home {
@@ -91,6 +115,8 @@ body {
 
 .kc-home__new {
 	font-family: inherit;
+	min-height: 44px;
+	box-sizing: border-box;
 	background: var(--cc-accent, #00cae0);
 	color: #000;
 	border: none;
@@ -232,17 +258,18 @@ body {
 }
 
 /* "⋯" chip over the thumbnail's top-right corner — the delete affordance
-   (sibling of the open button, see ProjectCard). 32px hit target on a
-   28px visual. */
+   (sibling of the open button, see ProjectCard). A 44px hit target (Apple
+   HIG minimum) around the same 32px dark circle, drawn by ::before. */
 .kc-home__more {
 	position: absolute;
-	top: 6px;
-	right: 6px;
-	width: 32px;
-	height: 32px;
+	top: 0;
+	right: 0;
+	width: 44px;
+	height: 44px;
+	isolation: isolate;
 	border: none;
 	border-radius: var(--cc-radius-pill, 999px);
-	background: rgb(0 0 0 / 55%);
+	background: none;
 	color: #fff;
 	font-size: 18px;
 	font-weight: 700;
@@ -253,6 +280,15 @@ body {
 	justify-content: center;
 	touch-action: manipulation;
 	-webkit-tap-highlight-color: transparent;
+}
+
+.kc-home__more::before {
+	content: "";
+	position: absolute;
+	inset: 6px;
+	z-index: -1;
+	border-radius: var(--cc-radius-pill, 999px);
+	background: rgb(0 0 0 / 55%);
 }
 
 .kc-home__more:disabled {
@@ -270,6 +306,8 @@ body {
    as "+ New project", on the raised surface instead of the accent. */
 .kc-home__settings {
 	font-family: inherit;
+	min-height: 44px;
+	box-sizing: border-box;
 	background: var(--cc-surface-raised, #262626);
 	color: var(--cc-text-primary, #f5f5f5);
 	border: none;
@@ -316,8 +354,8 @@ body {
 
 .kc-settings__back {
 	font-family: inherit;
-	width: 36px;
-	height: 36px;
+	width: 44px;
+	height: 44px;
 	border: none;
 	border-radius: var(--cc-radius-pill, 999px);
 	background: var(--cc-surface-raised, #262626);
@@ -438,8 +476,10 @@ body {
 .kc-licenses__source {
 	font-family: inherit;
 	display: block;
-	margin: 8px 0;
-	padding: 0;
+	min-height: 44px;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 12px 0;
 	border: none;
 	background: none;
 	color: var(--cc-accent, #00cae0);
