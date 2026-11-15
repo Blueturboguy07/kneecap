@@ -25,12 +25,17 @@
 // (vite.config.ts). The phone reads launch settings only in a debug build (Android: debuggable; iOS: Debug
 // for PUBLIK_API_BASE_URL).
 // publik is "not reachable" when the request does not complete, and also when the answer is not publik's
-// (not JSON: a captive portal or a proxy page; 408, 429 or 5xx). Only publik's own JSON 401 ends a key.
+// (not JSON: a captive portal or a proxy page; 408, 429 or 5xx). Only publik's own JSON 401 or 403 from
+// GET /wallet ends a key. POST /installs answering 403 install_revoked gets ONE new install with a new UUID.
+// Sign out and Delete account can run while a wallet check waits for publik: after each wait the check
+// reads the key again and writes nothing when it is gone (keyStillSaved).
+// kneecap shows no purchase link: USES_AI is false, so the plan screen ("Get a plan") never shows, and
+// the sign-in button opens only publik's claim page (never the wallet page).
 import type { PublikFileName, PublikHost, PublikLaunch } from "@kneecap/native-bridge/publik-host";
 
 export const APP_SLUG = "kneecap";
 /** The version in a browser preview. On a phone the module uses the native app version (Info.plist / build.gradle), which is the same. */
-export const APP_VERSION = "1.0.1";
+export const APP_VERSION = "1.0.2";
 /** false: kneecap calls no model (captions and retouch run on the phone). It still signs in and counts users; it skips the plan screen. */
 export const USES_AI = false;
 /** true: a phone that signed in before opens the app when publik does not answer (kneecap is local-first). The first sign-in needs the network. */
@@ -47,6 +52,8 @@ export const GATE_MODE: GateMode = typeof __PUBLIK_GATE_MODE__ === "string" && _
 const POLL_MS = 3_000, POLL_LIMIT_MS = 10 * 60_000;
 const LONGEST_TIMEOUT_MS = 2_147_483_647; // the largest delay setTimeout takes (about 24 days)
 const NOT_REACHABLE = "publik is not reachable. Check your connection.";
+/** An anonymous wallet always has a claim page; without one the app shows this (it never opens another publik page). */
+const NO_SIGN_IN_LINK = "publik sent no sign-in link. Try again.";
 
 /** The publik app token (pat_), put in at build time from PUBLIK_APP_TOKEN (vite.config.ts). Public by design. */
 declare const __PUBLIK_APP_TOKEN__: string | undefined;
@@ -78,6 +85,8 @@ export type SignInResult = "signed_in" | "timeout" | "cancelled";
 
 /** The request did not complete, or publik answered with a server error. */
 class Unreachable extends Error {}
+/** Sign out or Delete account ran while this step waited for publik: the step stops and writes nothing. */
+class SignedOut extends Error {}
 
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /** Resolves true when `p` resolves, false when it rejects. For writes that may fail without stopping the app. */
@@ -122,6 +131,8 @@ let inBackground = false;
 let mode: GateMode = GATE_MODE;
 let session: { handle: string | null; offline: boolean } | null = null;
 let checking = false;
+/** forget() (Sign out, Delete account) adds 1 before it does anything else. A step that started earlier writes nothing after it. */
+let forgets = 0;
 const statusListeners = new Set<(s: PublikStatus) => void>();
 
 /** The sign-in state, for Settings. */
@@ -178,6 +189,21 @@ async function writeCredential(c: PublikCredential | null): Promise<void> {
 async function removeCredential(): Promise<void> {
   if (!(await host.removeFile({ name: CREDENTIAL_FILE }))) throw new Error("publik could not delete this phone's key.");
 }
+/**
+ * After a wait for publik: is `key` still this phone's saved key, with no Sign out or Delete account since
+ * `since` (the value of `forgets` when the step started)? When not, the step writes nothing: no key file,
+ * no sign-in time, no session.
+ */
+async function keyStillSaved(key: string, since: number): Promise<boolean> {
+  if (forgets !== since) return false;
+  const now = await readCredential();
+  return forgets === since && now?.key === key;
+}
+/** writeCredential(c), only when keyStillSaved(c.key, since). Best effort: resolves false when nothing was written. */
+async function writeIfStillSaved(c: PublikCredential, since: number): Promise<boolean> {
+  if (!(await keyStillSaved(c.key, since)) || forgets !== since) return false;
+  return quietly(writeCredential(c));
+}
 /** The person's answer to the plan screen. Settings call it to change the answer; null asks again at the next start. */
 export async function setChoice(choice: Choice | null): Promise<void> {
   const c = await readCredential();
@@ -199,10 +225,17 @@ const errorOf = (body: Json) => obj(body.error);
 /** An answer that is not publik's: not JSON (a captive portal or a proxy page), 408, 429 or a server error. */
 const notPublik = (a: Answer) => !a.json || a.status === 408 || a.status === 429 || a.status >= 500;
 
-/** POST /api/v1/installs: this phone's publik key. Throws a readable message. */
+/**
+ * POST /api/v1/installs: this phone's publik key. Throws a readable message.
+ * The install ID is the saved one only when a key is saved with it (readCredential() is null without a key):
+ * a phone with no key always asks with a new random UUID. publik's 403 install_revoked (the owner disconnected
+ * this install) or a 200 with no key (a replay): ONE more try with a new UUID, then an error.
+ * Throws SignedOut when Sign out or Delete account ran while publik answered: nothing is written then.
+ */
 export async function provision(): Promise<PublikCredential> {
   const token = BUILD_APP_TOKEN;
   if (!token.startsWith("pat_")) throw new Error("This build has no publik app token. Ask the developer for a new build.");
+  const since = forgets;
   const prior = await readCredential();
   let installId = prior?.install_id || crypto.randomUUID();
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -210,6 +243,7 @@ export async function provision(): Promise<PublikCredential> {
       app_token: token, app_slug: APP_SLUG, app_version: appVersion(), os: launch.platform, ...(launch.arch ? { arch: launch.arch } : {}),
       device_name: launch.deviceName.slice(0, 120), install_id: installId, disclosure_version: 1, dialects: ["chat_completions"] } });
     if (notPublik(answer)) throw new Unreachable(NOT_REACHABLE);
+    if (forgets !== since) throw new SignedOut("Signed out.");
     const { status, body } = answer;
     const key = str(body.key) ?? (status === 200 ? prior?.key ?? null : null);
     if ((status === 201 || status === 200) && key) {
@@ -225,20 +259,22 @@ export async function provision(): Promise<PublikCredential> {
 }
 
 /**
- * GET /api/v1/wallet. publik's own JSON 401: the key is gone (status 401, null wallet). Throws Unreachable when
- * the request does not complete or the answer is not publik's (notPublik(), a 2xx that is not a wallet, a 401
+ * GET /api/v1/wallet. publik's own JSON 401 or 403 (with publik's error object): the key is gone (`gone`, null
+ * wallet); the gate gets a new key. Throws Unreachable when the request does not complete or the answer is not
+ * publik's (notPublik(): not JSON, such as a captive portal's 200 page; a 2xx that is not a wallet; a 401 or 403
  * without publik's JSON error).
  */
-export async function readWallet(key: string): Promise<{ status: number; wallet: Wallet | null; message: string | null }> {
+export async function readWallet(key: string): Promise<{ status: number; gone: boolean; wallet: Wallet | null; message: string | null }> {
   const answer = await call("GET", endpoint("/api/v1/wallet"), { key, timeoutMs: 15_000 });
   const { status, body: b } = answer;
   if (notPublik(answer)) throw new Unreachable(NOT_REACHABLE);
   const ok = status >= 200 && status < 300;
   if (ok && typeof b.claim_state !== "string") throw new Unreachable(NOT_REACHABLE);
-  if (status === 401 && !errorOf(b)) throw new Unreachable(NOT_REACHABLE);
-  if (!ok) return { status, wallet: null, message: str(errorOf(b)?.message) };
+  const denied = status === 401 || status === 403;
+  if (denied && !errorOf(b)) throw new Unreachable(NOT_REACHABLE);
+  if (!ok) return { status, gone: denied, wallet: null, message: str(errorOf(b)?.message) };
   const plan = obj(b.plan), account = obj(b.account), kind = plan?.kind;
-  return { status, message: null, wallet: {
+  return { status, gone: false, message: null, wallet: {
     claim_state: b.claim_state === "claimed" ? "claimed" : "anonymous", claim_url: str(b.claim_url), account: account ? { handle: str(account.handle) } : null,
     plan: { kind: kind === "plan" || kind === "pack" ? kind : "none", label: str(plan?.label) },
     balance_micros: typeof b.balance_micros === "number" ? b.balance_micros : 0, top_up_url: str(b.top_up_url) ?? `${ORIGIN}/wallet`, linked_at: str(b.linked_at) } };
@@ -304,21 +340,26 @@ export async function ensureSignedIn(ui: GateUI, h: PublikHost): Promise<GateRes
     let r: Awaited<ReturnType<typeof readWallet>> | null = null;
     let failure: unknown;
     let failed = false;
+    const since = forgets;
     try {
       c = (await readCredential()) ?? (await provision());
       r = await readWallet(c.key);
-      if (r.status === 401) await removeCredential(); // publik says this key is gone (revoked): a new one next
+      // Sign out or Delete account while publik answered: start again and write nothing. (Only the in-memory
+      // count here: a key file that cannot be read back must not start a loop of new keys.)
+      if (forgets !== since) continue;
+      if (r.gone) await removeCredential(); // publik says this key is gone (revoked): a new one next
     } catch (e) {
+      if (e instanceof SignedOut) continue;
       failed = true;
       failure = e;
     }
     if (failed || !c || !r) {
       // kneecap is local-first: a phone that signed in before opens without publik (OFFLINE_AFTER_SIGN_IN).
-      if (OFFLINE_AFTER_SIGN_IN && failure instanceof Unreachable && c?.claimed_at) return pass(c, null, true);
+      if (OFFLINE_AFTER_SIGN_IN && failure instanceof Unreachable && c?.claimed_at && forgets === since) return pass(c, null, true);
       await ask(ui, gateScreen("unreachable", null, null, failure instanceof Unreachable ? undefined : messageOf(failure)));
       continue;
     }
-    if (r.status === 401) {
+    if (r.gone) {
       if (++newKeys <= MAX_NEW_KEYS) continue;
       newKeys = 0; // publik refuses the new keys too: stop here, the person can retry
       await ask(ui, gateScreen("unreachable", null, null, r.message ?? "publik did not accept this phone's key."));
@@ -329,13 +370,19 @@ export async function ensureSignedIn(ui: GateUI, h: PublikHost): Promise<GateRes
     if (!w) { await ask(ui, gateScreen("unreachable", null, null, r.message ?? undefined)); continue; }
     if (w.claim_state !== "claimed") {
       // Signed out on publik: the offline pass ends too (best effort: a failed write does not stop the gate).
-      if (c.claimed_at) { c = { ...c, claimed_at: null }; await quietly(writeCredential(c)); }
+      if (c.claimed_at) { c = { ...c, claimed_at: null }; await writeIfStillSaved(c, since); }
       const a = await ask(ui, gateScreen("sign_in", w, signNote), c.key, signPoll ? (x) => x.claim_state === "claimed" : undefined);
-      if (a === "sign_in") { ui.openUrl(w.claim_url ?? c.claim_url ?? `${ORIGIN}/wallet`); signNote = "Waiting for you to sign in in your browser."; signPoll = true; }
+      if (a === "sign_in") {
+        // Only publik's claim page opens here: never the wallet page, which sells plans.
+        const claimUrl = w.claim_url ?? c.claim_url;
+        if (!claimUrl) { await ask(ui, gateScreen("unreachable", null, null, NO_SIGN_IN_LINK)); continue; }
+        ui.openUrl(claimUrl); signNote = "Waiting for you to sign in in your browser."; signPoll = true;
+      }
       if (a === "timeout") { signNote = "No sign-in after 10 minutes. Click Sign in with publik to try again."; signPoll = false; }
       continue;
     }
-    if (!c.claimed_at) { c = { ...c, claimed_at: new Date().toISOString() }; await quietly(writeCredential(c)); }
+    if (!c.claimed_at) { c = { ...c, claimed_at: new Date().toISOString() }; await writeIfStillSaved(c, since); }
+    if (forgets !== since) continue; // signed out during the write: the gate starts again
     let choice: Choice | null = USES_AI ? c.choice ?? null : null;
     if (USES_AI && !choice) {
       if (w.plan.kind !== "none" || w.balance_micros > 0) { planNote = null; planPoll = false; } // the plan is there: Connect your plan
@@ -380,8 +427,13 @@ export async function startPublik(ui: GateUI, h: PublikHost, gateMode: GateMode 
   void resumeSession();
 }
 
-/** Optional mode, at start: is the saved key still signed in? Shows no screen; never throws. */
+/**
+ * Optional mode, at start: is the saved key still signed in? Shows no screen; never throws.
+ * Settings stays usable meanwhile: when Sign out or Delete account runs while publik answers, the key is
+ * gone after the wait (keyStillSaved), and this check writes nothing and starts no session.
+ */
 async function resumeSession(): Promise<void> {
+  const since = forgets;
   const c = await readCredential().catch(() => null);
   if (!c) return; // this phone never started a sign-in: nothing is sent
   checking = true;
@@ -392,12 +444,13 @@ async function resumeSession(): Promise<void> {
       r = await readWallet(c.key);
     } catch (e) {
       // kneecap is local-first: a phone that signed in before keeps its sign-in when publik does not answer.
-      if (OFFLINE_AFTER_SIGN_IN && e instanceof Unreachable && c.claimed_at) pass(c, null, true);
+      if (OFFLINE_AFTER_SIGN_IN && e instanceof Unreachable && c.claimed_at && (await keyStillSaved(c.key, since))) pass(c, null, true);
       return;
     }
-    if (r.status === 401) return await removeCredential(); // the key was revoked: signed out
-    if (r.wallet?.claim_state === "claimed") { await signedIn(c, r.wallet); return; }
-    if (r.wallet && c.claimed_at) await writeCredential({ ...c, claimed_at: null }); // signed out on publik
+    if (!(await keyStillSaved(c.key, since))) return; // signed out while publik answered: write nothing
+    if (r.gone) return await removeCredential(); // the key was revoked: signed out
+    if (r.wallet?.claim_state === "claimed") { await signedIn(c, r.wallet, since); return; }
+    if (r.wallet && c.claimed_at) await writeIfStillSaved({ ...c, claimed_at: null }, since); // signed out on publik
   } catch {
     // A file could not be read or written: the phone stays signed out.
   } finally {
@@ -406,9 +459,12 @@ async function resumeSession(): Promise<void> {
   }
 }
 
-async function signedIn(c: PublikCredential, w: Wallet): Promise<"signed_in"> {
+/** The wallet says "claimed": saves the sign-in time (best effort) and starts the session, unless the key is gone since `since`. */
+async function signedIn(c: PublikCredential, w: Wallet, since: number): Promise<"signed_in" | "cancelled"> {
+  if (!(await keyStillSaved(c.key, since))) return "cancelled"; // Sign out or Delete account ran meanwhile
   const signed = c.claimed_at ? c : { ...c, claimed_at: new Date().toISOString() };
   if (!c.claimed_at) await quietly(writeCredential(signed)); // best effort: only the offline pass needs it
+  if (forgets !== since) return "cancelled";
   pass(signed, w, false);
   return "signed_in";
 }
@@ -417,28 +473,39 @@ async function signedIn(c: PublikCredential, w: Wallet): Promise<"signed_in"> {
  * Settings > "Sign in with publik" (optional mode). Gets this phone's key when it has none (POST /installs),
  * opens the sign-in page in the in-app browser, then checks GET /wallet every 3 s for up to 10 minutes, and at
  * once when the app comes back to the front. "signed_in": usage counting starts now. "cancelled": `signal`
- * aborted. Throws a readable message when publik cannot set up the phone or does not answer.
+ * aborted, or Sign out or Delete account ran meanwhile (then nothing is written). Throws a readable message
+ * when publik cannot set up the phone or does not answer.
  */
 export async function signIn(opts: { signal: AbortSignal; onWaiting?: () => void }): Promise<SignInResult> {
   const { signal } = opts;
-  for (let attempt = 0; ; attempt++) {
-    const c = (await readCredential()) ?? (await provision());
-    if (signal.aborted) return "cancelled";
-    const r = await readWallet(c.key);
-    if (r.status === 401 && attempt === 0) { await removeCredential(); continue; } // a revoked key: get a new one
-    if (!r.wallet) throw new Error(r.message ?? `publik answered ${r.status}.`);
-    if (r.wallet.claim_state === "claimed") return signedIn(c, r.wallet);
-    if (signal.aborted) return "cancelled";
-    await host.openUrl({ url: r.wallet.claim_url ?? c.claim_url ?? `${ORIGIN}/wallet` });
-    opts.onWaiting?.();
-    for (const end = Date.now() + POLL_LIMIT_MS; ; ) {
-      await nap(POLL_MS, signal);
+  const since = forgets;
+  try {
+    for (let attempt = 0; ; attempt++) {
+      const c = (await readCredential()) ?? (await provision());
       if (signal.aborted) return "cancelled";
-      const w = await readWallet(c.key).then((x) => x.wallet, () => null);
+      const r = await readWallet(c.key);
+      if (!(await keyStillSaved(c.key, since))) return "cancelled"; // signed out while publik answered: write nothing
+      if (r.gone && attempt === 0) { await removeCredential(); continue; } // a revoked key: get a new one
+      if (!r.wallet) throw new Error(r.message ?? `publik answered ${r.status}.`);
+      if (r.wallet.claim_state === "claimed") return await signedIn(c, r.wallet, since);
       if (signal.aborted) return "cancelled";
-      if (w?.claim_state === "claimed") return signedIn(c, w);
-      if (Date.now() >= end) return "timeout";
+      // Only publik's claim page opens here: never the wallet page, which sells plans.
+      const claimUrl = r.wallet.claim_url ?? c.claim_url;
+      if (!claimUrl) throw new Error(NO_SIGN_IN_LINK);
+      await host.openUrl({ url: claimUrl });
+      opts.onWaiting?.();
+      for (const end = Date.now() + POLL_LIMIT_MS; ; ) {
+        await nap(POLL_MS, signal);
+        if (signal.aborted) return "cancelled";
+        const w = await readWallet(c.key).then((x) => x.wallet, () => null);
+        if (signal.aborted) return "cancelled";
+        if (w?.claim_state === "claimed") return await signedIn(c, w, since);
+        if (Date.now() >= end) return "timeout";
+      }
     }
+  } catch (e) {
+    if (e instanceof SignedOut) return "cancelled";
+    throw e;
   }
 }
 
@@ -448,6 +515,7 @@ export async function signIn(opts: { signal: AbortSignal; onWaiting?: () => void
  * REVOKE_TIMEOUT_MS). Throws when a file could not be deleted.
  */
 async function forget(names: PublikFileName[]): Promise<void> {
+  forgets++; // first, before any wait: a wallet check that is waiting for publik now writes nothing
   const c = await readCredential();
   const kept: PublikFileName[] = [];
   for (const name of names) if (!(await host.removeFile({ name }).catch(() => false))) kept.push(name);
@@ -455,7 +523,7 @@ async function forget(names: PublikFileName[]): Promise<void> {
   session = null;
   notify();
   if (c) await within(call("POST", endpoint("/api/v1/installs/revoke"), { key: c.key, timeoutMs: REVOKE_TIMEOUT_MS }).catch(() => undefined), REVOKE_TIMEOUT_MS + 500);
-  if (kept.length) throw new Error("kneecap could not delete its publik data on this phone. Try again.");
+  if (kept.length) throw new Error("publik kneecap could not delete its publik data on this phone. Try again.");
 }
 
 /**
@@ -508,7 +576,7 @@ export async function usageCounting(): Promise<{ on: boolean; locked: boolean }>
 }
 /** The Settings switch: saves the choice in consent.json ("usage": true or false) and stops or starts counting at once. */
 export async function setUsageCounting(on: boolean): Promise<void> {
-  if (!(await host.writeFile({ name: "consent.json", text: `${JSON.stringify({ usage: on })}\n` }))) throw new Error("kneecap could not save this setting.");
+  if (!(await host.writeFile({ name: "consent.json", text: `${JSON.stringify({ usage: on })}\n` }))) throw new Error("publik kneecap could not save this setting.");
   if (!on) stopTelemetry();
   else if (session) startTelemetry({ opened: false });
 }

@@ -17,13 +17,13 @@ export const FONT_SIZE_SCALE_REFERENCE = 90;
  * scaledFontSize/fontSize, which silently turned a preset's `6` into 33%
  * of the font size and buried exported captions in black.)
  *
- * MEASURED, not guessed: CapCut Web's text stroke defaults to Size 40
+ * MEASURED, not guessed: the reference web editor's text stroke defaults to Size 40
  * (of 100), which pixel-analysis of their canvas put at ~13px of visible
  * outline on a ~135px cap height — a heavy poster outline, ~10% of the
  * font size per side (~20% total). That is their DEFAULT-when-enabled;
  * the founder asked for a THIN border, so this ships at 2% total (~1%
  * per side, since a stroke straddles the glyph outline): a crisp
  * legibility edge, not a sticker outline. The Border slider reaches
- * CapCut's own weight.
+ * the reference editor's weight.
  */
 export const DEFAULT_TEXT_BORDER_WIDTH = 2;

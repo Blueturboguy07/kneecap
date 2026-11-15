@@ -7,7 +7,7 @@
  * sine-wave tone, encoded as a 16-bit PCM WAV and embedded as a `data:`
  * URI at module load — genuinely zero network, works fully offline, and
  * needs no binary asset files checked into the repo. This is NOT a clone of
- * any CapCut sound (CapCut's actual bundled library is not reproducible
+ * any other app's sound (another app's bundled library is not reproducible
  * from public research) — it is placeholder-quality local content that
  * proves the real mechanism: `AudioElement` with `sourceType: "library"`
  * and a `sourceUrl` that resolves without ever touching the network.

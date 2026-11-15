@@ -35,11 +35,5 @@ export default function sitemap(): MetadataRoute.Sitemap {
 			changeFrequency: "monthly",
 			priority: 0.5,
 		},
-		{
-			url: `${SITE_URL}/why-not-capcut`,
-			lastModified: new Date(),
-			changeFrequency: "yearly",
-			priority: 1,
-		},
 	];
 }

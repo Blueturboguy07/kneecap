@@ -16,9 +16,9 @@
  * v1's single source of truth for how generated-content styling reaches a
  * native mapper).
  *
- * `kneecap-cyan` is the one preset that is NOT a CapCut lookalike on purpose —
+ * `kneecap-cyan` is the one preset that is NOT a reference-editor lookalike on purpose —
  * plan §8.0 item 3 (UI target) calls out `#00CAE0` as an in-scope kneecap
- * brand token even under full pixel fidelity to CapCut's own chrome; a
+ * brand token even under full pixel fidelity to the reference editor's chrome; a
  * cyan-highlight karaoke preset is a legitimate place to use it since preset
  * *choices* (as opposed to the app's chrome) were never part of the pixel-op
  * fidelity target to begin with.

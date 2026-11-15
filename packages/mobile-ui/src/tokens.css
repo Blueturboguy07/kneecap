@@ -1,6 +1,6 @@
 /* Albert Sans — the editor's DEFAULT text/caption face (round 31).
- * CapCut Web's "Default" font is literally Albert Sans (verified live:
- * adding default text fetches AlbertSansLatin.woff2 from their CDN), and
+ * The reference web editor's "Default" font is Albert Sans (verified live:
+ * adding default text fetches AlbertSansLatin.woff2 from its CDN), and
  * the community-identified "Proxima Nova" answer matches — Albert Sans is
  * the OFL near-equivalent. SIL OFL licensed; see
  * public/fonts/local/OFL-AlbertSans.txt. Served same-origin, no network. */
@@ -21,16 +21,16 @@
 
 
 /*
- * kneecap mobile-ui — CapCut MOBILE design tokens
+ * kneecap mobile-ui — kneecap MOBILE design tokens
  * Plan M6b (opencut-mobile-port.md), track B1: FULL pixel fidelity.
  *
  * FOUNDER DIRECTIVE (overrides corpus 06 §7.3's own default proposal):
- * this track ships CapCut's *actual* measured tokens, including the real
+ * this track ships the reference editor's *actual* measured tokens, including the real
  * cyan #00CAE0 — only the app name (kneecap), icon, and splash screen are
  * original. Do not swap --cc-accent for a trade-dress color on this track.
  *
  * Every value below carries a provenance comment:
- *   MEASURED <confidence>  — pixel-sampled from real CapCut iOS App Store
+ *   MEASURED <confidence>  — pixel-sampled from real reference-editor iOS App Store
  *                            screenshots (corpus 06, cross-checked this
  *                            session — see the two re-verifications noted
  *                            inline).
@@ -45,12 +45,12 @@
  *                            a claimed measurement — treat every one of
  *                            these as provisional.
  *
- * Source: /Users/mannbellani/opencut-research/06-capcut-ui-visual.md
- *         /Users/mannbellani/opencut-research/04-capcut-ui-inventory.md
- *         /Users/mannbellani/opencut-research/iphone_shots/ip_1..10.jpg
+ * Source: research corpus 06 (UI visual notes, kept outside the repo)
+ *         research corpus 04 (UI inventory notes, kept outside the repo)
+ *         reference screenshots ip_1..10 (kept outside the repo)
  *
  * Scoped under [data-kneecap-theme="kneecap-mobile"] rather than merged into
- * apps/web's own `.dark` theme — CapCut mobile chrome is dark-only (no
+ * apps/web's own `.dark` theme — the reference mobile chrome is dark-only (no
  * light-mode evidence in any of the 10 screenshots) and must not shift with
  * the desktop editor's light/dark toggle.
  */
@@ -81,7 +81,7 @@
 	/* MEASURED high confidence — corpus 06 §2.1: isolated pixel sample off
 	   inactive tab labels in ip_1.jpg, rgb(139,138,144). Near-identical to
 	   iOS systemGray (#8E8E93) — corroborating, not coincidental (see report
-	   §3): safe to keep verbatim, it's Apple's color, not CapCut's own. */
+	   §3): safe to keep verbatim, it's Apple's color, not the reference editor's own. */
 	--cc-text-secondary: #8b8a90;
 	/* DERIVED — no disabled-state screenshot exists to measure from.
 	   [NEEDS-CAPTURE] real disabled-state treatment. */
@@ -101,7 +101,7 @@
 	--cc-accent-active: #00a8ba;
 	/* DERIVED — ink color for text/icons placed on top of --cc-accent.
 	   Near-black reads correctly on #00CAE0 (contrast-checked, see
-	   src/__tests__/contrast-audit.test.ts); CapCut's own on-accent ink
+	   src/__tests__/contrast-audit.test.ts); the reference editor's on-accent ink
 	   was not independently isolated in any screenshot. */
 	--cc-accent-contrast: #04181a;
 	/* MEASURED medium confidence — sampled this session directly from the
@@ -111,7 +111,7 @@
 	   down). Cluster centered on rgb(136,0,232)/rgb(136,8,224). */
 	--cc-badge-pro: #8800e8;
 	/* WEB-Secondary (round 47) — every 2026 keyframe tutorial describes
-	   CapCut's on-clip keyframe marker as "a small red diamond" and its
+	   the reference editor's on-clip keyframe marker as "a small red diamond" and its
 	   armed keyframe button as red; no capture isolates the exact hex.
 	   [NEEDS-CAPTURE] real value; chosen as a saturated red that clears
 	   AA on both the raised and base surfaces (see contrast-audit). */
@@ -144,8 +144,8 @@
 	   OFL, zero remote requests) — corpus 06 §7.2 recommendation: metrically
 	   close to both SF Pro and Roboto, has tabular figures for timecodes,
 	   one file covers the bold-active/regular-inactive tab pattern seen in
-	   every screenshot. Do NOT use Filson Pro or Nexa (06 §7.2: the CapCut
-	   wordmark's own fonts are commercial and third-party-sourced only). */
+	   every screenshot. Do NOT use Filson Pro or Nexa (06 §7.2: the reference
+	   editor's wordmark fonts are commercial and third-party-sourced only). */
 	--cc-font-ui: "Inter", -apple-system, system-ui, sans-serif;
 	--cc-font-weight-active: 600;
 	--cc-font-weight-inactive: 400;
@@ -171,17 +171,17 @@
 	   sample; generalizing across every icon context is not claimed. */
 	--cc-icon-size-menu-grid: 28px;
 	/* DESIGN DECISION, not a measurement — corpus 06 §7.1: Lucide's default
-	   2px/24px stroke (~8.3%) is bumped toward CapCut's measured ~11.8%
-	   stroke-to-size ratio (06 §4) without tracing CapCut's actual icon
+	   2px/24px stroke (~8.3%) is bumped toward the reference editor's measured ~11.8%
+	   stroke-to-size ratio (06 §4) without tracing that editor's actual icon
 	   shapes. Applied as `strokeWidth={CC_ICON_STROKE}` in JS/TS, kept here
 	   too for any CSS-driven SVG consumers. */
 	--cc-icon-stroke: 2.5;
 
-	/* ======================= Touch targets (platform, not CapCut) ======================= */
-	/* Corpus 06 §5 explicit: CapCut's own touch-target sizes are not
+	/* ======================= Touch targets (platform, not reference) ======================= */
+	/* Corpus 06 §5 explicit: the reference editor's touch-target sizes are not
 	   measurable from marketing composites (arbitrarily scaled). These are
 	   platform HIG/Material minimums, used as the floor for every
-	   interactive element in this kit — not a CapCut-specific figure. */
+	   interactive element in this kit — not a reference-editor-specific figure. */
 	--cc-touch-target-ios: 44px;
 	--cc-touch-target-android: 48px;
 
@@ -190,7 +190,7 @@
 	   unobstructed timeline screenshot was available"; "Bottom toolbar
 	   height — Unknown — same limitation." Every value below is a
 	   reasonable placeholder sized off --cc-touch-target-ios /
-	   --cc-icon-size-toolbar / --cc-text-label, not a CapCut measurement. */
+	   --cc-icon-size-toolbar / --cc-text-label, not a reference-editor measurement. */
 	--cc-toolbar-height: 64px;
 	--cc-subtoolbar-height: 48px;
 	--cc-track-height: 48px;
@@ -209,7 +209,7 @@
 	   distinguished" but no screenshot gives clean per-track-type color
 	   swatches to measure (same marketing-composite limitation as radii
 	   above). These are a self-consistent palette built from the measured
-	   --cc-accent/--cc-badge-pro hues plus neutral tones, not CapCut pixel
+	   --cc-accent/--cc-badge-pro hues plus neutral tones, not reference-editor pixel
 	   reads — flagged [NEEDS-CAPTURE] for the M6a session same as the rest
 	   of this file's un-measurable metrics. */
 	--cc-track-color-main: #3a3a3a;
@@ -218,7 +218,7 @@
 	--cc-track-color-sticker: #4a2f4a;
 	--cc-track-color-audio: #1f3d33;
 	/* MEASURED medium-high confidence — corpus 05 §2a: "the selected clip
-	   has a white border around it," multiple independent CapCut-specific
+	   has a white border around it," multiple independent reference-editor-specific
 	   sources. Exact stroke width is [NEEDS-CAPTURE] (05 §2a: "Low
 	   confidence for exact stroke width/color token"); 2px is a readable,
 	   platform-reasonable placeholder pending the capture session. */
@@ -226,7 +226,7 @@
 	/* DESIGN DECISION — corpus 05 §2b confirms oversized trim-handle hit
 	   areas as a documented-good-practice pattern (img.ly teardown,
 	   "more than twice as wide as the visual appearance suggests"), not a
-	   CapCut pixel measurement. Applied as extra invisible hit padding
+	   reference-editor pixel measurement. Applied as extra invisible hit padding
 	   beyond the visible handle width below. */
 	--cc-clip-handle-visible-width: 6px;
 	--cc-clip-handle-hit-width: 24px;
@@ -237,7 +237,7 @@
 	--cc-transition-square-size: 20px;
 
 	/* ================================ Spacing ================================ */
-	/* Not independently CapCut-measured; a standard 4px rhythm consistent
+	/* Not independently measured; a standard 4px rhythm consistent
 	   with the icon/radius sizes that ARE measured above. */
 	--cc-space-1: 4px;
 	--cc-space-2: 8px;

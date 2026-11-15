@@ -392,8 +392,8 @@ export function getCaptionBorderEnabled({ editor }: { editor: EditorCore }): boo
 }
 
 /** Flips the thin black border on EVERY caption in one undoable patch.
- *  DEFAULT_TEXT_BORDER_WIDTH is CapCut's own default border weight
- *  (pixel-measured on capcut.com — see the constant's doc comment). */
+ *  DEFAULT_TEXT_BORDER_WIDTH is the reference editor's default border weight
+ *  (pixel-measured — see the constant's doc comment). */
 export function setCaptionBorderEnabled({
 	editor,
 	enabled,

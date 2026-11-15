@@ -19,7 +19,7 @@ import Foundation
 /// media is shortened — the overlap comes entirely from where `B` starts,
 /// never from cutting frames out of `A`. This is why `insertDuration(i)`
 /// below is always the clip's full nominal `durationTicks`: only
-/// `insertStart` ever moves. This matches how CapCut/most consumer NLEs
+/// `insertStart` ever moves. This matches how most consumer NLEs
 /// present a transition dragged onto a cut — it "eats into" existing
 /// footage on both sides, costs no extra source frames, and the total
 /// exported duration shrinks by `d` per transition versus naive

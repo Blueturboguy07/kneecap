@@ -13,10 +13,10 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 /**
  * Full-bleed export/transcode progress overlay. [NEEDS-CAPTURE]: no
- * screenshot in the corpus shows CapCut's actual export-in-progress
+ * screenshot in the corpus shows the reference editor's actual export-in-progress
  * treatment (corpus 04 §5 flags the whole mobile export sheet as thinly
  * documented). This is a generic, functionally-reasonable circular-progress
- * placeholder built from this kit's own tokens, not a CapCut measurement.
+ * placeholder built from this kit's own tokens, not a reference-editor measurement.
  */
 export function ProgressOverlay({ percent, label, onCancel, className }: ProgressOverlayProps) {
 	const clamped = Math.max(0, Math.min(100, percent));

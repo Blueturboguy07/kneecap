@@ -6,8 +6,10 @@
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
+	<!-- The home-screen label stays short ("publik kneecap" would be cut off under the icon).
+	     The App Store and in-app name is "publik kneecap" (founder decision, Nov 14 2026). -->
 	<key>CFBundleDisplayName</key>
-        <string>kneecap</string>
+	<string>kneecap</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +17,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<string>publik kneecap</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

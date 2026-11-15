@@ -1,6 +1,6 @@
 /**
  * Magnetic snapping (plan M7 item 5 / M5 item 3 / corpus 05 §3a). Anchor
- * set: other clip edges (across all tracks — the CapCut-specific sources
+ * set: other clip edges (across all tracks — the reference-editor sources
  * confirm clip-to-clip and clip-to-project-bounds; clip-to-playhead is
  * carried in per corpus 05's own "Medium confidence, architecturally
  * standard" read, §3a), the playhead, and the timeline start/end bounds.
@@ -43,7 +43,7 @@ export function buildSnapTargets({
  * Resolves `candidateSec` to the nearest target within `thresholdSec`, or
  * returns it unchanged if nothing is close enough. Ties are broken by
  * target order (first-built wins), which in practice means clip edges beat
- * playhead/bounds when equidistant — a reasonable default, not a CapCut-
+ * playhead/bounds when equidistant — a reasonable default, not a reference-
  * confirmed tie-break rule (source is silent on this).
  */
 export function resolveSnap({

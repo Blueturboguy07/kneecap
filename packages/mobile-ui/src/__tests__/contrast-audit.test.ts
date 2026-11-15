@@ -27,7 +27,7 @@ export function contrastRatio({ fgHex, bgHex }: { fgHex: string; bgHex: string }
 	return (lighter + 0.05) / (darker + 0.05);
 }
 
-describe("CapCut-mobile token contrast audit (plan M6 exit criterion)", () => {
+describe("kneecap mobile token contrast audit (plan M6 exit criterion)", () => {
 	for (const pair of CONTRAST_PAIRS) {
 		test(`${pair.name} meets WCAG AA (>= ${pair.minRatio}:1)`, () => {
 			const ratio = contrastRatio({ fgHex: pair.fg, bgHex: pair.bg });

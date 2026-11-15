@@ -27,8 +27,8 @@
 }
 
 /* Albert Sans — the editor's DEFAULT text/caption face (round 31).
- * CapCut Web's "Default" font is literally Albert Sans (verified live:
- * adding default text fetches AlbertSansLatin.woff2 from their CDN), and
+ * The reference web editor's "Default" font is Albert Sans (verified live:
+ * adding default text fetches AlbertSansLatin.woff2 from its CDN), and
  * the community-identified "Proxima Nova" answer matches — Albert Sans is
  * the OFL near-equivalent. SIL OFL licensed; see
  * public/fonts/local/OFL-AlbertSans.txt. Served same-origin, no network. */

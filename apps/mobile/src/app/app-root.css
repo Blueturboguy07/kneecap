@@ -165,7 +165,7 @@ body {
 
 /* 3:4 thumbnail frame. Project thumbnails render at canvas size — mostly
    9:16 on mobile — so `cover` trims a sliver top/bottom rather than
-   letterboxing; a landscape project gets centre-cropped, like CapCut. */
+   letterboxing; a landscape project gets centre-cropped. */
 .kc-home__thumb-frame {
 	position: relative;
 	display: block;
@@ -194,7 +194,7 @@ body {
 	background: var(--cc-surface-raised, #262626);
 }
 
-/* CapCut's duration pill: bottom-left of the thumbnail. */
+/* The duration pill: bottom-left of the thumbnail. */
 .kc-home__duration {
 	position: absolute;
 	left: 8px;

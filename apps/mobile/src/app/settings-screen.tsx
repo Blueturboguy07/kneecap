@@ -21,6 +21,7 @@ import { getPublikHost } from "@kneecap/native-bridge/publik-host";
 import { useEffect, useRef, useState } from "react";
 import { LicensesScreen } from "./licenses-screen";
 import {
+	APP_VERSION,
 	DELETE_ACCOUNT_URL,
 	deletePublikData,
 	getStatus,
@@ -75,6 +76,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 			});
 			if (result === "signed_in") setNote(null);
 			if (result === "timeout") setNote("No sign-in after 10 minutes. Tap Sign in with publik to try again.");
+			if (result === "cancelled") setNote(null);
 		} catch (err) {
 			setNote(messageOf(err));
 		} finally {
@@ -87,8 +89,8 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 		if (busy) return;
 		const question =
 			status.mode === "required"
-				? "Sign out of publik? kneecap needs a publik sign-in, so it shows Sign in with publik next."
-				: "Sign out of publik? kneecap keeps working. Usage counting stops.";
+				? "Sign out of publik? publik kneecap needs a publik sign-in, so it shows Sign in with publik next."
+				: "Sign out of publik? publik kneecap keeps working. Usage counting stops.";
 		if (!window.confirm(question)) return;
 		setBusy(true);
 		setNote("Signing out…");
@@ -110,8 +112,8 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 		if (busy) return;
 		const question =
 			"Delete your publik account?\n\n" +
-			"This deletes the account for every publik app, not only kneecap. Your projects and videos on this phone stay.\n\n" +
-			"kneecap now deletes its publik data on this phone. Then the publik page opens, where you confirm the deletion.";
+			"This deletes the account for every publik app, not only publik kneecap. Your projects and videos on this phone stay.\n\n" +
+			"publik kneecap now deletes its publik data on this phone. Then the publik page opens, where you confirm the deletion.";
 		if (!window.confirm(question)) return;
 		setBusy(true);
 		setNote("Deleting your publik data on this phone…");
@@ -196,8 +198,8 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 					</p>
 					<p className="kc-settings__hint">
 						{status.mode === "optional"
-							? "Sign-in is optional. kneecap works without an account."
-							: "kneecap uses your publik account."}
+							? "Sign-in is optional. publik kneecap works without an account."
+							: "publik kneecap uses your publik account."}
 					</p>
 				</section>
 				<section className="kc-settings__section" aria-labelledby="kc-settings-usage">
@@ -215,13 +217,14 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 						</label>
 					</div>
 					<p className="kc-settings__hint">
-						When you are signed in, kneecap tells publik when the app opens, and every 30 minutes while it stays
+						When you are signed in, publik kneecap tells publik when the app opens, and every 30 minutes while it stays
 						open. It sends no videos, photos or project data.
 					</p>
 				</section>
 				<section className="kc-settings__section" aria-labelledby="kc-settings-about">
 					<h2 id="kc-settings-about">About</h2>
 					<div className="kc-settings__group">
+						<p className="kc-settings__row kc-settings__row--text">publik kneecap {APP_VERSION}</p>
 						<button type="button" className="kc-settings__row" onClick={() => setPage("licenses")}>
 							<span>Licenses</span>
 							<span aria-hidden="true">›</span>

@@ -58,6 +58,12 @@ function phone(settings: PublikLaunch["settings"] = {}) {
 		hangRevoke: false,
 		/** How many more file writes work; then writeFile answers false. */
 		writesLeft: Number.POSITIVE_INFINITY,
+		/** POST /installs answers these first, in order (then the normal 201). */
+		installsAnswers: [] as Array<{ status: number; data: unknown }>,
+		/** GET /wallet waits for this promise before it answers (a slow network). */
+		walletHold: null as Promise<void> | null,
+		/** false: the answers carry no claim_url. */
+		claimUrl: true,
 	};
 	const host: PublikHost = {
 		async launch() {
@@ -72,14 +78,17 @@ function phone(settings: PublikLaunch["settings"] = {}) {
 			const path = new URL(req.url).pathname;
 			if (path.endsWith("/installs/revoke")) return server.hangRevoke ? new Promise<never>(() => {}) : { status: 204, data: "" };
 			if (path.endsWith("/installs")) {
+				const next = server.installsAnswers.shift();
+				if (next) return next;
 				if (server.installsStatus !== 201) return { status: server.installsStatus, data: { error: { type: "invalid_app_token", message: "This app token is not valid." } } };
 				const sent = JSON.parse(req.body ?? "{}") as { install_id: string };
-				return { status: 201, data: { key: "pk_live_gatetest", install_id: sent.install_id, claim_url: `${ORIGIN}/claim/abc`, claim_state: "anonymous" } };
+				return { status: 201, data: { key: "pk_live_gatetest", install_id: sent.install_id, claim_url: server.claimUrl ? `${ORIGIN}/claim/abc` : null, claim_state: "anonymous" } };
 			}
 			if (path.endsWith("/wallet")) {
+				if (server.walletHold) await server.walletHold;
 				if (server.walletStatus !== 200) return { status: server.walletStatus, data: { error: { type: "invalid_key", message: "This key is not valid." } } };
 				const w = server.wallets.length > 1 ? server.wallets.shift()! : server.wallets[0]!;
-				return { status: 200, data: { ...w, claim_url: `${ORIGIN}/claim/abc`, top_up_url: `${ORIGIN}/wallet?top_up=1`, linked_at: null } };
+				return { status: 200, data: { ...w, claim_url: server.claimUrl ? `${ORIGIN}/claim/abc` : null, top_up_url: `${ORIGIN}/wallet?top_up=1`, linked_at: null } };
 			}
 			if (path.endsWith("/telemetry")) return { status: 204, data: "" };
 			return { status: 404, data: {} };
@@ -611,5 +620,191 @@ describe("store review: the usage timer in the background (item 8)", () => {
 		await gate.signOut();
 		p.comeToFront();
 		expect(gate._telemetryTimerRunning()).toBe(false);
+	});
+});
+
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const installIds = (p: ReturnType<typeof phone>) => installs(p).map((r) => r.body!.install_id as string);
+const REVOKED_INSTALL = {
+	status: 403,
+	data: { error: { type: "install_revoked", message: "This install was disconnected by its owner. Provision a new install.", reprovision: false } },
+};
+/** Records each screen and ends the gate at the first one. */
+function stopAtFirstScreen() {
+	const shown: GateScreen[] = [];
+	return { shown, ui: { show: (s: GateScreen) => (shown.push(s), Promise.reject(new Error("stop"))), openUrl: () => undefined } };
+}
+
+describe("founder checks, Nov 14: the defects found in a sister app", () => {
+	it("(a) POST /installs 403 install_revoked: ONE new install with a new UUID, then the sign-in screen (no token error)", async () => {
+		const p = phone();
+		p.server.installsAnswers = [REVOKED_INSTALL];
+		const { ui, seen } = scriptedUI(p, { [WORDS.title]: WORDS.signInButton });
+		await expect(gate.ensureSignedIn(ui, p.host)).rejects.toThrow("gave up");
+		const ids = installIds(p);
+		expect(ids).toHaveLength(2);
+		expect(ids.every((id) => UUID_V4.test(id))).toBe(true);
+		expect(ids[0]).not.toBe(ids[1]);
+		expect(seen.every((s) => s.id === "sign_in")).toBe(true);
+		expect(JSON.parse(p.files.get("apps/kneecap.json")!)).toMatchObject({ key: "pk_live_gatetest", install_id: ids[1] });
+	});
+
+	it("(a) the self-test with a saved install that its owner revoked gets ONE new install, not an error", async () => {
+		const p = phone({ PUBLIK_SELF_TEST: "1" });
+		p.files.set("apps/kneecap.json", JSON.stringify({ key: "pk_live_old", install_id: "11111111-1111-4111-8111-111111111111", claim_url: null }));
+		p.server.installsAnswers = [REVOKED_INSTALL];
+		void gate.ensureSignedIn(scriptedUI(p).ui, p.host);
+		for (let i = 0; i < 50 && p.selfTest.length === 0; i++) await tick(5);
+		expect(p.selfTest).toEqual(["publik self-test: ok kneecap 1.0.1"]);
+		const ids = installIds(p);
+		expect(ids).toHaveLength(2);
+		expect(ids[0]).toBe("11111111-1111-4111-8111-111111111111");
+		expect(ids[1]).not.toBe(ids[0]);
+		expect(UUID_V4.test(ids[1]!)).toBe(true);
+	});
+
+	it("(a) a second install_revoked stops after ONE new install and shows the error with Retry", async () => {
+		const p = phone();
+		p.server.installsAnswers = [REVOKED_INSTALL, REVOKED_INSTALL, REVOKED_INSTALL];
+		const { shown, ui } = stopAtFirstScreen();
+		await expect(gate.ensureSignedIn(ui, p.host)).rejects.toThrow("stop");
+		expect(installs(p)).toHaveLength(2);
+		expect(shown[0]).toMatchObject({ id: "unreachable", body: "publik could not set up this phone.", buttons: [{ action: "retry" }] });
+	});
+
+	it("(b) never reuses a saved install ID when no key is saved with it", async () => {
+		const p = phone();
+		p.files.set("apps/kneecap.json", JSON.stringify({ install_id: "22222222-2222-4222-8222-222222222222", claim_url: null }));
+		p.server.wallets = [claimed];
+		await gate.ensureSignedIn(scriptedUI(p).ui, p.host);
+		const ids = installIds(p);
+		expect(ids).toHaveLength(1);
+		expect(ids[0]).not.toBe("22222222-2222-4222-8222-222222222222");
+		expect(UUID_V4.test(ids[0]!)).toBe(true);
+	});
+
+	/** Optional mode: a phone that signed in on an earlier run (the key file has claimed_at). */
+	async function signedInBefore() {
+		const p = phone();
+		p.server.wallets = [claimed];
+		await gate.startPublik(noScreen, p.host, "optional");
+		expect(await gate.signIn({ signal: new AbortController().signal })).toBe("signed_in");
+		await tick();
+		gate._resetForTests();
+		p.requests.length = 0;
+		return p;
+	}
+
+	for (const action of ["signOut", "deletePublikData"] as const) {
+		it(`(b) ${action} while the start check waits for GET /wallet: the late "claimed" writes nothing and starts no session`, async () => {
+			const p = await signedInBefore();
+			let answer!: () => void;
+			p.server.walletHold = new Promise<void>((resolve) => (answer = resolve));
+			await gate.startPublik(noScreen, p.host, "optional");
+			await tick();
+			expect(gate.getStatus().checking).toBe(true);
+			await gate[action]();
+			expect(p.files.has("apps/kneecap.json")).toBe(false);
+			answer(); // publik answers "claimed" after the sign-out
+			await tick(50);
+			expect(p.files.has("apps/kneecap.json")).toBe(false);
+			expect(gate.getStatus()).toMatchObject({ signedIn: false, checking: false });
+			expect(telemetry(p)).toEqual([]);
+			expect(gate._telemetryTimerRunning()).toBe(false);
+		});
+	}
+
+	it("(b) Delete account while the start check waits and publik then fails: no offline pass after it", async () => {
+		const p = await signedInBefore();
+		let answer!: () => void;
+		p.server.walletHold = new Promise<void>((resolve) => (answer = resolve));
+		await gate.startPublik(noScreen, p.host, "optional");
+		await tick();
+		await gate.deletePublikData();
+		p.server.walletStatus = 503; // not publik's answer: the path of the offline pass
+		answer();
+		await tick(50);
+		expect(gate.getStatus()).toMatchObject({ signedIn: false, offline: false });
+		expect(p.files.has("apps/kneecap.json")).toBe(false);
+	});
+
+	it("(c) a captive portal's page (200, not JSON) for POST /installs is 'not reachable' and saves no key", async () => {
+		const p = phone();
+		p.server.answerAll = { status: 200, data: PORTAL_PAGE };
+		const { ui, seen } = scriptedUI(p);
+		await expect(gate.ensureSignedIn(ui, p.host)).rejects.toThrow("gave up");
+		expect(paths(p).every((x) => x === "POST /api/v1/installs")).toBe(true);
+		expect(seen.every((s) => s.id === "unreachable" && s.body === WORDS.unreachable)).toBe(true);
+		expect(p.files.size).toBe(0);
+	});
+
+	it("(d) publik's JSON 403 from GET /wallet is the same as its 401: the key goes and new keys come, no offline pass", async () => {
+		const p = phone();
+		p.server.wallets = [claimed];
+		await gate.ensureSignedIn(scriptedUI(p).ui, p.host);
+		await tick();
+		gate._resetForTests();
+		p.requests.length = 0;
+		p.server.walletStatus = 403;
+		const { shown, ui } = stopAtFirstScreen();
+		await expect(gate.ensureSignedIn(ui, p.host)).rejects.toThrow("stop");
+		expect(installs(p)).toHaveLength(2); // MAX_NEW_KEYS, as after a 401
+		expect(shown[0]).toMatchObject({ id: "unreachable", body: "This key is not valid." });
+		expect(gate.getStatus().signedIn).toBe(false);
+	});
+
+	it("(d) optional mode: publik's JSON 403 at the start check signs the phone out, like a 401", async () => {
+		const p = await signedInBefore();
+		p.server.walletStatus = 403;
+		await gate.startPublik(noScreen, p.host, "optional");
+		await tick(50);
+		expect(p.files.has("apps/kneecap.json")).toBe(false);
+		expect(gate.getStatus().signedIn).toBe(false);
+	});
+
+	it("(d) a 403 without publik's JSON error is 'not reachable' (the offline pass), and the key stays", async () => {
+		const p = phone();
+		p.server.wallets = [claimed];
+		await gate.ensureSignedIn(scriptedUI(p).ui, p.host);
+		await tick();
+		gate._resetForTests();
+		p.requests.length = 0;
+		p.server.answerAll = { status: 403, data: { message: "blocked by a proxy" } };
+		expect(await gate.ensureSignedIn(scriptedUI(p).ui, p.host)).toMatchObject({ offline: true });
+		expect(installs(p)).toEqual([]);
+		expect(p.files.has("apps/kneecap.json")).toBe(true);
+	});
+});
+
+describe("founder checks, Nov 14: kneecap shows no purchase link", () => {
+	it("a signed-in phone with a plan and a balance passes with no screen and opens no page (no Get a plan, no price)", async () => {
+		const p = phone();
+		p.server.wallets = [{ ...claimed, plan: { kind: "plan", label: "Pro" }, balance_micros: 5_000_000 }];
+		const { ui, seen } = scriptedUI(p);
+		await gate.ensureSignedIn(ui, p.host);
+		expect(seen).toEqual([]);
+		expect(p.opened).toEqual([]);
+	});
+
+	it("Sign in with publik opens only the claim page; with no claim page it opens nothing (never the wallet page)", async () => {
+		const p = phone();
+		p.server.claimUrl = false;
+		const seen: GateScreen[] = [];
+		const ui = {
+			show: (s: GateScreen) => {
+				seen.push(s);
+				return s.id === "sign_in" ? Promise.resolve("sign_in" as const) : Promise.reject(new Error("stop"));
+			},
+			openUrl: (url: string) => void p.host.openUrl({ url }),
+		};
+		await expect(gate.ensureSignedIn(ui, p.host)).rejects.toThrow("stop");
+		expect(p.opened).toEqual([]);
+		expect(seen.at(-1)).toMatchObject({ id: "unreachable", body: "publik sent no sign-in link. Try again." });
+		gate._resetForTests();
+		const q = phone();
+		q.server.claimUrl = false;
+		await gate.startPublik(noScreen, q.host, "optional");
+		await expect(gate.signIn({ signal: new AbortController().signal })).rejects.toThrow("publik sent no sign-in link. Try again.");
+		expect(q.opened).toEqual([]);
 	});
 });

@@ -47,7 +47,7 @@ const coreReactFiles = ["packages/editor-core/react/**/*.ts"];
 // WITHOUT the bridge-import ban.
 const nativeBridgeFiles = ["packages/native-bridge/src/**/*.ts"];
 
-// kneecap M6: the CapCut-mobile design tokens + component kit. Unlike
+// kneecap M6: the kneecap mobile design tokens + component kit. Unlike
 // editor-core/native-bridge this package DOES render actual interactive UI
 // (buttons, sliders, tabs), so it gets the same React/JSX-a11y rule sets as
 // webFiles — but deliberately NOT `next.configs["core-web-vitals"]`: this
@@ -250,7 +250,7 @@ export default [
 
 	// --- apps/mobile (M3 shell harness — NOT the editor UI) -------------------
 	// Plain TS + DOM, no React (the harness is a throwaway proof that the
-	// bundle loads and the NativeBridge seam round-trips; the real CapCut UI
+	// bundle loads and the NativeBridge seam round-trips; the real editor UI
 	// is M6-M8 and will live elsewhere). The bridge-import ban applies here
 	// exactly as it does to apps/web/src.
 	{
@@ -334,7 +334,7 @@ export default [
 		files: nativeBridgeFiles,
 	},
 
-	// --- packages/mobile-ui (M6: CapCut-mobile tokens + component kit) -------
+	// --- packages/mobile-ui (M6: kneecap mobile tokens + component kit) -------
 	{
 		files: mobileUiFiles,
 		languageOptions: {

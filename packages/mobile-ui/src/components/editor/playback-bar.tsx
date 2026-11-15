@@ -16,11 +16,11 @@ interface PlaybackBarProps {
 }
 
 /**
- * CapCut-parity playback row, MEASURED from the founder capture
- * (docs/capcut-reference/capture-editor-toolbar-start.png): fullscreen
+ * Playback row, measured from a reference capture (not kept in the
+ * repo): fullscreen
  * expand on the left, the play/pause triangle centered, and on the right
  * the compare-with-original toggle (icon + tiny "OFF" tag) then undo/redo.
- * The timecode readout ("00:00 / 00:34") is NOT here — CapCut renders it
+ * The timecode readout ("00:00 / 00:34") is NOT here — the reference editor renders it
  * pinned top-left of the timeline area (see TimelineView's timecode
  * overlay), which is where this kit moved it in the same pass.
  *

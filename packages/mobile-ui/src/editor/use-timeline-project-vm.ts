@@ -106,7 +106,7 @@ function clipKindForElement(element: TimelineElement): TimelineClipKind {
 			// `TimelineClipVM` has no dedicated "graphic" kind.
 			return "sticker";
 		case "caption":
-			// Founder capture 2026-08-18: captions are orange blocks in CapCut,
+			// Reference capture 2026-08-18: captions are orange blocks,
 			// not text-styled clips — dedicated kind + CSS class.
 			return "caption";
 		default:

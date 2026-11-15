@@ -1,14 +1,14 @@
 import type { CcIconProps } from "./types";
 
 /**
- * AiSparkleIcon — custom-drawn, NOT traced from CapCut.
+ * AiSparkleIcon — custom-drawn from scratch, not traced from another app.
  *
  * Functional brief (corpus 06 §7.1: "the specific 'AI sparkle in a circle'
  * badge seen in ip_2.jpg's AI-prompt input field"). A four-point sparkle
  * inside a circle is a generic, industry-wide "AI/magic" glyph (used by
  * dozens of unrelated products) — drawn here as one large vertical spike
  * crossed with one small horizontal spike, the textbook twinkle
- * construction, not a copy of CapCut's specific badge artwork. Circle
+ * construction, not a copy of any app's specific badge artwork. Circle
  * outline + filled sparkle again matches this kit's "outline shell +
  * filled micro-glyph" convention.
  */

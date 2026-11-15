@@ -3,7 +3,7 @@
  *
  * kneecap M2: the engine used to `import { toast } from "sonner"` directly,
  * which is a UI dependency (and, on mobile, the wrong presentation entirely —
- * CapCut surfaces these as native-styled toasts/sheets). The engine now emits
+ * a mobile editor surfaces these as native-styled toasts/sheets). The engine now emits
  * structured notifications through this port and the host installs a renderer.
  *
  * The default sink is `console`, so the engine stays usable headlessly (tests,

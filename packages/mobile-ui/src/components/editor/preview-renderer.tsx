@@ -247,7 +247,7 @@ const DRAG_SLOP_PX = 6;
 /** One element a preview gesture writes to: the selection, or every caption
  *  when a caption is selected (they move as one). Round 47: a target that
  *  already has clip keyframes is `keyed` — the gesture then writes a
- *  keyframe at the playhead (CapCut's auto-add once a clip is keyed) instead
+ *  keyframe at the playhead (auto-add once a clip is keyed) instead
  *  of the base params, which the animation would override anyway. */
 interface GestureTarget {
 	trackId: string;

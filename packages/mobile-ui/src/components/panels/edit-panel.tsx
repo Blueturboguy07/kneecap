@@ -90,7 +90,7 @@ export function EditPanel({
 						active={maintainPitch}
 						onToggle={() => onSetSpeed({ rate, maintainPitch: !maintainPitch })}
 					/>
-					{/* CapCut-parity volume: a LINEAR percent slider 0–1000
+					{/* Volume: a LINEAR percent slider 0–1000
 					    (100 = original, 1000 = 10×) — the raw dB slider
 					    crammed the whole audible boost into its top edge and
 					    read as "won't go loud enough" (founder, 2026-08-22).

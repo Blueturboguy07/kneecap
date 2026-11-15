@@ -16,12 +16,12 @@ interface KeyframeControlProps {
 }
 
 /**
- * Round 47 — the CapCut keyframe diamond with its ‹ › neighbours, pinned
+ * Round 47 — the keyframe diamond with its ‹ › neighbours, pinned
  * top-right of the timeline area (the timecode's mirror image, top-left).
  * Placement is from tutorial descriptions ("a small diamond icon above the
  * timeline", "arrow buttons next to the keyframe icon to move back and
- * forth between keyframes"); the exact chrome is still [NEEDS-CAPTURE] in
- * docs/capcut-reference (plan M6a), same as the diamond's empty/filled
+ * forth between keyframes"); the exact chrome is still [NEEDS-CAPTURE]
+ * (plan M6a), same as the diamond's empty/filled
  * states — this ships the outline = add, filled = on-a-keyframe convention
  * `KeyframeDiamondIcon` already documents. The arrows only render once the
  * clip has a keyframe to go to, so an un-keyed clip shows the bare diamond.

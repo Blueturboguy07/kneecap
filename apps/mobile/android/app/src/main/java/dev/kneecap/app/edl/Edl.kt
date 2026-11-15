@@ -197,7 +197,7 @@ data class Edl(
 
     /** The single `kind == MAIN` track, per plan §2.3's `tracks[]` shape
      * ("main | overlay[] | audio[]") and §2.3 rule on `transitions[]`
-     * ("main track only, per CapCut"). `EdlToComposition` treats more than
+     * ("main track only"). `EdlToComposition` treats more than
      * one as a hard error rather than guessing which one is real. */
     fun mainTrack(): EdlTrack? = tracks.firstOrNull { it.kind == EdlTrackKind.MAIN }
 }

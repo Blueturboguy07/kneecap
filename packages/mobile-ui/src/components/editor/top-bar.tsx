@@ -5,7 +5,7 @@ import { cn } from "../../lib/cn";
 
 interface TopBarProps {
 	onClose?: () => void;
-	/** The "AI UHD ▾" resolution pill — in CapCut this is a quick export-
+	/** The "AI UHD ▾" resolution pill — in the reference editor this is a quick export-
 	 *  resolution control, so kneecap wires it to the export sheet (where
 	 *  resolution/fps/quality genuinely live). */
 	resolutionLabel: string;
@@ -15,11 +15,11 @@ interface TopBarProps {
 }
 
 /**
- * CapCut-parity top bar, MEASURED from the founder capture
- * (docs/capcut-reference/capture-editor-toolbar-start.png): ✕ close +
+ * Top bar, measured from a reference capture (not kept in the repo):
+ * ✕ close +
  * search on the left, then a spacer, then the dark "AI UHD ▾" resolution
  * pill and the cyan Export pill. No project title, no undo/redo up here —
- * CapCut puts undo/redo on the playback row (see playback-bar.tsx), which
+ * the reference editor puts undo/redo on the playback row (see playback-bar.tsx), which
  * is where this kit moved them in the same capture-driven pass.
  *
  * Search is parity chrome: rendered because the real bar has it, but

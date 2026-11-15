@@ -252,7 +252,7 @@ there is no `transitions` field anywhere in `timeline/types.ts`. The field is
 frozen into v1 anyway so that adding transitions later is a producer change
 rather than a schema break that invalidates both mappers. **Implement it now,
 expect `[]` until the engine grows one.** `validateEdl` already enforces the
-CapCut rule that transitions are main-track only.
+common mobile-editor rule that transitions are main-track only.
 
 **Masks are post-v1 for native export** (plan §2.3 rule 4). They are carried in
 the document so preview and export read the same graph, but `validateEdl` emits

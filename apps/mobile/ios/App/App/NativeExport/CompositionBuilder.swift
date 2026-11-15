@@ -385,7 +385,7 @@ public enum CompositionBuilder {
 		// overlay or audio clip may run past the last main clip, and the
 		// preview plays that tail (editor-core's calculateTotalDuration spans
 		// every track), so the export must too — trailing audio over the
-		// canvas background, exactly like CapCut. Using the main-track end
+		// canvas background, the common mobile-editor behavior. Using the main-track end
 		// here truncated those exports and made the output-integrity re-probe
 		// disagree with the file it had just written.
 		let mainEndTicks = placements.last?.insertEndTicks ?? 0

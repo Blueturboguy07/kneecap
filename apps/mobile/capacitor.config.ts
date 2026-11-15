@@ -3,8 +3,10 @@ import type { CapacitorConfig } from "@capacitor/cli";
 /**
  * kneecap M3 — Capacitor 8 shell config.
  *
- * appId/appName are the "original name" plan §8.2 requires (never CapCut-
- * adjacent). `webDir: "www"` is the LOCALLY BUNDLED static build the app
+ * appId is the original name plan §8.2 requires (it names no other app);
+ * appName is the App Store and in-app name "publik kneecap" (founder
+ * decision, Nov 14 2026; the home-screen label stays "kneecap", see
+ * Info.plist and strings.xml). `webDir: "www"` is the LOCALLY BUNDLED static build the app
  * ships — plan M3 item 2: "No remote loading of the editor bundle: Apple
  * 2.5.2 forbids downloading code that changes app functionality." `www/` is
  * produced by `bun run build` (Vite) from `src/`; nothing in this config
@@ -26,7 +28,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
  */
 const config: CapacitorConfig = {
 	appId: "dev.kneecap.app",
-	appName: "kneecap",
+	appName: "publik kneecap",
 	webDir: "www",
 	android: {
 		allowMixedContent: false,

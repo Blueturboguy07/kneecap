@@ -32,7 +32,7 @@ interface KeyframeGraphSheetProps {
 }
 
 /**
- * Round 47 — CapCut mobile's "Graph"/"Easing" for keyframes: presets only
+ * Round 47 — the mobile "Graph"/"Easing" for keyframes: presets only
  * (the handle-dragging graph editor is desktop-only there, per the 2026
  * tutorials; the engine's bezier handles are what the presets write, so a
  * desktop graph could edit the same data later). Applies to the segment

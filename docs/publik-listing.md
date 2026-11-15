@@ -12,6 +12,12 @@ strip anything not yet true.
 No other app's name, marks, or copyrighted assets appear anywhere below,
 per plan §8.0 item 3 / `docs/DECISIONS.md`.
 
+**App Store (founder decisions, 2026-11-14, `docs/DECISIONS.md`):** the App
+Store name is `publik kneecap` (14 characters); the home-screen label stays
+`kneecap`. Availability: all countries. The app shows no purchase link in
+any storefront. The lines below that say "not on the App Store" date from
+before this decision.
+
 ---
 
 ## Listing title

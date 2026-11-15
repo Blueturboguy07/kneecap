@@ -10,7 +10,7 @@ export const DEFAULT_CANVAS_PRESETS: TCanvasSize[] = [
 export const DEFAULT_CANVAS_SIZE: TCanvasSize = { width: 1920, height: 1080 };
 
 /**
- * CapCut-style "original" aspect adoption: the FIRST visual asset imported
+ * Mobile-editor-style "original" aspect adoption: the FIRST visual asset imported
  * into a factory-default project decides the canvas aspect ratio, so a
  * portrait phone video gets a portrait canvas instead of being letterboxed
  * into the 1920x1080 default (and exports fill the frame instead of floating

@@ -33,7 +33,7 @@
 - Consequence: a project using keyframed animation, blend modes, canvas background, or masks exports differently on Android than iOS/preview — **silently** (no parse error, fields just drop). This is precisely the cross-renderer drift the plan's golden-frame gate exists to catch, but living one level below it (the parser, not the shader).
 
 **H2. Split at a clip boundary silently no-ops.**
-- Repro: select clip, playhead at clip edge (t=0), Edit → Split. Button is enabled, nothing happens, no feedback, no error. (Mid-clip split verified working: 1→2 clips.) CapCut disables the action or toasts; kneecap does nothing.
+- Repro: select clip, playhead at clip edge (t=0), Edit → Split. Button is enabled, nothing happens, no feedback, no error. (Mid-clip split verified working: 1→2 clips.) The reference editor disables the action or toasts; kneecap does nothing.
 
 **H3. Audio clips render without waveforms.**
 - Insert "Soft Chime" from the Audio panel → audio track row appears but `.cc-timeline__waveform` is absent. The waveform component exists (M7) but the live VM path (`use-timeline-project-vm.ts`) never populates `waveformPeaks` for real audio elements — mock-data-only feature, exactly the "built against mocks, dead in the wired app" class.
@@ -58,7 +58,7 @@
 ## 3. Verified WORKING (stop re-testing these)
 
 On the pre-`760b17c7` bundle (editor was enterable), all via real interaction with console watched:
-- Home → create project → editor mounts; **all 13 toolbar items present in the captured CapCut order**, including scrolled ones.
+- Home → create project → editor mounts; **all 13 toolbar items present in the captured reference order**, including scrolled ones.
 - **Text panel**: Add text inserts a real engine element (preview span updated, clip landed on timeline, undo enabled); Bold → computed `font-weight: 700`; color swatch → computed `color: rgb(0,202,224)`.
 - **Contextual Edit panel**: Duplicate (1→2 clips), mid-clip Split (1→2), Delete (2→1 + sheet closes). Correctly shows only Split/Duplicate/Delete for a text element.
 - **Audio panel**: 4 bundled sounds listed; insert → audio track row appears, "+ Add audio" strip correctly disappears.

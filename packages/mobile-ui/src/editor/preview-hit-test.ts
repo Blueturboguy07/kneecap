@@ -160,7 +160,7 @@ function elementActiveAt({
  * screen). The returned ref targets the nominal element (same ids), which
  * is what commands operate on. When the point is inside the currently
  * SELECTED element, that wins over anything stacked on top — a selected
- * clip must stay grabbable (CapCut behavior).
+ * clip must stay grabbable (common mobile-editor behavior).
  */
 export function hitTestPreview({
 	editor,

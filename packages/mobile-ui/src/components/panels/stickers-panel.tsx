@@ -26,10 +26,10 @@ const CATEGORIES = Object.keys(STICKER_CATEGORIES)
  * M8 Stickers panel — corpus 04 §3.4: "categories rendered as tabs... tap a
  * sticker -> lands on canvas." Backed by the real `stickersRegistry`
  * (already-bundled `shapes`/`flags` providers, zero network) via
- * `browseCategory`. Not every category CapCut's own marketing copy names
+ * `browseCategory`. Not every category the reference editor's marketing copy names
  * (Emoji/GIF/Love/Funny) is bundled locally — only `flags` and `shapes`
  * are real providers in this engine today; the chip row reflects exactly
- * what's registered, not an aspirational CapCut category list.
+ * what's registered, not an aspirational reference-editor category list.
  */
 export function StickersPanel({ editor, onClose, onInserted }: StickersPanelProps) {
 	const [activeCategory, setActiveCategory] = useState<StickerCategory>(CATEGORIES[0] ?? "shapes");

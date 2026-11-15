@@ -12,7 +12,7 @@ import {
 } from "@kneecap/mobile-ui";
 
 /**
- * M7 dev harness — the CapCut-mobile timeline surface, driven by a
+ * M7 dev harness — the kneecap mobile timeline surface, driven by a
  * SYNTHETIC project matching plan M7's own exit-criterion stress scenario
  * ("a 20-clip, 5-track, 10-minute project"). Not a production route;
  * visual + interaction + rough perf QA only. Reachable at /dev/mobile-timeline.

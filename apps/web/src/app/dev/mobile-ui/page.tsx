@@ -304,7 +304,7 @@ export default function MobileUiHarnessPage() {
 				</div>
 				<div>
 					<p style={{ fontSize: 11, color: "var(--cc-text-secondary)", marginBottom: 6 }}>
-						6 custom-drawn icons (plan M6c) — never traced from CapCut
+						6 custom-drawn icons (plan M6c) — drawn from scratch, not traced from another app
 					</p>
 					<div style={{ display: "flex", gap: 16, color: "var(--cc-text-primary)" }}>
 						<KeyframeDiamondIcon />

@@ -506,7 +506,7 @@ async function driveAndSample({
 	// Audio: speakers can't be heard headlessly; the in-page evidence is a
 	// RUNNING AudioContext with opened sinks and zero failures (the test
 	// clip has an audio track). Timeline follow: the strip must have
-	// scrolled while the clock ran (CapCut fixed-playhead model — the strip
+	// scrolled while the clock ran (fixed-playhead model — the strip
 	// IS the tracking).
 	// nativeSkippedClips must be 0: a clip the router can't map is silent
 	// for the whole session (see audio-manager's tryStartNativeRoute) — the

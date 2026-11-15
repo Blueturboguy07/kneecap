@@ -3,7 +3,7 @@ import type { EffectDefinition } from "@/effects/types";
 /**
  * M8 "Adjust" panel — plan §8.4: "basic sliders in v1; HSL and curves
  * deferred." Task scope narrows this further to exactly the seven sliders
- * corpus `04` §3.8 names as the core CapCut Adjust set: brightness,
+ * corpus `04` §3.8 names as the core reference-editor Adjust set: brightness,
  * contrast, saturation, temperature, tint, sharpen, vignette.
  *
  * HONEST SCOPE NOTE: this is a real `EffectDefinition` — registered in the

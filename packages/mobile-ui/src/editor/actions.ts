@@ -198,7 +198,7 @@ export function duplicateSelected({ editor, refs }: { editor: EditorCore; refs: 
  * (trimStart/trimEnd move with the edge, so a split clip's cut-off material
  * can be pulled back out; extension stops at the real source extent).
  *
- * The MAIN track is magnetic, CapCut-style: the trimmed clip's neighbors
+ * The MAIN track is magnetic: the trimmed clip's neighbors
  * never bound the drag — instead every element at-or-after the clip's end
  * RIPPLES by the applied delta so the track stays butted. A left-edge trim
  * additionally pins the clip's startTime (the in-point changes, the clip
@@ -425,7 +425,7 @@ function computeTrimPatches({
  *
  * Free-position tracks (audio/overlay/text) slide the clip inside the gap
  * between its neighbors. The MAIN track is magnetic: the drop position only
- * decides the clip's ORDER (sorted by midpoint, CapCut reorder semantics),
+ * decides the clip's ORDER (sorted by midpoint, mobile-editor reorder semantics),
  * then the whole track re-lays out butted from 0 — which also heals any
  * gaps left by earlier deletes.
  */
@@ -543,7 +543,7 @@ function commitRebuttedMain({
 }
 
 /**
- * Hold-to-reorder commit (CapCut's long-press mode: clips collapse to
+ * Hold-to-reorder commit (long-press mode: clips collapse to
  * uniform tiles, the held one lifts, drop decides its slot). The view
  * hands over the final tile order; this re-butts the main track to it in
  * ONE undoable command. Bails on a stale order (an id missing or extra —
@@ -707,7 +707,7 @@ export function toggleReversed({ editor, ref }: { editor: EditorCore; ref: Eleme
 
 /** Ensures exactly one instance of `effectType` exists on the element,
  *  returning its effect id. Filters and Adjust are both modeled as a
- *  single instance per element (matches CapCut: picking a new filter
+ *  single instance per element (the common mobile-editor convention: picking a new filter
  *  preset replaces the current one rather than stacking). */
 export function ensureSingleEffect({
 	editor,
@@ -813,7 +813,7 @@ export function insertTextElement({
 const IMAGE_DEFAULT_DURATION_SEC = 3;
 
 /**
- * The timeline's "+" add-clip button (capture-verified CapCut chrome,
+ * The timeline's "+" add-clip button (capture-verified chrome,
  * 2026-08-18): native picker -> proxy -> asset registration via the real M4
  * import pipeline, then each imported asset is placed on the main track at
  * the playhead through the same InsertElementCommand path every other
@@ -1278,14 +1278,14 @@ export async function cutDeadSpace({
 }
 
 // -------------------------------- keyframes ---------------------------------
-// Round 47 (founder: "i want to add keyframes"). The CapCut-mobile diamond
+// Round 47 (founder: "i want to add keyframes"). The mobile keyframe diamond
 // over the engine's per-property keyframe commands — see editor/keyframes.ts
 // for the group model. Every mutation below is one undo step: the engine
 // batches a multi-path upsert/removal into a single BatchCommand, and easing
 // goes through one UpdateElementsCommand.
 
 /** Half a frame: "the playhead is on this keyframe" tolerance. A scrubbed
- *  playhead lands on arbitrary ticks; the frame is the unit CapCut counts
+ *  playhead lands on arbitrary ticks; the frame is the unit mobile editors count
  *  in, and every keyframe this UI writes sits on the frame grid. */
 function keyframeToleranceTicks({ editor }: { editor: EditorCore }): number {
 	return frameTicksFor({ fps: editor.project.getActive().settings.fps }) / 2;
@@ -1422,7 +1422,7 @@ export function setClipKeyframeEasing({
 }
 
 /** Panel sliders for a group property (opacity today): once the clip has
- *  keyframes, a change writes a keyframe at the playhead — CapCut's
+ *  keyframes, a change writes a keyframe at the playhead — the
  *  auto-add — instead of the base param the animation would override
  *  anyway. Un-keyed clips take the plain param write. Each slider tick is
  *  one command either way, same as `setElementParam` already is. */

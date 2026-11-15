@@ -51,7 +51,7 @@ export function OverlayPanel({ editor, elementRef, element, onClose, onAddOverla
 						step={1}
 						formatValue={(v) => `${v}%`}
 						// Round 47: once the clip has keyframes this writes a
-						// keyframe at the playhead (CapCut auto-add), else the
+						// keyframe at the playhead (auto-add), else the
 						// plain base param.
 						onChange={(v) => setVisualParamKeyframeAware({ editor, ref: elementRef, key: "opacity", value: v / 100 })}
 					/>

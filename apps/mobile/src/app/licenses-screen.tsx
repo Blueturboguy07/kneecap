@@ -62,7 +62,7 @@ export function LicensesScreen({ onBack }: { onBack: () => void }) {
 			</header>
 			<div className="kc-settings__body">
 				<p className="kc-settings__hint">
-					kneecap uses this third-party software. Tap a name to read its license.
+					publik kneecap uses this third-party software. Tap a name to read its license.
 				</p>
 				{failed ? <p className="kc-settings__note">The license list did not load. Go back and try again.</p> : null}
 				{entries === null && !failed ? <p className="kc-settings__note">Loading…</p> : null}

@@ -32,7 +32,7 @@ struct FirstRunView: View {
             VStack(spacing: 24) {
                 Spacer()
 
-                Text("kneecap")
+                Text("publik kneecap")
                     .font(.system(size: 34, weight: .bold))
                     .foregroundColor(.white)
 
@@ -43,7 +43,7 @@ struct FirstRunView: View {
                     )
                     permissionRow(
                         title: "Offline by design",
-                        detail: "Editing, effects, and export all run locally — kneecap never uploads your media."
+                        detail: "Editing, effects, and export all run locally — publik kneecap never uploads your media."
                     )
                 }
                 .padding(20)
@@ -60,9 +60,8 @@ struct FirstRunView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
                         // Fixer pass: was 0x4E4AFF, a pre-B1 blue-violet
-                        // trade-dress accent written at M3, before the
-                        // ratified B1 hard directive ("full pixel fidelity
-                        // to CapCut mobile, cyan #00CAE0 in"). First-run
+                        // accent written at M3, before the ratified B1
+                        // directive (the cyan #00CAE0 accent). First-run
                         // chrome isn't in B1's splash/name/icon exception
                         // list, and packages/mobile-ui/src/tokens.css's
                         // --cc-accent has used #00CAE0 since M6 — this

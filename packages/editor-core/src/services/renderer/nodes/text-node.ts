@@ -54,7 +54,7 @@ export function renderTextToContext({
 	}
 
 	if (resolved.strokeWidth > 0) {
-		// Border under the fill (CapCut's stroke+fill model). strokeWidth is a
+		// Border under the fill (the common stroke+fill model). strokeWidth is a
 		// PERCENT of the font size — the unit CoreText's kCTStrokeWidth uses
 		// in the export, so preview and export agree at any canvas size.
 		const layout = resolved.measuredText;

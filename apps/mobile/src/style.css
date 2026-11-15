@@ -4,7 +4,7 @@
 	--panel: #1e1e1e;
 	--text: #f5f5f5;
 	--text-secondary: #8b8a90;
-	/* Deliberately NOT CapCut's #00CAE0 (plan §8.3 B2 divergence, still binding
+	/* Deliberately NOT the editor UI's #00CAE0 (plan §8.3 B2 divergence, still binding
 	 * for this harness even though the eventual editor UI target is B1 full
 	 * pixel fidelity per §8.0 item 3 — this harness is scaffolding, not the
 	 * product surface B1 governs). */

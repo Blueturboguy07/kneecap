@@ -3,14 +3,14 @@ import type { EffectDefinition } from "@/effects/types";
 /**
  * M8 "Filters" panel — corpus `04` §3.7: "categorized [filters], plus...
  * an intensity slider." Filters are modeled as ONE effect instance per
- * element (matches how CapCut's own panel behaves: picking a new preset
+ * element (matches how the reference editor's panel behaves: picking a new preset
  * replaces the current filter rather than stacking a second one) carrying
  * a `preset` selector plus an `intensity` slider.
  *
- * Preset set is a small curated local list, NOT a CapCut category taxonomy
+ * Preset set is a small curated local list, NOT a reference-editor category taxonomy
  * clone — corpus 04 §7 item 7 flags the mobile/desktop category lists as
- * conflicting and low-confidence, and corpus 04 §3.8 confirms "CapCut
- * mobile cannot import custom LUTs," so there is no LUT-import surface to
+ * conflicting and low-confidence, and corpus 04 §3.8 confirms that the
+ * reference editor's mobile app "cannot import custom LUTs," so there is no LUT-import surface to
  * replicate. Zero-cost/local-first: no remote filter packs, no CDN.
  *
  * Same honest scope note as `adjust.ts`: real, persisted, undoable effect

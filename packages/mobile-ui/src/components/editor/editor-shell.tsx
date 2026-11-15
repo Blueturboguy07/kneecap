@@ -91,7 +91,7 @@ interface EditorShellProps {
 	bootstrap?: () => Promise<unknown>;
 }
 
-/** Selected-clip actions, CapCut-style: the frequent verbs live DIRECTLY
+/** Selected-clip actions, mobile-editor style: the frequent verbs live DIRECTLY
  *  on the contextual row — Delete especially must never be two taps deep
  *  behind a sheet (founder feedback 2026-08-19: "delete not popping up is
  *  the most critical thing"). "Edit" still opens the full sheet for the
@@ -142,7 +142,7 @@ function describeDeadSpaceCut({ outcome }: { outcome: DeadSpaceCutOutcome }): st
  *  that opens the panel with their content field. */
 const EDIT_TEXT_ITEM: ToolbarItemDef = { id: "edit-text", label: "Edit text", icon: Type };
 
-/** Round 47: CapCut's "Graph" verb — keyframe easing presets — appears on
+/** Round 47: the "Graph" verb — keyframe easing presets — appears on
  *  the contextual row once the selected clip has a keyframe. */
 const GRAPH_ITEM: ToolbarItemDef = { id: "graph", label: "Graph", icon: Spline };
 
@@ -177,7 +177,7 @@ function formatTimecode(seconds: number): string {
 	return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
-/** CapCut's top-bar pill reads "AI UHD" when AI-upscaled export is armed;
+/** The reference editor's top-bar pill reads "AI UHD" when AI-upscaled export is armed;
  *  kneecap has no upscaler, so the pill honestly shows the project's real
  *  export resolution class and opens the export sheet where it's changed. */
 function resolutionLabelFor({ width, height }: { width: number; height: number }): string {
@@ -233,7 +233,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	 * but a <video>, so on iOS — half this app's target — the real API
 	 * cannot expand a composited canvas at all. A layout state works
 	 * identically on both platforms, keeps the playback bar reachable so
-	 * there is always a way back out, and is what CapCut itself does.
+	 * there is always a way back out, and is what the reference editor does.
 	 */
 	const [isPreviewFullscreen, setIsPreviewFullscreen] = useState(false);
 	/** Transient error strip for chrome-level actions that have no panel of
@@ -490,7 +490,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 						onQuickAddText={() => setActiveSheet("text")}
 						leadingChips={
 							<>
-								{/* CapCut's main-track helper chips (capture 2026-08-18).
+								{/* Main-track helper chips (capture 2026-08-18).
 								    Mute-clip-audio and AI-clipper/Cover need per-clip audio
 								    state and features outside v1 — parity chrome, tracked in
 								    docs/STATUS.md, inert rather than fake-wired. */}
@@ -740,8 +740,8 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 					<p className="cc-sheet-title">{activeSheet === "transcript" ? "Transcript" : "Template"}</p>
 					<p className="cc-panel-note">
 						{activeSheet === "transcript"
-							? "Transcript editing isn't in kneecap yet — use Captions for on-device auto-captions."
-							: "Templates aren't in kneecap yet."}
+							? "Transcript editing isn't in publik kneecap yet — use Captions for on-device auto-captions."
+							: "Templates aren't in publik kneecap yet."}
 					</p>
 				</PanelSheet>
 			)}

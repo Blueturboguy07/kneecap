@@ -290,8 +290,8 @@ export interface EdlOverlay {
 }
 
 /**
- * Transitions between adjacent main-track clips. CapCut only allows these on
- * the main track, and so does EDL v1.
+ * Transitions between adjacent main-track clips. The common mobile-editor
+ * convention allows these only on the main track, and so does EDL v1.
  *
  * v1 PRODUCER STATUS: LIVE since round 17. The engine's transition model is
  * `TScene.transitions` (timeline/types.ts) and `buildEdl` emits it via

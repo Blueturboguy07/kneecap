@@ -1,5 +1,5 @@
 /**
- * View-model types for the CapCut-mobile timeline (plan M7). These are
+ * View-model types for the kneecap mobile timeline (plan M7). These are
  * deliberately NOT `EdlClip`/`EdlTrack` (packages/editor-core/src/edl/types.ts)
  * and NOT the engine's own `TimelineTrack`/`TimelineElement`
  * (apps/web/src/timeline) — this package must type-check standalone with no
@@ -32,8 +32,8 @@ export type TimelineClipKind =
 	| "audio"
 	| "text"
 	| "sticker"
-	/** Founder capture 2026-08-18: caption clips render as ORANGE blocks in
-	 *  CapCut (capture-editor-toolbar-start.png), visually distinct from
+	/** Reference capture 2026-08-18: caption clips render as ORANGE blocks
+	 *  (capture not kept in the repo), visually distinct from
 	 *  text clips — a dedicated kind, not a text-shaped stand-in. */
 	| "caption";
 
@@ -57,7 +57,7 @@ export interface TimelineClipVM {
 	durationSec: number;
 	/**
 	 * Source-trim state (float seconds, SOURCE time domain), for computing
-	 * how far a trim handle may EXTEND an edge back out — the CapCut
+	 * how far a trim handle may EXTEND an edge back out — the common
 	 * "un-trim after split" gesture. `trimStartSec`/`trimEndSec` are how
 	 * much source material is currently cut off each end;
 	 * `sourceDurationSec` is undefined for elements with no finite source
@@ -73,7 +73,7 @@ export interface TimelineClipVM {
 	/**
 	 * A stable per-clip color, used for the color bar under filmstrip
 	 * thumbnails / behind the waveform, and for the placeholder thumbnail
-	 * pattern (see filmstrip-thumbnail.tsx) — NOT a CapCut-measured token,
+	 * pattern (see filmstrip-thumbnail.tsx) — NOT a measured token,
 	 * a view-model convenience so different source clips are visually
 	 * distinguishable in the harness/tests.
 	 */

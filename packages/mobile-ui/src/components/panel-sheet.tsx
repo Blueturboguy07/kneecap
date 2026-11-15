@@ -9,7 +9,7 @@ interface PanelSheetProps {
 }
 
 /**
- * The bottom sheet every CapCut mobile tool panel opens as (Text, Effects,
+ * The bottom sheet every mobile tool panel opens as (Text, Effects,
  * Filters, Captions style-picker, Transitions...). Generously rounded top
  * corners per --cc-radius-sheet (corpus 06 §5, [NEEDS-CAPTURE] exact
  * value — see tokens.css header for why this session couldn't isolate a

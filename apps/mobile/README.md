@@ -9,7 +9,7 @@ interface defined and stubbed."
 - **Capacitor 8 native shell**, iOS + Android, wired to `@kneecap/native-bridge`.
 - `src/` is the **M3 shell harness** — a small vanilla TS+DOM page that
   proves the shell loads with zero network requests and that the
-  `NativeBridge` seam round-trips. **It is not the CapCut UI** (that's
+  `NativeBridge` seam round-trips. **It is not the editor UI** (that's
   M6-M8, and doesn't exist yet), and it is **not** the real M2-item-6 Vite
   SPA bundle of the editor engine either (that item was still open when M3
   landed — see the M3 handoff). The harness deliberately does not import
@@ -137,8 +137,12 @@ brings the app back in front (iOS: dismiss; Android: MainActivity with
 - "Not reachable" also means an answer that is not publik's: a body that is
   not JSON (a captive portal or a proxy page), 408, 429, 5xx, a 2xx that is
   not a wallet, and a 401 without publik's JSON error. Only publik's own
-  JSON 401 deletes the key; then the gate gets at most 2 new keys and shows
-  publik's message with Retry. A failed file write shows the not-reachable
+  JSON 401 or 403 from GET /wallet deletes the key; then the gate gets at
+  most 2 new keys and shows publik's message with Retry. POST /installs
+  answering 403 `install_revoked` gets ONE new install with a new random
+  UUID (a saved install id is reused only with its saved key). Sign out and
+  Delete account during a wallet check: the check reads the key again after
+  each wait and writes nothing when it is gone. A failed file write shows the not-reachable
   screen with Retry; `claimed_at` writes are best effort.
 - Usage counting: `app_opened` after a sign-in, then `active_session` every
   30 minutes while the app is in front, with the install key. The timer
@@ -152,6 +156,20 @@ brings the app back in front (iOS: dismiss; Android: MainActivity with
   request, which gets no secrets). `scripts/check-web-bundle.sh` also fails
   when no `pat_` token is in `www/assets` (it never prints the value), and
   `release.yml` fails first when the secret is empty.
+- Store builds (App Store and releases): `APP_STORE_BUILD=1`. The build
+  fails unless the gate is required, `PUBLIK_TEST_HOOKS`,
+  `KNEECAP_DEBUG_TOOLS` and `PUBLIK_ALLOW_NO_TOKEN` are off, it runs in
+  GitHub Actions and no `.env` file sets `PUBLIK_APP_TOKEN` (the token comes
+  only from the CI secret). The bundle then has the marker
+  `publik-build:store`; `check-web-bundle.sh www required store`, the iOS
+  "Debug-only items" phase (`xcodebuild ... APP_STORE_BUILD=1`) and the
+  Android release check (`APP_STORE_BUILD=1 ./gradlew assembleRelease`)
+  refuse a store build without it. `scripts/test-store-build-guards.sh`
+  proves the failures in CI.
+- Name: the App Store and in-app name is "publik kneecap"; the home-screen
+  label and the home header stay "kneecap" (the long name would be cut off).
+- No purchase link: `USES_AI = false`, so the plan screen ("Get a plan")
+  never shows, and the sign-in button opens only publik's claim page.
 
 Launch settings (iOS: environment or `-NAME value` launch arguments;
 Android: intent extras). The app reads only these. They are test hooks:
@@ -206,7 +224,7 @@ that cannot be saved, and the usage timer in the background.
   the marker is missing or is the other mode, so CI proves each build's
   mode. A missing or unknown mode argument is an error.
 - **Fonts**: the font picker's list (`public/fonts/font-atlas.json` and its
-  preview images) has no TikTok Sans: TikTok and CapCut are one company
+  preview images) has no font named after another company's app
   (guidelines 4.1 and 5.2). Only Inter and Albert Sans ship as font files.
 - **Licenses**: Settings > Licenses (see above).
 - **No camera or microphone permission**: the app never asks for them.
@@ -507,7 +525,7 @@ Android side:
   listener-cleanup path.
 - `src/main.ts` — an "Import media" card drives the real
   `pickMedia -> generateProxy -> generateThumbnails` sequence from a
-  button tap (still harness UI, not the M6-M8 CapCut timeline's own
+  button tap (still harness UI, not the M6-M8 timeline's own
   import flow, but the same `NativeBridge` calls that flow will make).
 
 **What is verified vs. not, honestly:** the Kotlin plugin genuinely

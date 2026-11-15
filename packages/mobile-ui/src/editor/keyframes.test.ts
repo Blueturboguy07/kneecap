@@ -21,7 +21,7 @@ import {
 } from "./keyframes";
 
 /**
- * Round 47 — the CapCut-mobile clip-keyframe model. Every function here is
+ * Round 47 — the kneecap mobile clip-keyframe model. Every function here is
  * pure and runs on a structural text element; the engine's own keyframe
  * primitives (`upsertPathKeyframe`, `getElementKeyframes`, the resolver)
  * are the real ones, not mocks, so what these tests pin is the GROUP

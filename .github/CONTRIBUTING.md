@@ -70,7 +70,7 @@ Only needed if you're working on `apps/desktop`. See [`apps/desktop/README.md`](
 - Export functionality improvements
 - Preview rendering optimizations
 
-**Why?** We're currently planning a major refactor of the preview system. The current preview renders DOM elements (HTML), but we're moving to a binary rendering approach similar to CapCut. This new system will ensure consistency between preview and export, and provide much better performance and quality.
+**Why?** We're currently planning a major refactor of the preview system. The current preview renders DOM elements (HTML), but we're moving to a binary rendering approach similar to the one native mobile editors use. This new system will ensure consistency between preview and export, and provide much better performance and quality.
 
 The current HTML-based preview is essentially a prototype - the binary approach will be the "real deal." To avoid wasted effort, please focus on other areas of the application until this refactor is complete.
 

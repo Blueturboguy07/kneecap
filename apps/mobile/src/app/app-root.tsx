@@ -1,5 +1,5 @@
 /**
- * The real kneecap mobile app: project list -> CapCut-parity editor
+ * The real kneecap mobile app: project list -> the mobile editor
  * (`@kneecap/mobile-ui`'s `EditorShell`), driven by the singleton
  * `EditorCore` the same way apps/web's /projects page is.
  *
@@ -156,6 +156,9 @@ function HomeScreen({ onOpenEditor, onOpenSettings }: { onOpenEditor: () => void
 	return (
 		<div className="kc-home" data-kneecap-theme="kneecap-mobile">
 			<header className="kc-home__header">
+				{/* The short name, like the home-screen label: "publik kneecap" does not fit next to the
+				    two buttons on a 375-402 pt wide iPhone, and the header keeps its look. The long name is
+				    on the first-run screen and in Settings > About. */}
 				<h1>kneecap</h1>
 				<div className="kc-home__header-actions">
 					<button type="button" className="kc-home__settings" disabled={busy} onClick={onOpenSettings}>
@@ -264,7 +267,7 @@ function ProjectCard({
 	);
 }
 
-/** Project length as CapCut's project cards show it: `m:ss` under an
+/** Project length as the project cards show it: `m:ss` under an
  *  hour, `h:mm:ss` past it. Metadata duration is in ticks. */
 function formatDuration(duration: MediaTime): string {
 	const total = Math.max(0, Math.floor(mediaTimeToSeconds({ time: duration })));

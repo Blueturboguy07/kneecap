@@ -29,7 +29,7 @@ interface ThumbnailGridProps {
  * exactly: 4-column grid, generously-rounded tiles, top-left download-arrow
  * badge, top-right Pro-gem badge, selected tile gets a light outline ring
  * (same convention corpus 04 §2.1 documents for selected timeline clips —
- * "Clip selection state: white border per CapCut" — reused here for visual
+ * "Clip selection state: white border" — reused here for visual
  * consistency across the kit).
  */
 export function ThumbnailGrid({

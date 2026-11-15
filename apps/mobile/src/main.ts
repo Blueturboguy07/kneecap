@@ -22,6 +22,9 @@ declare const __KNEECAP_DEBUG_TOOLS__: boolean;
 /** "publik-gate-mode:required" or "publik-gate-mode:optional" (vite.config.ts). CI reads it in the built bundle
  *  (scripts/check-web-bundle.sh) to prove which gate mode a build has. */
 declare const __PUBLIK_GATE_MARKER__: string;
+/** "publik-build:store", "publik-build:test-hooks" or "publik-build:plain" (vite.config.ts, APP_STORE_BUILD and
+ *  PUBLIK_TEST_HOOKS). The iOS build phase and the Android release check refuse a store build without "store". */
+declare const __PUBLIK_BUILD_MARKER__: string;
 /** The editor waits at most this long for the native first-run screen; the screen covers the app anyway. */
 const FIRST_RUN_WAIT_MS = 1_500;
 
@@ -97,7 +100,7 @@ function showBootError(err: unknown) {
 	const pre = document.createElement("pre");
 	pre.style.cssText =
 		"padding:16px;white-space:pre-wrap;word-break:break-word;color:#ff5c5c;font:12px/1.5 ui-monospace,monospace;";
-	pre.textContent = `kneecap failed to start\n\n${detail}`;
+	pre.textContent = `publik kneecap failed to start\n\n${detail}`;
 	container.replaceChildren(pre);
 }
 
@@ -124,6 +127,7 @@ if (__KNEECAP_DEBUG_TOOLS__) {
 }
 
 document.documentElement.dataset.publikGateMode = __PUBLIK_GATE_MARKER__;
+document.documentElement.dataset.publikBuild = __PUBLIK_BUILD_MARKER__;
 
 document.body.dataset.kneecapMode =
 	__KNEECAP_DEBUG_TOOLS__ && window.location.hash.startsWith(DIAGNOSTICS_HASH) ? "diagnostics" : "app";

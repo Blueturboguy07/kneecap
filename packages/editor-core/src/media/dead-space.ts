@@ -601,7 +601,7 @@ export interface DeadSpaceOptions {
 	 * 200 ms the shortest gap the gate can even resolve.
 	 *
 	 * Short-form is the reason the default sits ON that floor rather than
-	 * comfortably above it. Editorial practice for TikTok/Reels wants a cut
+	 * comfortably above it. Editorial practice for short-form vertical video wants a cut
 	 * every 1.5-3 s and treats a half-second of dead air as enough to break
 	 * the scroll -- so on this surface the perceptual floor and the useful
 	 * setting are the same number.

@@ -220,7 +220,7 @@ fi
 
 MOBILE_UI_DIR="$REPO_ROOT/packages/mobile-ui"
 if [ -d "$MOBILE_UI_DIR" ]; then
-	step "typecheck (packages/mobile-ui, standalone — M6 CapCut token/component kit)"
+	step "typecheck (packages/mobile-ui, standalone — M6 mobile token/component kit)"
 	MOBILE_UI_TSC_OUT="$(cd "$MOBILE_UI_DIR" && bunx tsc --project tsconfig.json --noEmit 2>&1)"
 	MOBILE_UI_TSC_ERRORS="$(printf '%s\n' "$MOBILE_UI_TSC_OUT" | grep -c ': error TS' || true)"
 	if [ "$MOBILE_UI_TSC_ERRORS" -eq 0 ]; then

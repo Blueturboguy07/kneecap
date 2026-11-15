@@ -16,9 +16,8 @@ import {
 import type { ToolbarItemDef } from "../toolbar-row";
 
 /**
- * M8 primary toolbar — order MEASURED from the founder's live-CapCut capture
- * session (2026-08-18, docs/capcut-reference/capture-editor-toolbar-start.png
- * + capture-editor-toolbar-scrolled.png, two overlapping scroll positions of
+ * M8 primary toolbar — order measured from a reference capture session
+ * (2026-08-18, not kept in the repo: two overlapping scroll positions of
  * the same bar). This closes the corpus 04 §3 [NEEDS-CAPTURE] on ordering:
  * Edit / Audio / Text / Effects / Overlay / Captions / Filters / Adjust /
  * Stickers / Transcript / Aspect ratio / Background / Template. Every

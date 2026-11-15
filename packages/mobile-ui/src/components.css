@@ -182,7 +182,7 @@
 	   min-height: 0` with no floor, so the moment `.cc-sheet` demanded
 	   height inside that fixed-height column, the preview was squeezed
 	   to 0x0 -- reproduced live: `.cc-preview-stage__canvas` measured
-	   {w:0,h:0} with any sheet open, non-zero once closed. Real CapCut
+	   {w:0,h:0} with any sheet open, non-zero once closed. The reference editor
 	   keeps the preview visible above an open sheet, so the sheet must
 	   not participate in that flex flow at all -- it needs to overlay
 	   the shell the same way `.cc-sheet-scrim` already does.
@@ -612,7 +612,7 @@
 	border-bottom: 1px solid var(--cc-bg-base);
 }
 .cc-timeline__track-row--main {
-	/* Capture 2026-08-18: CapCut paints no track background where there are
+	/* Capture 2026-08-18: the reference editor paints no track background where there are
 	   no clips — the filmstrip thumbnails ARE the visual; an empty stretch
 	   of main track is just the timeline surface. */
 	background: transparent;
@@ -718,7 +718,7 @@
 	border-radius: var(--cc-radius-chip);
 	box-shadow: 0 0 0 1px rgb(0 0 0 / 40%);
 }
-/* Hold-to-reorder mode (CapCut long-press): the main track's clips render
+/* Hold-to-reorder mode (long-press): the main track's clips render
    as uniform tiles; the held one lifts and rides the finger, the rest
    transition between slots. Everything not being reordered dims. */
 .cc-timeline__reorder-tile {
@@ -769,7 +769,7 @@
 }
 
 /* Transition square — the small tappable control between adjacent
- * main-track clips (corpus 05 §5, capcut.com/help/transitions-in-capcut
+ * main-track clips (research corpus 05 §5:
  * "Tap the small white square icon between the clips"). */
 .cc-timeline__transition-square {
 	position: absolute;
@@ -790,7 +790,7 @@
 	background: var(--cc-accent);
 }
 
-/* Round 47: keyframe markers sit at the clip's vertical centre in CapCut
+/* Round 47: keyframe markers sit at the clip's vertical centre in the reference editor
    (tutorials: "a small red diamond ... on the clip"); the pre-round-47
    bottom-pinned cyan square was a placeholder. Hit target is padded well
    past the 9px glyph via ::after so a fingertip can actually tap one. */
@@ -907,7 +907,7 @@
 
 /* Playhead: fixed at the wrapper's horizontal center, spans the full
  * viewport height of the track stack, sits above the scroll container. */
-/* Founder capture 2026-08-18 (capture-editor-toolbar-start.png): CapCut's
+/* Reference capture 2026-08-18 (not kept in the repo): the reference editor's
    playhead is a plain WHITE line, no triangle cap, spanning the full
    timeline area including the ruler. The pre-capture cyan+cap version was
    a guess — superseded. */
@@ -935,7 +935,7 @@
 
 /* Capture 2026-08-18: "00:00 / 00:34" pinned top-left of the timeline area,
    current time white, total gray — replaces the pre-capture zoom-% readout
-   (CapCut shows no zoom indicator). */
+   (the reference editor shows no zoom indicator). */
 .cc-timeline__timecode {
 	position: absolute;
 	top: 2px;
@@ -949,7 +949,7 @@
 	z-index: 6;
 }
 
-/* ---- CapCut timeline chrome (founder capture 2026-08-18) ---- */
+/* ---- Timeline chrome (reference capture 2026-08-18) ---- */
 .cc-timeline__leading-chips {
 	position: absolute;
 	left: 0;
@@ -1071,7 +1071,7 @@
  * export sheet). Same [NEEDS-CAPTURE]-until-M6a-capture status as the rest
  * of this file's un-measured metrics (top bar height, playback bar height,
  * panel-row spacing) — built self-consistently off the existing spacing/
- * radius/color tokens above, not a CapCut pixel read.
+ * radius/color tokens above, not a reference-editor pixel read.
  * ========================================================================= */
 
 .cc-editor-shell {
@@ -1241,7 +1241,7 @@
  * `TimelineView` sit permanently between the playback bar and the toolbars
  * without ever squeezing the preview. Height is sized for ruler + ~2-3
  * visible track rows (`--cc-ruler-height` + a few `--cc-track-height`s) —
- * not a CapCut pixel measurement, self-consistent with the same token
+ * not a reference-editor pixel measurement, self-consistent with the same token
  * scale the rest of this file already uses (see this file's own top-of-file
  * caveat re: [NEEDS-CAPTURE] values).
  * ========================================================================= */

@@ -49,7 +49,7 @@ export interface Transition {
 }
 
 /**
- * The CapCut-mobile timeline surface (plan M7). Architecture notes live in
+ * The kneecap mobile timeline surface (plan M7). Architecture notes live in
  * components.css's "Timeline (M7)" header — the short version: ONE
  * scrollable element is both the time axis and the track stack;
  * `scrollLeft` is kept synced to `currentTimeSec` so the fixed, centered
@@ -74,8 +74,8 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	 *  what makes tapping a clip here select the same element the Edit
 	 *  panel/preview/other panels already read from `useSelectedElement()`. */
 	onSelectClip?: (params: { clipId: string; trackId: string }) => void;
-	/** CapCut-parity chrome (founder capture 2026-08-18,
-	 *  docs/capcut-reference/capture-editor-toolbar-start.png). All optional
+	/** Timeline chrome (reference capture 2026-08-18, not kept in the
+	 *  repo). All optional
 	 *  so the M7 dev harness renders the bare surface unchanged. */
 	/** "00:00 / 00:34" readout pinned top-left over the ruler. */
 	currentTimeLabel?: string;
@@ -94,7 +94,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	onQuickAddAudio?: () => void;
 	onQuickAddText?: () => void;
 	/** Helper chips left of the main track's first clip (Mute clip audio /
-	 *  AI clipper / Cover in CapCut). */
+	 *  AI clipper / Cover in the reference editor). */
 	leadingChips?: React.ReactNode;
 	/** ENGINE-BACKED selection (round 18): when provided (the live shell),
 	 *  the strip highlight follows it — a clip grabbed directly on the
@@ -152,7 +152,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 		trackId: string;
 		startSec: number;
 	}) => void;
-	/** CapCut hold-to-reorder commit: long-press lifts a MAIN-track clip,
+	/** Hold-to-reorder commit: long-press lifts a MAIN-track clip,
 	 *  every clip collapses to a uniform tile, the drop slot decides the
 	 *  new order. Fired once per finished reorder drag with the full tile
 	 *  order; the shell re-butts the track to it in one undoable command. */
@@ -262,7 +262,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	}, [pixelsPerSecond, viewportWidthPx]);
 
 	// Playback-follow: while the engine clock is running, the strip tracks it
-	// (CapCut's fixed-center-playhead model — the STRIP moves, the playhead
+	// (fixed-center-playhead model — the STRIP moves, the playhead
 	// doesn't). This is the reverse binding of scrub (scroll -> time); it was
 	// never wired in the touch rebuild, so the timecode ticked while the
 	// timeline sat frozen (founder's iPhone, 2026-08-19). Engine-driven sets
@@ -383,7 +383,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 			);
 			setSnapIndicatorSec(target ? target.timeSec : null);
 			// Live scrub: the shell seeks the PREVIEW to the frame under the
-			// dragged edge (CapCut behavior — you see what you're cutting to).
+			// dragged edge (common mobile-editor behavior — you see what you're cutting to).
 			onTrimScrub?.(params);
 		},
 		[snapTargets, onTrimScrub],

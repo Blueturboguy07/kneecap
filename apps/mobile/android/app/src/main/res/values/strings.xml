@@ -1,6 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">kneecap</string>
+    <!-- The app name is "publik kneecap" (founder decision, Nov 14 2026). The launcher label
+         (title_activity_main) stays short: the long name would be cut off under the icon. -->
+    <string name="app_name">publik kneecap</string>
     <string name="title_activity_main">kneecap</string>
     <string name="package_name">dev.kneecap.app</string>
     <string name="custom_url_scheme">dev.kneecap.app</string>

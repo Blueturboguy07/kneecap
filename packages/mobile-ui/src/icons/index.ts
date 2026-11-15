@@ -3,7 +3,7 @@
  * Lucide (already the primary icon set for this kit — see components/*,
  * which import lucide-react directly for every other icon). Custom-drawn
  * on Lucide's own 24px/2px grid conventions from functional first
- * principles — never traced from CapCut's actual assets. Each file's own
+ * principles — never traced from another app's actual assets. Each file's own
  * header documents its specific functional brief and grid convention.
  */
 export { KeyframeDiamondIcon } from "./keyframe-diamond";

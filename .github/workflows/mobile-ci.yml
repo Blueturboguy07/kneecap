@@ -30,6 +30,15 @@ name: Mobile CI
 #   - An unsigned Android release APK is built and checked with
 #     scripts/check-android-apk.sh (no developer tools, no camera/mic
 #     permissions).
+#   - Store builds (founder decisions Nov 14 2026): the gate-required web
+#     bundle is built with APP_STORE_BUILD=1 (vite.config.ts) on every push,
+#     and so are the Release iOS build and the Android release APK: no
+#     publik test hooks, gate required, token only from the repo secret.
+#     scripts/test-store-build-guards.sh proves that a wrong store build
+#     fails (test hooks on, optional gate, a token in a .env file, outside
+#     CI). A fork's pull request (no secrets) builds without APP_STORE_BUILD.
+#     The optional-gate artifacts stay CI test artifacts only.
+#   - No committed app token: no tracked file has a pat_<slug>_<secret> value.
 
 concurrency:
   group: mobile-ci-${{ github.ref }}
@@ -83,9 +92,11 @@ jobs:
           # A fork's pull request has no secrets: only there may the build go on without the token.
           PUBLIK_ALLOW_NO_TOKEN: ${{ github.event.pull_request.head.repo.fork && '1' || '' }}
           PUBLIK_GATE_MODE: required
+          # A store build (no test hooks, token from the secret), except on a fork's pull request.
+          APP_STORE_BUILD: ${{ github.event.pull_request.head.repo.fork != true && '1' || '' }}
         run: |
           bun run build
-          bash scripts/check-web-bundle.sh www required
+          bash scripts/check-web-bundle.sh www required $([ "$APP_STORE_BUILD" = "1" ] && echo store)
         working-directory: apps/mobile
 
       - name: cap sync ios
@@ -141,7 +152,10 @@ jobs:
       - name: xcodebuild (Release, iphoneos, unsigned) — the store build check
         # The same build as scripts/build-ios-unsigned-ipa.sh. The
         # "Debug-only items" build phase fails a Release build that has a
-        # developer tool in it.
+        # developer tool in it; with APP_STORE_BUILD=1 it also fails on the
+        # publik test hooks and on a web bundle that is not a store build.
+        env:
+          APP_STORE_BUILD: ${{ github.event.pull_request.head.repo.fork != true && '1' || '' }}
         run: |
           xcodebuild \
             -project App.xcodeproj \
@@ -153,8 +167,13 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            APP_STORE_BUILD="$APP_STORE_BUILD" \
             build
         working-directory: apps/mobile/ios/App
+
+      - name: Store build guards (the iOS build phase refuses a wrong store build)
+        run: bash scripts/test-store-build-guards.sh xcode
+        working-directory: apps/mobile
 
       - name: Check the Release app (plist items, privacy manifest, no developer tools, no other app's name)
         run: |
@@ -252,6 +271,18 @@ jobs:
           bun test apps/mobile/test
           if grep -rnE "from ['\"]@capacitor/" apps/mobile/src; then echo "::error::@capacitor import outside packages/native-bridge"; exit 1; fi
 
+      - name: "No committed publik app token (file names only, never a value)"
+        run: |
+          if git grep -lE 'pat_[A-Za-z0-9-]+_[A-Za-z0-9_-]{24,}' -- .; then
+            echo "::error::a publik app token is committed in the files above. The token comes only from the PUBLIK_APP_TOKEN secret."
+            exit 1
+          fi
+          echo "no committed app token"
+
+      - name: Store build guards (vite.config.ts refuses a wrong store build)
+        run: bash scripts/test-store-build-guards.sh web
+        working-directory: apps/mobile
+
       - name: Build the web bundle (apps/mobile/www, gate required)
         # PUBLIK_APP_TOKEN: the publik app token (pat_) for Sign in with
         # publik, put into the bundle by vite.config.ts. A build without it
@@ -262,9 +293,11 @@ jobs:
           # A fork's pull request has no secrets: only there may the build go on without the token.
           PUBLIK_ALLOW_NO_TOKEN: ${{ github.event.pull_request.head.repo.fork && '1' || '' }}
           PUBLIK_GATE_MODE: required
+          # A store build (no test hooks, token from the secret), except on a fork's pull request.
+          APP_STORE_BUILD: ${{ github.event.pull_request.head.repo.fork != true && '1' || '' }}
         run: |
           bun run build
-          bash scripts/check-web-bundle.sh www required
+          bash scripts/check-web-bundle.sh www required $([ "$APP_STORE_BUILD" = "1" ] && echo store)
         working-directory: apps/mobile
 
       - name: cap sync android
@@ -326,6 +359,9 @@ jobs:
       - name: gradlew assembleRelease (unsigned) — the store build check
         # No KNEECAP_RELEASE_KEYSTORE here, so the APK is unsigned
         # (app-release-unsigned.apk). release.yml makes the signed one.
+        # APP_STORE_BUILD=1: checkReleaseWebBundle also wants the store bundle.
+        env:
+          APP_STORE_BUILD: ${{ github.event.pull_request.head.repo.fork != true && '1' || '' }}
         run: |
           ./gradlew assembleRelease --console=plain
           bash ../scripts/check-android-apk.sh app/build/outputs/apk/release/app-release-unsigned.apk release app/build

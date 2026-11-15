@@ -265,7 +265,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# kneecap: developer tools are in Debug builds only (App Store guideline 2.5.19).\n# Debug: adds the M1 spike's kneecap-spike:// URL scheme (docs/SPIKE-GUIDE.md) and NSAllowsLocalNetworking to the built Info.plist.\n# Release: fails the build when a developer tool is in the app, or NSAllowsLocalNetworking (except a PUBLIK_TEST_HOOKS build).\nset -eu\nPLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nRES=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nPB=/usr/libexec/PlistBuddy\n# Sign in with publik: a fake publik on this computer (the PUBLIK_API_BASE_URL test hook) is plain http.\nallow_local_networking() {\n  \"$PB\" -c \"Print :NSAppTransportSecurity\" \"$PLIST\" >/dev/null 2>&1 || \"$PB\" -c \"Add :NSAppTransportSecurity dict\" \"$PLIST\"\n  \"$PB\" -c \"Delete :NSAppTransportSecurity:NSAllowsLocalNetworking\" \"$PLIST\" >/dev/null 2>&1 || true\n  \"$PB\" -c \"Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true\" \"$PLIST\"\n}\nif [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  if ! \"$PB\" -c \"Print :CFBundleURLTypes\" \"$PLIST\" 2>/dev/null | grep -q kneecap-spike; then\n    \"$PB\" -c \"Print :CFBundleURLTypes\" \"$PLIST\" >/dev/null 2>&1 || \"$PB\" -c \"Add :CFBundleURLTypes array\" \"$PLIST\"\n    \"$PB\" -c \"Add :CFBundleURLTypes:0 dict\" -c \"Add :CFBundleURLTypes:0:CFBundleURLName string dev.kneecap.app.spike\" -c \"Add :CFBundleURLTypes:0:CFBundleURLSchemes array\" -c \"Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string kneecap-spike\" \"$PLIST\"\n  fi\n  allow_local_networking\n  exit 0\nfi\nfail=0\ncase \" ${SWIFT_ACTIVE_COMPILATION_CONDITIONS:-} \" in\n  *\" PUBLIK_TEST_HOOKS \"*)\n    echo \"warning: PUBLIK_TEST_HOOKS build: it has the publik test hooks and local networking. Not for the App Store.\"\n    allow_local_networking ;;\n  *)\n    if \"$PB\" -c \"Print :NSAppTransportSecurity:NSAllowsLocalNetworking\" \"$PLIST\" >/dev/null 2>&1; then\n      echo \"error: this ${CONFIGURATION} build has NSAllowsLocalNetworking. Only Debug and PUBLIK_TEST_HOOKS builds have it.\"; fail=1\n    fi ;;\nesac\nfor item in public/spike.html public/spike-assets Fixtures; do\n  if [ -e \"$RES/$item\" ]; then echo \"error: this ${CONFIGURATION} build contains a developer tool: $item\"; fail=1; fi\ndone\nif ls \"$RES/public/assets\" 2>/dev/null | grep -Eq '^(legacy-harness|autotest|spike)-'; then\n  echo \"error: the web bundle has developer tools. Build it with 'bun run build' (no KNEECAP_DEBUG_TOOLS=1), then 'cap sync ios'.\"; fail=1\nfi\nif \"$PB\" -c \"Print :CFBundleURLTypes\" \"$PLIST\" 2>/dev/null | grep -q kneecap-spike; then\n  echo \"error: this ${CONFIGURATION} build has the kneecap-spike URL scheme.\"; fail=1\nfi\nexit $fail\n";
+			shellScript = "# kneecap: developer tools are in Debug builds only (App Store guideline 2.5.19).\n# Debug: adds the M1 spike's kneecap-spike:// URL scheme (docs/SPIKE-GUIDE.md) and NSAllowsLocalNetworking to the built Info.plist.\n# Release: fails the build when a developer tool is in the app, or NSAllowsLocalNetworking (except a PUBLIK_TEST_HOOKS build).\n# APP_STORE_BUILD=1 (a store build): also fails on Debug, on PUBLIK_TEST_HOOKS, and on a web bundle that is not a store build.\nset -eu\nPLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nRES=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nPB=/usr/libexec/PlistBuddy\n# publik store build (APP_STORE_BUILD=1: the App Store or a release): Release only, no publik test hooks,\n# and the web bundle built with APP_STORE_BUILD=1 (marker publik-build:store) and the gate required.\nif [ \"${APP_STORE_BUILD:-}\" = \"1\" ]; then\n  store_fail=0\n  if [ \"${CONFIGURATION}\" = \"Debug\" ]; then echo \"error: APP_STORE_BUILD=1 is a Release build, not Debug (Debug reads the publik test hooks).\"; store_fail=1; fi\n  case \" ${SWIFT_ACTIVE_COMPILATION_CONDITIONS:-} \" in\n    *\" PUBLIK_TEST_HOOKS \"*) echo \"error: APP_STORE_BUILD and PUBLIK_TEST_HOOKS are both on. A store build must not have the publik test hooks.\"; store_fail=1 ;;\n  esac\n  if ! grep -rqs 'publik-build:store' \"$RES/public/assets\"; then echo \"error: APP_STORE_BUILD=1, but the web bundle is not a store build. Build it with APP_STORE_BUILD=1 (GitHub Actions, the PUBLIK_APP_TOKEN secret), then 'cap sync ios'.\"; store_fail=1; fi\n  if ! grep -rqs 'publik-gate-mode:required' \"$RES/public/assets\"; then echo \"error: APP_STORE_BUILD=1 needs the web bundle with the gate required (PUBLIK_GATE_MODE=required).\"; store_fail=1; fi\n  [ \"$store_fail\" -eq 0 ] || exit 1\nfi\n# Sign in with publik: a fake publik on this computer (the PUBLIK_API_BASE_URL test hook) is plain http.\nallow_local_networking() {\n  \"$PB\" -c \"Print :NSAppTransportSecurity\" \"$PLIST\" >/dev/null 2>&1 || \"$PB\" -c \"Add :NSAppTransportSecurity dict\" \"$PLIST\"\n  \"$PB\" -c \"Delete :NSAppTransportSecurity:NSAllowsLocalNetworking\" \"$PLIST\" >/dev/null 2>&1 || true\n  \"$PB\" -c \"Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true\" \"$PLIST\"\n}\nif [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  if ! \"$PB\" -c \"Print :CFBundleURLTypes\" \"$PLIST\" 2>/dev/null | grep -q kneecap-spike; then\n    \"$PB\" -c \"Print :CFBundleURLTypes\" \"$PLIST\" >/dev/null 2>&1 || \"$PB\" -c \"Add :CFBundleURLTypes array\" \"$PLIST\"\n    \"$PB\" -c \"Add :CFBundleURLTypes:0 dict\" -c \"Add :CFBundleURLTypes:0:CFBundleURLName string dev.kneecap.app.spike\" -c \"Add :CFBundleURLTypes:0:CFBundleURLSchemes array\" -c \"Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string kneecap-spike\" \"$PLIST\"\n  fi\n  allow_local_networking\n  exit 0\nfi\nfail=0\ncase \" ${SWIFT_ACTIVE_COMPILATION_CONDITIONS:-} \" in\n  *\" PUBLIK_TEST_HOOKS \"*)\n    echo \"warning: PUBLIK_TEST_HOOKS build: it has the publik test hooks and local networking. Not for the App Store.\"\n    allow_local_networking ;;\n  *)\n    if \"$PB\" -c \"Print :NSAppTransportSecurity:NSAllowsLocalNetworking\" \"$PLIST\" >/dev/null 2>&1; then\n      echo \"error: this ${CONFIGURATION} build has NSAllowsLocalNetworking. Only Debug and PUBLIK_TEST_HOOKS builds have it.\"; fail=1\n    fi ;;\nesac\nfor item in public/spike.html public/spike-assets Fixtures; do\n  if [ -e \"$RES/$item\" ]; then echo \"error: this ${CONFIGURATION} build contains a developer tool: $item\"; fail=1; fi\ndone\nif ls \"$RES/public/assets\" 2>/dev/null | grep -Eq '^(legacy-harness|autotest|spike)-'; then\n  echo \"error: the web bundle has developer tools. Build it with 'bun run build' (no KNEECAP_DEBUG_TOOLS=1), then 'cap sync ios'.\"; fail=1\nfi\nif \"$PB\" -c \"Print :CFBundleURLTypes\" \"$PLIST\" 2>/dev/null | grep -q kneecap-spike; then\n  echo \"error: this ${CONFIGURATION} build has the kneecap-spike URL scheme.\"; fail=1\nfi\nexit $fail\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -439,7 +439,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = R5R3ZS54LV;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = App/Info.plist;
@@ -448,7 +448,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.0.2;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = dev.kneecap.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -463,7 +463,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = R5R3ZS54LV;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = App/Info.plist;
@@ -472,7 +472,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.kneecap.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";

@@ -12,13 +12,13 @@ The whole architecture bet (web engine in a webview + native codec bridges) has 
 - Keep the app **foregrounded** during the run — tests 1 and 6 are frame-clock-gated and will stall in the background (known, documented).
 - Read the numbers against the thresholds table. Scrub latency > 400ms with proxies, or peak memory past the documented watermark, are kill-signals, not annoyances.
 
-## 2. The M6a CapCut capture session (~2 hours, once)
+## 2. The M6a reference capture session (~2 hours, once)
 
-The UI was built from store screenshots; **~24 values are flagged `[NEEDS-CAPTURE]`** and every one is closable in a single sitting with live CapCut on your phone.
+The UI was built from store screenshots; **~24 values are flagged `[NEEDS-CAPTURE]`** and every one is closable in a single sitting with the live reference editor on your phone.
 
-- Process + flag inventory: `docs/capcut-reference/README.md`. Find every open flag with: `grep -rn "NEEDS-CAPTURE" packages/mobile-ui/src`.
+- Flag inventory: find every open flag with: `grep -rn "NEEDS-CAPTURE" packages/mobile-ui/src`.
 - Headliners: exact primary-toolbar left-to-right order, type scale in pt, pressed/disabled states, sheet scrim opacity, panel motion timing, keyframe-diamond rendering, audio-waveform shape.
-- Capture screen recordings + screenshots into `docs/capcut-reference/`, then each flag flips to `MEASURED` with a pointer.
+- Capture screen recordings + screenshots into a reference folder kept outside the repo, then each flag flips to `MEASURED` with a note.
 
 ## 3. Sideload the app itself and tap through it (~15 min)
 

@@ -18,7 +18,7 @@ const TRACK_HEIGHT_PX = 48; // matches --cc-track-height; kept in sync by src/__
  *  taps and the strip's native horizontal scroll working on unselected clips —
  *  the same selection-gating rule the preview gestures adopted (round 23). */
 const MOVE_THRESHOLD_PX = 6;
-/** Hold duration before a clip LIFTS into reorder mode (CapCut long-press).
+/** Hold duration before a clip LIFTS into reorder mode (long-press).
  *  Movement past MOVE_THRESHOLD_PX before this fires cancels the hold. */
 const LONG_PRESS_MS = 450;
 
@@ -56,7 +56,7 @@ interface TimelineClipProps {
 	 *  `effectiveStartSec` prop, then commits on `onMoveEnd`. */
 	onMovePreview?: (params: { clipId: string; trackId: string; candidateStartSec: number }) => void;
 	onMoveEnd?: (params: { clipId: string; trackId: string }) => void;
-	/** CapCut hold-to-reorder: fires once when the pointer has stayed put on
+	/** Hold-to-reorder: fires once when the pointer has stayed put on
 	 *  the clip body for LONG_PRESS_MS. The VIEW then owns the pointer via
 	 *  window listeners (this element may unmount when the row switches to
 	 *  reorder tiles), so no further events are reported here. */

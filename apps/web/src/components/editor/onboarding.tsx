@@ -45,7 +45,7 @@ export function Onboarding() {
 					<div className="space-y-5">
 						<div className="space-y-3">
 							<Title title="Welcome to OpenCut Beta! 🎉" />
-							<Description description="You're among the first to try OpenCut - the fully open source CapCut alternative." />
+							<Description description="You're among the first to try OpenCut - a fully open source video editor." />
 						</div>
 						<NextButton onClick={handleNext}>Next</NextButton>
 					</div>

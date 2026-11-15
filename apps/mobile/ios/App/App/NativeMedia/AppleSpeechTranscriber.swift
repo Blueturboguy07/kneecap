@@ -15,9 +15,9 @@ import Speech
 /// — exactly the wire contract's `coarseStart/EndMicros` envelope — and
 /// `caption-smoothing.ts` runs identically on its words (`dtwStartMicros`
 /// stays null, which the smoother already treats as "no refinement
-/// signal"). CapCut itself does NONE of this on-device: its auto-captions
-/// upload audio to ByteDance's server ASR (they fail offline) — so any
-/// on-device path already beats CapCut on privacy and offline. The
+/// signal"). The reference editor does NONE of this on-device: its
+/// auto-captions upload audio to a server ASR (they fail offline) — so any
+/// on-device path already beats it on privacy and offline. The
 /// whisper.cpp scaffold stays as the documented Android engine (already
 /// built there) and a future iOS quality option; `SpeechAnalyzer`/
 /// `SpeechTranscriber` (iOS 26's new API, the plan's own "preferred path"
