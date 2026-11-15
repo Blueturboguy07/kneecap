@@ -45,6 +45,7 @@ import pty
 import queue
 import re
 import shutil
+import sqlite3
 import struct
 import subprocess
 import sys
@@ -78,6 +79,7 @@ CAPTION_MESSAGES = (
     "Your clips have no sound. Add a video clip with sound to make captions.",
     "Captions could not read the sound of your clips. Try again.",
     "No speech was detected anywhere on the timeline.",
+    "Speech recognition is off for publik kneecap. Turn it on in Settings to make captions.",
 )
 # Developer words that must never reach a person: a path, a fixture, a stack.
 DEV_WORDS = re.compile(
@@ -367,6 +369,7 @@ class EditorTest:
         run(["xcrun", "simctl", "uninstall", self.udid, BUNDLE], check=False)
         run(["xcrun", "simctl", "install", self.udid, str(self.app)])
         self.grant_photos()
+        self.grant_speech()
 
         data = Path(run(["xcrun", "simctl", "get_app_container", self.udid, BUNDLE, "data"]).strip())
         self.root = data / "Library" / "Application Support" / "kneecap"
@@ -406,6 +409,47 @@ class EditorTest:
         if results[0][1] != 0:
             listing = subprocess.run(["xcrun", "simctl", "help", "privacy"], capture_output=True, text=True, timeout=60)
             say("simctl privacy help: " + " ".join((listing.stdout or listing.stderr).split())[:800])
+
+    def grant_speech(self):
+        """Captions use Apple Speech: SFSpeechRecognizer.requestAuthorization
+        (NativeBridgePlugin+Transcribe.swift) shows a system alert that the
+        test cannot tap (run 43697933341: test E waited 300 s under it).
+        simctl privacy has no speech service, so the runner writes the grant
+        into the simulator's TCC database: a copy of the photos-add row that
+        simctl wrote, with the speech service. The simulator is shut down
+        for the write and booted again, so tccd reads the new row."""
+        db = Path.home() / "Library" / "Developer" / "CoreSimulator" / "Devices" / self.udid / "data" / "Library" / "TCC" / "TCC.db"
+        service = "kTCCServiceSpeechRecognition"
+        try:
+            run(["xcrun", "simctl", "shutdown", self.udid], check=False)
+            con = sqlite3.connect(str(db))
+            try:
+                cols = [row[1] for row in con.execute("PRAGMA table_info(access)")]
+                row = con.execute("SELECT * FROM access WHERE service = ? AND client = ?",
+                                  ("kTCCServicePhotosAdd", BUNDLE)).fetchone()
+                if row is not None:
+                    values = dict(zip(cols, row))
+                    values["service"] = service
+                    values["last_modified"] = int(time.time())
+                else:
+                    values = {"service": service, "client": BUNDLE, "client_type": 0, "auth_value": 2,
+                              "auth_reason": 2, "auth_version": 1, "flags": 0, "last_modified": int(time.time())}
+                    values = {k: v for k, v in values.items() if k in cols}
+                names = ", ".join(values)
+                marks = ", ".join("?" for _ in values)
+                con.execute(f"INSERT OR REPLACE INTO access ({names}) VALUES ({marks})", list(values.values()))
+                con.commit()
+                check = con.execute("SELECT auth_value FROM access WHERE service = ? AND client = ?",
+                                    (service, BUNDLE)).fetchone()
+            finally:
+                con.close()
+            say(f"speech recognition permission: written to TCC.db (auth_value={check[0] if check else 'none'}, "
+                f"copied from photos-add: {row is not None})")
+        except Exception as error:  # the captions check then shows the alert in its screenshot
+            say(f"speech recognition permission: NOT written ({error})")
+        finally:
+            run(["xcrun", "simctl", "boot", self.udid], check=False)
+            run(["xcrun", "simctl", "bootstatus", self.udid, "-b"], timeout=900)
 
     def plant_video_and_audio(self, media):
         """The test video (made with the measuring tool) and the test audio

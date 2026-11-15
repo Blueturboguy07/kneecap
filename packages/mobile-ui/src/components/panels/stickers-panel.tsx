@@ -68,7 +68,9 @@ export function StickersPanel({ editor, onClose, onInserted }: StickersPanelProp
 
 	const categories = CATEGORIES.filter((c) => (itemsByCategory?.[c]?.length ?? 0) > 0);
 	const current =
-		activeCategory !== null && categories.includes(activeCategory) ? activeCategory : (categories[0] ?? null);
+		activeCategory !== null && (categories as StickerCategory[]).includes(activeCategory)
+			? activeCategory
+			: (categories[0] ?? null);
 	const items = current ? (itemsByCategory?.[current] ?? []) : [];
 
 	return (
