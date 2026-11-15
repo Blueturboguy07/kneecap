@@ -29,6 +29,19 @@ export type RendererBackend = "gpu" | "canvas2d";
 /** GPU frames in a row that may fail before the renderer moves to Canvas 2D. */
 const MAX_GPU_FRAME_FAILURES = 3;
 
+/**
+ * True for a Rust panic in the wasm compositor: a WebAssembly.RuntimeError
+ * ("Unreachable code should not be executed"). After a panic the wasm
+ * instance is unusable and every later call panics too, so a retry cannot
+ * help. The 1.0.4 simulator test saw this: wgpu reported "Out of Memory",
+ * the frame panicked, and the next frames panicked in releaseTexture.
+ */
+function isWasmTrap(error: unknown): boolean {
+	if (typeof WebAssembly !== "undefined" && error instanceof WebAssembly.RuntimeError) return true;
+	const message = error instanceof Error ? error.message : String(error);
+	return /unreachable/i.test(message);
+}
+
 export class CanvasRenderer {
 	canvas: OffscreenCanvas;
 	context: OffscreenCanvasRenderingContext2D;
@@ -126,7 +139,9 @@ export class CanvasRenderer {
 				return;
 			} catch (error) {
 				this.gpuFrameFailures += 1;
-				if (this.gpuFrameFailures < MAX_GPU_FRAME_FAILURES) throw error;
+				// A wasm panic moves to Canvas 2D at once; another error may
+				// pass, so it gets MAX_GPU_FRAME_FAILURES tries.
+				if (!isWasmTrap(error) && this.gpuFrameFailures < MAX_GPU_FRAME_FAILURES) throw error;
 				this.useCanvas2d(error);
 			}
 		}
