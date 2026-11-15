@@ -467,8 +467,7 @@ describe("item 10b: the Effects toolbar icon is neutral", () => {
 		expect(defs).not.toMatch(/Sparkle|Wand|Magic/);
 		// No other primary item uses Blend.
 		expect(defs.match(/icon: Blend\b/g)?.length).toBe(1);
-		// The installed lucide-react has the icon.
-		const types = raw("packages/mobile-ui/node_modules/lucide-react/dist/lucide-react.d.ts");
-		expect(types).toMatch(/declare const Blend: /);
+		// The typecheck step proves that the installed lucide-react has the icon.
+		// (A read of node_modules here depends on the package manager's layout.)
 	});
 });
