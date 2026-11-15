@@ -53,6 +53,12 @@ export class CanvasRenderer {
 	private gpuFrameFailures = 0;
 	private fallbackCanvas: HTMLCanvasElement | null = null;
 	private fallbackCompositor: Canvas2dCompositor | null = null;
+	/** Set when the renderer moves to Canvas 2D: the next getOutputCanvas()
+	 *  drops the Canvas 2D texture cache, so the redraw after the canvas swap
+	 *  makes every text texture again. The frame drawn at the moment of the
+	 *  GPU failure can come out blank (1.0.4 simulator test: a text-only frame
+	 *  stayed empty until the next edit), and the cache would keep it. */
+	private dropFallbackCache = false;
 
 	constructor({ width, height, fps }: CanvasRendererParams) {
 		this.width = width;
@@ -98,6 +104,10 @@ export class CanvasRenderer {
 			} catch (error) {
 				this.useCanvas2d(error);
 			}
+		}
+		if (this.dropFallbackCache) {
+			this.dropFallbackCache = false;
+			this.fallbackCompositor = null;
 		}
 		return this.getFallbackCanvas();
 	}
@@ -192,6 +202,7 @@ export class CanvasRenderer {
 				`Renderer moved to Canvas 2D: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
+		if (this.backend !== "canvas2d") this.dropFallbackCache = true;
 		this.backend = "canvas2d";
 	}
 

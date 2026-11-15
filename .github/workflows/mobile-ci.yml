@@ -39,6 +39,9 @@ name: Mobile CI
 #     CI). A fork's pull request (no secrets) builds without APP_STORE_BUILD.
 #     The optional-gate artifacts stay CI test artifacts only.
 #   - No committed app token: no tracked file has a pat_<slug>_<secret> value.
+#   - ios-sim-app-store (iOS job): the App Store build (Release,
+#     APP_STORE_BUILD=1, gate required, no test hooks, token from the secret)
+#     for the simulator, arm64, ad-hoc signed. Blind tests use it.
 #   - Editor test (iOS job, last steps): a separate test app (developer tools
 #     on, own DerivedData) opens the editor 5 times, checks the preview with
 #     simulator screenshots, and exports 1 photo + 1 text at 1080p/30. The
@@ -187,6 +190,57 @@ jobs:
           # The App Store icon must have no alpha channel.
           sips -g hasAlpha App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png | grep -q "hasAlpha: no"
         working-directory: apps/mobile/ios/App
+
+      # ios-sim-app-store: the App Store build for the simulator, for blind
+      # tests. The same flags as the App Store build: Release, APP_STORE_BUILD=1,
+      # gate required, no publik test hooks, the token from the secret (the
+      # store web bundle built at the top of this job is still in App/public).
+      # arm64, ad-hoc signed. Not on a fork's pull request (no secret there).
+      - name: xcodebuild (Release, iphonesimulator, arm64) — the App Store build for the simulator
+        if: github.event.pull_request.head.repo.fork != true
+        env:
+          APP_STORE_BUILD: "1"
+        run: |
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath DerivedData \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            APP_STORE_BUILD="$APP_STORE_BUILD" \
+            build
+        working-directory: apps/mobile/ios/App
+
+      - name: Check, ad-hoc sign and zip the App Store simulator app (ios-sim-app-store)
+        if: github.event.pull_request.head.repo.fork != true
+        run: |
+          set -euo pipefail
+          APP=DerivedData/Build/Products/Release-iphonesimulator/App.app
+          archs="$(lipo -archs "$APP/App")"
+          echo "archs: $archs"
+          [ "$archs" = "arm64" ] || { echo "::error::ios-sim-app-store must be arm64 only, not $archs"; exit 1; }
+          bash ../../scripts/check-ios-app.sh "$APP" Release
+          # The web bundle inside is the store bundle: build marker store, gate required.
+          markers="$(grep -rhoE 'publik-build:[a-z-]+|publik-gate-mode:[a-z]+' "$APP/public/assets" | sort -u | tr '\n' ' ')"
+          echo "web bundle markers: $markers"
+          [ "$markers" = "publik-build:store publik-gate-mode:required " ] || { echo "::error::ios-sim-app-store needs a store bundle with the gate required, not: $markers"; exit 1; }
+          codesign --force --deep --sign - --timestamp=none "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | grep -E "^(Identifier|Signature)="
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$RUNNER_TEMP/kneecap-ios-sim-arm64-store.zip"
+        working-directory: apps/mobile/ios/App
+
+      - name: Upload the App Store simulator app
+        if: github.event.pull_request.head.repo.fork != true
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-sim-app-store
+          path: ${{ runner.temp }}/kneecap-ios-sim-arm64-store.zip
+          if-no-files-found: error
 
       - name: Build the web bundle (gate optional)
         env:
