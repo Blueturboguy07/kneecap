@@ -653,15 +653,11 @@ class NativeBridgePlugin : Plugin() {
 	//
 	// Blind test round 2: the export sheet now shows the real end of an
 	// export. After "done" it calls `saveToPhotos` and shows "Saving to
-	// Photos…" until it answers, then "Saved to Photos" with Open Photos and
-	// Share, or "Could not save to Photos." with Share. Same wire contract as
-	// iOS (NativeBridgePlugin+Export.swift): `{uri}` is the finished export's
-	// raw path (or its `file://` URI).
-
-	/** The Gallery item the last `saveToPhotos` made, for `openPhotos`.
-	 *  Written on the save thread, read on the plugin thread. */
-	@Volatile
-	private var lastSavedVideoUri: Uri? = null
+	// Photos…" until it answers, then "Saved to Photos" with Share, or
+	// "Could not save to Photos." with Share. Same wire contract as iOS
+	// (NativeBridgePlugin+Export.swift): `{uri}` is the finished export's
+	// raw path (or its `file://` URI). 1.0.6: no "open Photos" method, the
+	// same as iOS (no public iOS API opens the Photos app).
 
 	/** Adds the finished export to the Gallery (MediaStore, Movies/publik
 	 *  kneecap). minSdk is 29, so with scoped storage an app inserts its own
@@ -674,7 +670,7 @@ class NativeBridgePlugin : Plugin() {
 		Thread {
 			val result = JSObject()
 			try {
-				lastSavedVideoUri = insertIntoGallery(file)
+				insertIntoGallery(file)
 				result.put("saved", true)
 			} catch (e: Exception) {
 				android.util.Log.w("kneecap-export", "save to Gallery failed", e)
@@ -738,23 +734,6 @@ class NativeBridgePlugin : Plugin() {
 				call.reject("shareFile failed: ${e.message}", "IO_ERROR")
 			}
 		}.start()
-	}
-
-	/** Opens the saved video in the Gallery / Photos app (ACTION_VIEW on the
-	 *  MediaStore item), or the Gallery app itself when nothing was saved in
-	 *  this session. */
-	@PluginMethod
-	fun openPhotos(call: PluginCall) {
-		val saved = lastSavedVideoUri
-		val intent = if (saved != null) {
-			Intent(Intent.ACTION_VIEW).apply {
-				setDataAndType(saved, "video/*")
-				addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-			}
-		} else {
-			Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_GALLERY)
-		}
-		startExternalActivity(call, intent, "no Gallery or Photos app")
 	}
 
 	/** Starts `intent` on the UI thread and resolves the call, or rejects it

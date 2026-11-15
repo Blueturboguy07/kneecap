@@ -231,7 +231,7 @@ export function createWebFallbackBridge(): NativeBridge {
 		// and no system share sheet; `exportProject` above never reaches
 		// "done" here anyway, but these still fail cleanly: a plain
 		// "failed" answer for the save (its contract never rejects) and a
-		// typed UNSUPPORTED error for the other two.
+		// typed UNSUPPORTED error for Share.
 		async saveToPhotos(_params: { uri: string }): Promise<SaveToPhotosResult> {
 			return { saved: false, reason: "failed" };
 		},
@@ -240,13 +240,6 @@ export function createWebFallbackBridge(): NativeBridge {
 			throw new NativeBridgeError({
 				code: "UNSUPPORTED",
 				message: "Sharing a file requires a native shell (UIActivityViewController / ACTION_SEND). Not available in the web-fallback bridge.",
-			});
-		},
-
-		async openPhotos(): Promise<void> {
-			throw new NativeBridgeError({
-				code: "UNSUPPORTED",
-				message: "Opening Photos requires a native shell. Not available in the web-fallback bridge.",
 			});
 		},
 

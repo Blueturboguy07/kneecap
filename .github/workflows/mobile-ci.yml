@@ -183,7 +183,7 @@ jobs:
         run: bash scripts/test-store-build-guards.sh xcode
         working-directory: apps/mobile
 
-      - name: Check the Release app (plist items, privacy manifest, no developer tools, no other app's name)
+      - name: Check the Release app (plist items, privacy manifest, no developer tools, no other app's name, no private URL scheme)
         run: |
           set -euo pipefail
           bash ../../scripts/check-ios-app.sh DerivedData/Build/Products/Release-iphoneos/App.app Release
@@ -330,7 +330,7 @@ jobs:
         # C: 1 photo (0-3 s) + 1 text (0-5 s) exported at 1080p/30/High
         #    through the real bridge; AVFoundation checks the file and its
         #    length (the latest end over all tracks, +-0.15 s); the sheet
-        #    ends with "Saved to Photos", "Open Photos" and "Share".
+        #    ends with "Saved to Photos" and "Share" (no "Open Photos").
         # E: launch 3, a new project: a generated H.264 + AAC test video
         #    through the real native proxy, preview pixels, Captions,
         #    Split/Duplicate/Delete/Mute, Import audio, and an export with a

@@ -180,21 +180,42 @@ public enum AppleSpeechTranscriber {
 	}
 
 	/// iOS 26+ engine: SpeechAnalyzer + SpeechTranscriber with audio time
-	/// ranges. Ensures the locale's model asset is installed first (a
-	/// system-managed, one-time download shared across apps — the same
-	/// model dictation uses).
+	/// ranges. The model is a system-managed download that apps share.
+	///
+	/// 1.0.6: the asset steps follow Apple's documented order
+	/// (AssetInventory, "Install assets"; SpeechTranscriber, "Check device
+	/// support"):
+	///   1. the device can run SpeechTranscriber (`isAvailable`);
+	///   2. the module uses a SUPPORTED locale
+	///      (`supportedLocale(equivalentTo:)` maps "en-US" to Apple's locale);
+	///   3. that locale is reserved for this app (`reserveAssetLocale`);
+	///   4. the model downloads and installs when it is not there yet
+	///      (`assetInstallationRequest` returns nil when it is installed).
+	/// Blind test round 2: on the simulator the download failed with
+	/// "dev.kneecap.app is not subscribed to transcription.en". Any throw
+	/// here makes `recognize` use the old engine. When both engines fail,
+	/// the Captions panel shows its plain message.
 	@available(iOS 26.0, macOS 26.0, *)
 	static func recognizeWithSpeechAnalyzer(url: URL, localeId: String) async throws -> [String: Any] {
-		let locale = Locale(identifier: localeId)
+		guard SpeechTranscriber.isAvailable else {
+			throw AppleSpeechTranscriberError.onDeviceUnavailable("SpeechTranscriber is not available on this device")
+		}
+		guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: localeId)) else {
+			throw AppleSpeechTranscriberError.localeUnsupported(localeId)
+		}
 		let transcriber = SpeechTranscriber(
 			locale: locale,
 			transcriptionOptions: [],
 			reportingOptions: [],
 			attributeOptions: [.audioTimeRange]
 		)
+		try await reserveAssetLocale(locale)
 		if let installRequest = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-			print("[kneecap-stt] SpeechAnalyzer: downloading locale model asset…")
+			print("[kneecap-stt] SpeechAnalyzer: downloading the \(locale.identifier) model…")
 			try await installRequest.downloadAndInstall()
+			print("[kneecap-stt] SpeechAnalyzer: model installed")
+		} else {
+			print("[kneecap-stt] SpeechAnalyzer: model already installed")
 		}
 
 		let analyzer = SpeechAnalyzer(modules: [transcriber])
@@ -240,6 +261,26 @@ public enum AppleSpeechTranscriber {
 		let fullText = words.map(\.text).joined(separator: " ")
 		print("[kneecap-stt] SpeechAnalyzer recognized \(words.count) words")
 		return wireResult(words: words, fullText: fullText)
+	}
+
+	/// Step 3 of Apple's asset steps: reserve `locale` for this app.
+	/// `assetInstallationRequest` can also reserve by itself; doing it here
+	/// first makes a failure clear in the log. An app has
+	/// `AssetInventory.maximumReservedLocales` reservations. When all of them
+	/// hold other locales (an older language), the first one is released.
+	@available(iOS 26.0, macOS 26.0, *)
+	static func reserveAssetLocale(_ locale: Locale) async throws {
+		let reserved = await AssetInventory.reservedLocales
+		if reserved.contains(where: { $0.identifier == locale.identifier }) {
+			print("[kneecap-stt] SpeechAnalyzer: locale \(locale.identifier) is already reserved")
+			return
+		}
+		if reserved.count >= AssetInventory.maximumReservedLocales, let oldest = reserved.first {
+			await AssetInventory.release(reservedLocale: oldest)
+			print("[kneecap-stt] SpeechAnalyzer: released the reservation for \(oldest.identifier)")
+		}
+		let added = try await AssetInventory.reserve(locale: locale)
+		print("[kneecap-stt] SpeechAnalyzer: reserved locale \(locale.identifier) (new: \(added))")
 	}
 
 	/// Pre-26 engine: the buffer-request workaround. Partials ON and the

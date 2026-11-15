@@ -202,9 +202,11 @@ describe("the export sheet uses plain words", () => {
 	it("shows no file path and no error text", () => {
 		expect(sheet).toContain('<p className="cc-panel-note">Export failed. Try again.</p>');
 		// 1.0.5 (blind test round 2): the result block replaced "Export complete.".
-		for (const text of ["Saved to Photos", "Could not save to Photos.", "Open Photos", "Share"]) {
+		// 1.0.6: no "Open Photos" button (guideline 2.5.1); Share stays.
+		for (const text of ["Saved to Photos", "Could not save to Photos.", "Share"]) {
 			expect(view).toMatch(shows(text));
 		}
+		expect(view).not.toMatch(shows("Open Photos"));
 		expect(view).toMatch(/>Photos access is off[^<]*Settings\.</);
 		expect(sheet).not.toContain("Export complete.");
 		// The video's path goes back to the bridge only; the sheet never renders it.

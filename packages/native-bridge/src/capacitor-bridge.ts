@@ -10,7 +10,7 @@
  *
  * WHAT IS REAL: `capabilities()` (M3); `pickMedia()`, `generateProxy()`,
  * `generateThumbnails()` (M4); `exportProject()` (M9); `saveToPhotos()`,
- * `shareFile()`, `openPhotos()` (1.0.5, the export result) — each calls a
+ * `shareFile()` (1.0.5, the export result) — each calls a
  * genuinely registered native plugin method on BOTH
  * `apps/mobile/ios/App/App/NativeBridgePlugin{,+Media,+Export}.swift` and
  * `apps/mobile/android/app/src/main/java/dev/kneecap/app/NativeBridgePlugin.kt`.
@@ -235,11 +235,10 @@ interface NativeBridgePluginSpec {
 	/** The export sheet's result block (1.0.5) — NativeBridgePlugin+Export
 	 * .swift and NativeBridgePlugin.kt. `uri` is the RAW native path of a
 	 * finished export (`nativeFilePathFromUri`), never the web-view URL.
-	 * `saveToPhotos` answers `reason` only when `saved` is false; the two
-	 * others resolve with an acknowledgement nothing here reads. */
+	 * `saveToPhotos` answers `reason` only when `saved` is false; `shareFile`
+	 * resolves with an acknowledgement nothing here reads. */
 	saveToPhotos(params: { uri: string }): Promise<{ saved: boolean; reason?: string }>;
 	shareFile(params: { uri: string }): Promise<unknown>;
-	openPhotos(): Promise<unknown>;
 	addListener(
 		eventName: "proxyProgress",
 		listenerFunc: (data: RawProxyProgress) => void,
@@ -686,14 +685,6 @@ export function createCapacitorBridge({
 				await plugin.shareFile({ uri: nativeFilePathFromUri(uri) });
 			} catch (err) {
 				throw toNativeBridgeError({ err, method: "shareFile" });
-			}
-		},
-
-		async openPhotos(): Promise<void> {
-			try {
-				await plugin.openPhotos();
-			} catch (err) {
-				throw toNativeBridgeError({ err, method: "openPhotos" });
 			}
 		},
 

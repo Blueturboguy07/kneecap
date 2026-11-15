@@ -24,7 +24,7 @@ mode in src/autotest.tsx. This script:
       C. the export (1 photo 0-3 s + 1 text 0-5 s, 1080p, 30 fps, High)
          makes a file with a video track that lasts as long as the timeline
          (the latest end over all tracks, +-0.15 s), and the export sheet
-         ends with "Saved to Photos", "Open Photos" and "Share";
+         ends with "Saved to Photos" and "Share" (1.0.6: no "Open Photos");
       E. launch 3, a new project: the video imports through the native
          proxy and shows in the preview; Captions "Generate" gives captions
          or a plain message; Split, Duplicate, Delete and Mute work; Import
@@ -812,10 +812,11 @@ class EditorTest:
 
     def judge_export_sheet(self):
         """Blind test 1.0.5: a good export ends with "Saved to Photos" and the
-        buttons "Open Photos" and "Share" (Photos add permission granted
-        before launch); a failed export keeps "Export failed. Try again."."""
+        button "Share" (Photos add permission granted before launch); a failed
+        export keeps "Export failed. Try again.". 1.0.6: no "Open Photos"
+        button (no public iOS API opens the Photos app; guideline 2.5.1)."""
         sheet = self.json_line("EXPORT SHEET", 2)
-        name = 'export sheet ends with "Saved to Photos", "Open Photos" and "Share"'
+        name = 'export sheet ends with "Saved to Photos" and "Share", no "Open Photos"'
         if sheet is None:
             self.record("C", name, False, "the app logged no EXPORT SHEET line (no export through the sheet)")
             return
@@ -830,7 +831,7 @@ class EditorTest:
             self.record("C", "a failed export shows the plain message", True, 'the sheet says "Export failed. Try again."')
             self.record("C", name, False, f"the export failed; {detail}")
             return
-        ok = bool(sheet.get("saved")) and "open photos" in folded and "share" in folded
+        ok = bool(sheet.get("saved")) and "share" in folded and "open photos" not in folded
         if not ok and "could not save" in (" ".join(notes) + " " + str(sheet.get("text", ""))).casefold():
             detail = f"the save to Photos failed (photos-add grant?); {detail}"
         self.record("C", name, ok, detail)

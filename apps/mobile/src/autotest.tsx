@@ -1507,7 +1507,8 @@ async function ciExport(ctx: CiContext, editor: EditorCore, options: CiExportOpt
 
 /**
  * What the export sheet shows when the export ends (blind test 1.0.5): after
- * a good save "Saved to Photos" with the buttons "Open Photos" and "Share";
+ * a good save "Saved to Photos" with the button "Share" (1.0.6: no "Open
+ * Photos"; no public iOS API opens the Photos app);
  * after a failed export "Export failed. Try again.". The Photos save comes
  * after the native "done" event, so this waits up to 30 s for its words.
  * Logs one line: EXPORT SHEET {"saved":…,"failed":…,"notes":[…],"buttons":[…],"text":"…"}.

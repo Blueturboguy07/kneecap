@@ -366,9 +366,8 @@ export interface NativeBridge {
 	/** Opens the system share sheet for that video. Rejects with a
 	 *  `NativeBridgeError` when it cannot. */
 	shareFile(params: { uri: string }): Promise<void>;
-	/** Opens the Photos / Gallery app. Rejects with a `NativeBridgeError`
-	 *  when it cannot. */
-	openPhotos(): Promise<void>;
+	// 1.0.6: no "open the Photos app" method. iOS has no public API for it,
+	// and the private Photos URL scheme breaks App Store guideline 2.5.1.
 	transcribe(params: {
 		handle: MediaHandle;
 		opts: TranscribeOptions;

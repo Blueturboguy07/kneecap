@@ -15,7 +15,9 @@ import UIKit
 /// resolve-immediately-then-stream-`notifyListeners`-events shape as
 /// `NativeBridgePlugin+Media.swift`'s `generateProxy`), and the export
 /// sheet's result block (1.0.5, blind test round 2): `saveToPhotos` (plan
-/// M9 item 8), `shareFile` and `openPhotos`.
+/// M9 item 8) and `shareFile`. 1.0.6: no method opens the Photos app. No
+/// public API does that, and the private Photos URL scheme breaks App
+/// Store guideline 2.5.1 (`check-ios-app.sh` fails a build that has it).
 extension NativeBridgePlugin {
 
     @objc func exportProject(_ call: CAPPluginCall) {
@@ -220,24 +222,6 @@ extension NativeBridgePlugin {
             }
             presenter.present(sheet, animated: true) {
                 call.resolve(["shown": true])
-            }
-        }
-    }
-
-    /// Opens the Photos app (`photos-redirect://`, the scheme Photos
-    /// registers). Rejects when the system cannot open it.
-    @objc func openPhotos(_ call: CAPPluginCall) {
-        guard let url = URL(string: "photos-redirect://") else {
-            call.reject("no Photos URL", "UNSUPPORTED")
-            return
-        }
-        DispatchQueue.main.async {
-            UIApplication.shared.open(url, options: [:]) { opened in
-                if opened {
-                    call.resolve(["opened": true])
-                } else {
-                    call.reject("Photos could not be opened", "UNSUPPORTED")
-                }
             }
         }
     }

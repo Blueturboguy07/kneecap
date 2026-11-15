@@ -71,14 +71,13 @@ describe("createWebFallbackBridge", () => {
 		);
 	});
 
-	test("the export result methods fail cleanly: saveToPhotos answers failed, shareFile and openPhotos throw UNSUPPORTED", async () => {
+	test("the export result methods fail cleanly: saveToPhotos answers failed, shareFile throws UNSUPPORTED, and there is no openPhotos", async () => {
 		expect(await bridge.saveToPhotos({ uri: "blob:web-fallback-export" })).toEqual({
 			saved: false,
 			reason: "failed",
 		});
 		for (const run of [
 			() => bridge.shareFile({ uri: "blob:web-fallback-export" }),
-			() => bridge.openPhotos(),
 		]) {
 			let caught: unknown;
 			try {
@@ -91,6 +90,8 @@ describe("createWebFallbackBridge", () => {
 				"UNSUPPORTED",
 			);
 		}
+		// 1.0.6: no bridge opens the Photos app (App Store guideline 2.5.1).
+		expect("openPhotos" in bridge).toBe(false);
 	});
 
 	test("transcribe throws a typed NativeBridgeError naming the real (native) implementation", async () => {

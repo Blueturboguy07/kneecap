@@ -74,10 +74,11 @@ describe("App Store rule 2.1: no control that does nothing, no placeholder text"
 	it("the Export sheet has only real controls: resolution, frame rate, quality, Export video and the result buttons", () => {
 		const sheet = read("packages/mobile-ui/src/components/panels/export-sheet.tsx");
 		// 1.0.5 (blind test round 2): after an export the result block adds
-		// exactly two buttons, Open Photos and Share. Each button has a handler.
+		// a Share button. 1.0.6: no Open Photos button (no public iOS API
+		// opens the Photos app; guideline 2.5.1). Each button has a handler.
 		const buttons = [...sheet.matchAll(/<button\b[\s\S]*?<\/button>/g)].map((m) => m[0]);
 		const labels = buttons.map((button) => />\s*([^<>{}]+?)\s*<\/button>$/.exec(button)?.[1] ?? button);
-		expect([...labels].sort()).toEqual(["Export video", "Open Photos", "Share"]);
+		expect([...labels].sort()).toEqual(["Export video", "Share"]);
 		for (const button of buttons) expect(button).toContain("onClick={");
 	});
 });

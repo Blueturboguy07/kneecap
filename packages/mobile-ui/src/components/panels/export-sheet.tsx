@@ -131,8 +131,9 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 	const [runState, setRunState] = useState<ExportRunState>("idle");
 	const [progress, setProgress] = useState<{ stage: ExportProgress["stage"]; fraction: number } | null>(null);
 	// The result block after "done" (1.0.5): the Photos save state, whether a
-	// video file is there to share, and a plain note when Share or Open
-	// Photos could not open.
+	// video file is there to share, and a plain note when Share could not
+	// open. 1.0.6: no button opens the Photos app. iOS has no public API for
+	// that, and the private URL scheme breaks App Store guideline 2.5.1.
 	const [photosSave, setPhotosSave] = useState<PhotosSaveState>("saving");
 	const [canShare, setCanShare] = useState(false);
 	const [actionNote, setActionNote] = useState<string | null>(null);
@@ -256,22 +257,8 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 		}
 	};
 
-	const openPhotosApp = async () => {
-		setActionNote(null);
-		try {
-			const bridge = await getNativeBridge();
-			await bridge.openPhotos();
-		} catch (error) {
-			console.error("open Photos failed:", error instanceof Error ? error.message : error);
-			setActionNote("Could not open Photos.");
-		}
-	};
-
 	const handleShare = () => {
 		void shareVideo();
-	};
-	const handleOpenPhotos = () => {
-		void openPhotosApp();
 	};
 
 	const startExport = async () => {
@@ -415,15 +402,6 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 						)}
 						{photosSave !== "saving" && (
 							<div className="cc-export-result__actions">
-								{photosSave === "saved" && (
-									<button
-										type="button"
-										className="cc-export-sheet__action cc-export-result__action"
-										onClick={handleOpenPhotos}
-									>
-										Open Photos
-									</button>
-								)}
 								{canShare && (
 									<button
 										type="button"

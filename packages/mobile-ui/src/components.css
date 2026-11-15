@@ -1598,10 +1598,13 @@
 
 /* Every tap target is at least 44 x 44 pt (Apple HIG). min-width and
    min-height win over the fixed sizes above, so the look of each control
-   stays the same apart from its size. */
+   stays the same apart from its size. 1.0.6: the sheet header's Close and
+   Saved (bookmark) buttons too; their inline "width: auto" made them as
+   narrow as the icon. */
 .cc-topbar__icon-btn,
 .cc-keyframe-control__btn,
-.cc-timeline__quick-add-btn {
+.cc-timeline__quick-add-btn,
+.cc-sheet-header__icon-btn {
 	min-width: var(--cc-touch-target-ios);
 	min-height: var(--cc-touch-target-ios);
 }

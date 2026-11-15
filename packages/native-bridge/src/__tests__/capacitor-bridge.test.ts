@@ -658,7 +658,7 @@ describe("createCapacitorBridge (injected fake plugin — DI seam for full orche
 	});
 });
 
-describe("createCapacitorBridge: the export result block (1.0.5 — saveToPhotos, shareFile, openPhotos)", () => {
+describe("createCapacitorBridge: the export result block (1.0.5 — saveToPhotos, shareFile; 1.0.6 — no openPhotos)", () => {
 	const PLAYBACK_URL = "capacitor://localhost/_capacitor_file_/var/mobile/App Support/kneecap/Exports/e1.mp4";
 	const RAW_PATH = "/var/mobile/App Support/kneecap/Exports/e1.mp4";
 
@@ -690,28 +690,23 @@ describe("createCapacitorBridge: the export result block (1.0.5 — saveToPhotos
 		expect(await odd.saveToPhotos({ uri: PLAYBACK_URL })).toEqual({ saved: false, reason: "failed" });
 	});
 
-	test("shareFile and openPhotos call native and turn a rejection into a typed NativeBridgeError", async () => {
+	test("shareFile calls native and turns a rejection into a typed NativeBridgeError; there is no openPhotos", async () => {
 		const shareFile = mock(async () => ({ shown: true }));
-		const openPhotos = mock(async () => ({ opened: true }));
-		const bridge = createCapacitorBridge({ plugin: fakePlugin({ shareFile, openPhotos }) as never });
+		const bridge = createCapacitorBridge({ plugin: fakePlugin({ shareFile }) as never });
 		await bridge.shareFile({ uri: PLAYBACK_URL });
-		await bridge.openPhotos();
 		expect(shareFile).toHaveBeenCalledWith({ uri: RAW_PATH });
-		expect(openPhotos).toHaveBeenCalledTimes(1);
+		// 1.0.6: no bridge opens the Photos app (App Store guideline 2.5.1).
+		expect("openPhotos" in bridge).toBe(false);
 
 		const failing = createCapacitorBridge({
 			plugin: fakePlugin({
 				shareFile: mock(async () => {
 					throw { code: "IO_ERROR", message: "no view controller" };
 				}),
-				openPhotos: mock(async () => {
-					throw { code: "UNSUPPORTED", message: "Photos could not be opened" };
-				}),
 			}) as never,
 		});
 		for (const [run, code] of [
 			[() => failing.shareFile({ uri: PLAYBACK_URL }), "IO_ERROR"],
-			[() => failing.openPhotos(), "UNSUPPORTED"],
 		] as const) {
 			let caught: unknown;
 			try {
