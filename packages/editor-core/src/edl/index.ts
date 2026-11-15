@@ -14,3 +14,4 @@ export * from "./types";
 export * from "./rational";
 export * from "./build";
 export * from "./validate";
+export * from "./export-size";

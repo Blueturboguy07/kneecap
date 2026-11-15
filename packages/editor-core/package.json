@@ -36,6 +36,7 @@
 		"./animation/types": "./src/animation/types.ts",
 		"./timeline/animation-targets": "./src/timeline/animation-targets.ts",
 		"./rendering": "./src/rendering/index.ts",
+		"./preview/element-bounds": "./src/preview/element-bounds.ts",
 		"./*": "./src/*",
 		"./media/waveform-summary": "./src/media/waveform-summary.ts",
 		"./media/dead-space": "./src/media/dead-space.ts",

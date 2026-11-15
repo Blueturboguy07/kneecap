@@ -335,6 +335,7 @@ To make any change:
 |---|---|---|
 | 1 | 2026-08-17 | Frozen. Initial contract (plan M2). |
 | 1 | 2026-08-17 | Additive (plan M10 part 2): `"caption"` added to `EdlClipKind`/`EdlTrackType` (`EdlOverlayKind` already carried it, see §7). New `EdlClip.captionWords: EdlCaptionWord[]` field — `[]` on every clip except `kind: "caption"`, where it carries per-word `{text, startTicks, endTicks}` in the SAME source-relative tick space as the clip's own `sourceStartTicks`/`sourceEndTicks`, for native burn-in export of animated word-by-word captions. Caption *styling* (colour, highlight colour, font, position, animation) stays out of the schema, same policy as text — see §6/§8, read from `params` by key.|
+| 1 | 2026-11-15 | Values only, no schema change (kneecap 1.0.8, blind test round 4): when `buildEdl` gets an `output.resolution` that differs from the project canvas (the mobile export resolution), every spatial value is in OUTPUT pixels: clip `transform.positionX/Y`, the `transform.positionX/Y` keyframe values and bezier `dv`, and the same keys in `params`; and `meta.canvas` is the output size. Sizes (a scale over a contain-fit), rotation and opacity have no pixel unit. So a mapper may always treat `meta.canvas` = `output.resolution`. Without a different `output.resolution` the document is byte-for-byte the same as before. |
 
 ---
 

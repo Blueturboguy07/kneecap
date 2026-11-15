@@ -3,6 +3,7 @@ import { TICKS_PER_SECOND, type EditorCore, type NativeImportProgress } from "@k
 import { cn } from "../../lib/cn";
 import { isVisualElement, type ElementRef, type TimelineElement, type VisualElement } from "@kneecap/editor-core/timeline";
 import { mediaTime, mediaTimeToSeconds, type MediaTime } from "@kneecap/editor-core/wasm";
+import { getExportSize } from "@kneecap/editor-core/edl";
 import { TopBar } from "./top-bar";
 import { PlaybackBar } from "./playback-bar";
 import { PreviewStage } from "./preview-stage";
@@ -48,7 +49,7 @@ import {
 	togglePlayback,
 	seekToSeconds,
 	importAndPlaceMedia,
-	setProjectResolution,
+	setProjectAspectRatio,
 	setProjectBackground,
 	commitElementTrim,
 	scrubElementTrim,
@@ -347,7 +348,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	const durationSeconds = useProjectDurationSeconds();
 	const isPlaying = useIsPlaying();
 	// Blind test round 3, item 3: a selector subscription to the project settings. The
-	// shell re-renders when the export sheet (setProjectResolution), the Aspect ratio
+	// shell re-renders when the export sheet (setExportResolution), the Aspect ratio
 	// sheet or the Background sheet changes them, so the top-bar chip, the preview size
 	// and the active ratio and colour always show the current settings.
 	const projectSettings = useProjectSettings();
@@ -404,7 +405,8 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 		>
 			<TopBar
 				onClose={onBack}
-				resolutionLabel={resolutionLabelFor(settings.canvasSize)}
+				// 1.0.8: the export size (the export sheet sets it); the canvas is the layout.
+				resolutionLabel={resolutionLabelFor(getExportSize({ settings }))}
 				onOpenExportSettings={() => setActiveSheet("export")}
 				onExport={() => setActiveSheet("export")}
 			/>
@@ -680,15 +682,17 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 					<p className="cc-sheet-title">Aspect ratio</p>
 					<div className="cc-ratio-grid">
 						{RATIO_PRESETS.map((preset) => {
+							// 1.0.8: the canvas keeps its short side (setProjectAspectRatio),
+							// so a preset is active when the ASPECT matches.
 							const active =
-								settings.canvasSize.width === preset.width &&
-								settings.canvasSize.height === preset.height;
+								settings.canvasSize.width * preset.height === settings.canvasSize.height * preset.width ||
+								(settings.canvasSize.width === preset.width && settings.canvasSize.height === preset.height);
 							return (
 								<button
 									key={preset.label}
 									type="button"
 									className={cn("cc-ratio-grid__item", active && "cc-ratio-grid__item--active")}
-									onClick={() => setProjectResolution({ editor, canvasSize: { width: preset.width, height: preset.height } })}
+									onClick={() => setProjectAspectRatio({ editor, ratio: { width: preset.width, height: preset.height } })}
 								>
 									<span
 										className="cc-ratio-grid__shape"

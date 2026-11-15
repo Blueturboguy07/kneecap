@@ -25,6 +25,7 @@ import {
 	readOpacityFromParams,
 } from "@/rendering";
 import { rationalFromNumber, reduceRational, scaleTicks } from "./rational";
+import { getExportScale } from "./export-size";
 import {
 	EDL_SCHEMA_ID,
 	EDL_VERSION,
@@ -89,8 +90,87 @@ export interface BuildEdlOutputArgs {
 	includeAudio: boolean;
 	/** Defaults to the project frame rate. */
 	fps?: FrameRate;
-	/** Defaults to the project canvas size. */
+	/**
+	 * Defaults to the project canvas size. When it differs (1.0.8: the mobile
+	 * export sheet's resolution, see `export-size.ts`), every spatial value is
+	 * scaled from canvas pixels to output pixels with one factor per axis
+	 * (clip positions, position keyframes and the position params), and
+	 * `meta.canvas` is the output size. So a native exporter always gets
+	 * canvas = output, the case both exporters place correctly.
+	 */
 	resolution?: { width: number; height: number };
+}
+
+/** Output pixels per canvas pixel (`getExportScale`). */
+type SpatialScale = { x: number; y: number };
+
+const IDENTITY_SCALE: SpatialScale = { x: 1, y: 1 };
+
+function isIdentityScale(spatial: SpatialScale): boolean {
+	return spatial.x === 1 && spatial.y === 1;
+}
+
+/** The position paths are the only canvas-pixel values a native exporter
+ *  reads: sizes are a scale over a contain-fit of the output, rotation and
+ *  opacity have no unit, and text, captions, stickers and graphics come as
+ *  prerendered overlay frames drawn at the output size. */
+function positionFactor({
+	propertyPath,
+	spatial,
+}: {
+	propertyPath: string;
+	spatial: SpatialScale;
+}): number | null {
+	if (propertyPath === "transform.positionX") return spatial.x;
+	if (propertyPath === "transform.positionY") return spatial.y;
+	return null;
+}
+
+function scalePositionChannels({
+	channels,
+	spatial,
+}: {
+	channels: EdlAnimationChannel[];
+	spatial: SpatialScale;
+}): EdlAnimationChannel[] {
+	if (isIdentityScale(spatial)) return channels;
+	return channels.map((channel) => {
+		const factor =
+			channel.componentKey === null
+				? positionFactor({ propertyPath: channel.propertyPath, spatial })
+				: null;
+		if (factor === null) return channel;
+		return {
+			...channel,
+			keyframes: channel.keyframes.map((key) => ({
+				...key,
+				value: typeof key.value === "number" ? key.value * factor : key.value,
+				leftHandle: key.leftHandle
+					? { dtTicks: key.leftHandle.dtTicks, dv: key.leftHandle.dv * factor }
+					: null,
+				rightHandle: key.rightHandle
+					? { dtTicks: key.rightHandle.dtTicks, dv: key.rightHandle.dv * factor }
+					: null,
+			})),
+		};
+	});
+}
+
+function scalePositionParams({
+	params,
+	spatial,
+}: {
+	params: EdlClip["params"];
+	spatial: SpatialScale;
+}): EdlClip["params"] {
+	if (isIdentityScale(spatial)) return params;
+	const out: EdlClip["params"] = { ...params };
+	for (const key of Object.keys(out)) {
+		const factor = positionFactor({ propertyPath: key, spatial });
+		const value = out[key];
+		if (factor !== null && typeof value === "number") out[key] = value * factor;
+	}
+	return out;
 }
 
 const MEDIA_KIND: Record<MediaType, "video" | "image" | "audio"> = {
@@ -243,7 +323,13 @@ function buildCaptionWords({ element }: { element: TimelineElement }): EdlCaptio
 	}));
 }
 
-function buildClip({ element }: { element: TimelineElement }): EdlClip {
+function buildClip({
+	element,
+	spatial = IDENTITY_SCALE,
+}: {
+	element: TimelineElement;
+	spatial?: SpatialScale;
+}): EdlClip {
 	const kind = element.type as EdlClipKind;
 	const retime = "retime" in element ? element.retime : undefined;
 
@@ -262,9 +348,10 @@ function buildClip({ element }: { element: TimelineElement }): EdlClip {
 
 	const transform: EdlTransform = (() => {
 		const t = buildTransformFromParams({ params: element.params });
+		const identity = isIdentityScale(spatial);
 		return {
-			positionX: t.position.x,
-			positionY: t.position.y,
+			positionX: identity ? t.position.x : t.position.x * spatial.x,
+			positionY: identity ? t.position.y : t.position.y * spatial.y,
 			scaleX: t.scaleX,
 			scaleY: t.scaleY,
 			rotateDegrees: t.rotate,
@@ -311,9 +398,12 @@ function buildClip({ element }: { element: TimelineElement }): EdlClip {
 						params: { ...mask.params } as Record<string, unknown>,
 					}))
 				: [],
-		animations: buildAnimations({ animations: element.animations }),
+		animations: scalePositionChannels({
+			channels: buildAnimations({ animations: element.animations }),
+			spatial,
+		}),
 		captionWords: buildCaptionWords({ element }),
-		params: { ...element.params },
+		params: scalePositionParams({ params: { ...element.params }, spatial }),
 	};
 }
 
@@ -429,7 +519,18 @@ export function buildEdl({
 	durationTicks,
 }: BuildEdlArgs): Edl {
 	const frameRate = toRational(project.settings.fps);
-	const canvas = project.settings.canvasSize;
+	const projectCanvas = project.settings.canvasSize;
+	const outputResolution = output.resolution ?? {
+		width: projectCanvas.width,
+		height: projectCanvas.height,
+	};
+	// 1.0.8: the spatial values go out in OUTPUT pixels, and `meta.canvas` is
+	// the output size (see BuildEdlOutputArgs.resolution).
+	const spatial = getExportScale({
+		canvasSize: projectCanvas,
+		outputSize: outputResolution,
+	});
+	const canvas = isIdentityScale(spatial) ? projectCanvas : outputResolution;
 
 	const tracks: EdlTrack[] = orderTracks({ tracks: scene.tracks }).map(
 		({ track, kind, zIndex }) => {
@@ -440,7 +541,7 @@ export function buildEdl({
 						? a.startTime - b.startTime
 						: a.id.localeCompare(b.id),
 				)
-				.map((element) => buildClip({ element }));
+				.map((element) => buildClip({ element, spatial }));
 
 			return {
 				trackId: track.id,
@@ -496,7 +597,7 @@ export function buildEdl({
 		audioCodec: output.audioCodec,
 		bitrate: output.bitrate,
 		fps: outputFps,
-		resolution: output.resolution ?? { width: canvas.width, height: canvas.height },
+		resolution: { width: outputResolution.width, height: outputResolution.height },
 		includeAudio: output.includeAudio,
 	};
 

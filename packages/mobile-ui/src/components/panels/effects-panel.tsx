@@ -13,6 +13,7 @@ import {
 	toggleEffectEnabled,
 	updateEffectParam,
 } from "../../editor/actions";
+import { effectPreviewImage } from "../../editor/effect-previews";
 
 interface EffectsPanelProps {
 	editor: EditorCore;
@@ -41,7 +42,12 @@ export function EffectsPanel({ editor, elementRef, element, onClose }: EffectsPa
 	return (
 		<PanelSheet onScrimClick={onClose} header={<SheetHeader onClose={onClose} />}>
 			<ThumbnailGrid
-				items={catalog.map((def) => ({ id: def.type, label: def.name }))}
+				items={catalog.map((def) => ({
+					id: def.type,
+					label: def.name,
+					// Blind test round 4, item 9: the tile shows the effect on a sample scene.
+					imageSrc: effectPreviewImage({ effectType: def.type }),
+				}))}
 				selectedId={activeEffect?.type ?? null}
 				onSelect={(effectType) => {
 					if (activeEffect && activeEffect.type === effectType) {

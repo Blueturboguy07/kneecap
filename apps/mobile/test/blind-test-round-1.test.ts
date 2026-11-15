@@ -95,7 +95,7 @@ describe("item 5: captions use the person's clips only", () => {
 	it("the error texts are plain: no file name, path or fixture", () => {
 		const block = actions.slice(actions.indexOf("export const CAPTION_MESSAGES"), actions.indexOf("} as const"));
 		const texts = [...block.matchAll(/:\s*"([^"]+)"/g)].map((m) => m[1]!);
-		expect(texts.length).toBe(5);
+		expect(texts.length).toBe(6);
 		for (const text of texts) expect(text).not.toMatch(/fixture|\/|\\|native|harness|\$\{/i);
 		expect(actions).toContain("throw new Error(CAPTION_MESSAGES.noClip)");
 		expect(actions).toContain("throw new Error(CAPTION_MESSAGES.noAudio)");

@@ -39,7 +39,7 @@ import type { PublikFileName, PublikHost, PublikLaunch } from "@kneecap/native-b
 
 export const APP_SLUG = "kneecap";
 /** The version in a browser preview. On a phone the module uses the native app version (Info.plist / build.gradle), which is the same. */
-export const APP_VERSION = "1.0.7";
+export const APP_VERSION = "1.0.8";
 /** false: kneecap calls no model (captions and retouch run on the phone). It still signs in and counts users; it skips the plan screen. */
 export const USES_AI = false;
 /** true: a phone that signed in before opens the app when publik does not answer (kneecap is local-first). The first sign-in needs the network. */
@@ -103,7 +103,8 @@ export interface GateScreen { id: "sign_in" | "unreachable" | "choose"; title: s
 export interface GateUI { show(screen: GateScreen, signal: AbortSignal): Promise<GateAction>; openUrl(url: string): unknown }
 /** `offline`: publik did not answer and the phone signed in before (OFFLINE_AFTER_SIGN_IN); `wallet` is null then. */
 export interface GateResult { key: string; wallet: Wallet | null; choice: Choice | null; offline: boolean }
-/** What Settings shows. `checking`: optional mode is checking a saved sign-in with publik at start. */
+/** What Settings shows. `checking`: optional mode is checking a saved sign-in with publik at start.
+ *  `offline`: the last check (at start, or refreshStatus()) did not reach publik. */
 export interface PublikStatus { mode: GateMode; checking: boolean; signedIn: boolean; handle: string | null; offline: boolean }
 export type SignInResult = "signed_in" | "timeout" | "cancelled";
 
@@ -506,6 +507,90 @@ async function signedIn(c: PublikCredential, w: Wallet, since: number): Promise<
   return "signed_in";
 }
 
+/** refreshStatusOnChange() waits this long after the last trigger, then checks once (a debounce). */
+const STATUS_REFRESH_WAIT_MS = 500;
+/** The status check that runs now (one at a time), and whether a call came while it ran. */
+let refreshing: Promise<void> | null = null;
+let refreshAgain = false;
+
+/**
+ * Settings (blind test 1.0.7, item 6): checks the sign-in with publik again (GET /wallet), so the status is true
+ * now. Only when signed in; never throws. One check at a time: a call while a check runs gets ONE more check after
+ * it. publik says "claimed": signed in, and "not reachable" ends. No answer: "not reachable". publik says this
+ * phone is not signed in (anonymous, or its key is gone): signed out, as at the start of the app (resumeSession).
+ */
+export function refreshStatus(): Promise<void> {
+  if (refreshing) { refreshAgain = true; return refreshing; }
+  const run = (async () => {
+    try {
+      do { refreshAgain = false; await checkSession(); } while (refreshAgain);
+    } finally { refreshing = null; }
+  })();
+  refreshing = run;
+  return run;
+}
+
+async function checkSession(): Promise<void> {
+  if (!session) return; // signed out: there is nothing to check, and nothing is sent
+  const since = forgets;
+  try {
+    const c = await readCredential();
+    if (!c || forgets !== since) return;
+    let r: Awaited<ReturnType<typeof readWallet>>;
+    try {
+      r = await readWallet(c.key);
+    } catch (e) {
+      if (e instanceof Unreachable && session && !session.offline && (await keyStillSaved(c.key, since))) { session = { ...session, offline: true }; notify(); }
+      return;
+    }
+    if (!session || !(await keyStillSaved(c.key, since))) return; // Sign out or Delete account meanwhile: write nothing
+    if (r.wallet?.claim_state === "claimed") {
+      const handle = r.wallet.account?.handle ?? null;
+      if (session.offline || session.handle !== handle) { session = { handle, offline: false }; notify(); }
+      return;
+    }
+    if (!r.gone && r.wallet?.claim_state !== "anonymous") return; // another answer: the status stays
+    if (r.gone) await removeCredential(); // the key was revoked
+    else if (c.claimed_at) await writeIfStillSaved({ ...c, claimed_at: null }, since); // signed out on publik: no offline pass
+    if (forgets !== since) return;
+    stopTelemetry();
+    session = null;
+    notify();
+  } catch {
+    // A file could not be read or written: the status stays.
+  }
+}
+
+/** The window's network events (tests give a stand-in). */
+type NetworkEvents = Pick<EventTarget, "addEventListener" | "removeEventListener">;
+
+/**
+ * Settings, while it shows: refreshStatus() once at the start, when the app comes back to the front
+ * (host.onForeground: the native "foreground" event and the page's visibilitychange) and when the network changes
+ * (the window's online and offline events). Each trigger waits `waitMs` again, so triggers close together make
+ * ONE check. Returns the function that stops it.
+ */
+export function refreshStatusOnChange(opts: { network?: NetworkEvents | null; waitMs?: number } = {}): () => void {
+  const network = opts.network !== undefined ? opts.network : typeof window === "undefined" ? null : window;
+  const waitMs = opts.waitMs ?? STATUS_REFRESH_WAIT_MS;
+  let wait: ReturnType<typeof setTimeout> | null = null;
+  const trigger = () => {
+    if (wait) clearTimeout(wait);
+    wait = setTimeout(() => { wait = null; void refreshStatus(); }, waitMs);
+  };
+  const offFront = host ? host.onForeground(trigger) : () => {};
+  network?.addEventListener("online", trigger);
+  network?.addEventListener("offline", trigger);
+  trigger();
+  return () => {
+    if (wait) clearTimeout(wait);
+    wait = null;
+    offFront();
+    network?.removeEventListener("online", trigger);
+    network?.removeEventListener("offline", trigger);
+  };
+}
+
 /**
  * Settings > "Sign in with publik" (optional mode). Gets this phone's key when it has none (POST /installs),
  * opens the sign-in page in the in-app browser, then checks GET /wallet every 3 s for up to 10 minutes, and at
@@ -565,7 +650,7 @@ async function forget(names: PublikFileName[]): Promise<void> {
 
 /**
  * Settings > "Sign out": forget() for this phone's key. The next sign-in gets a new key.
- * With PUBLIK_GATE_MODE=required the caller then starts the app again, so the gate shows.
+ * With PUBLIK_GATE_MODE=required the caller then shows the gate at once (gate-ui.ts, showGateAfterSignOut).
  */
 export async function signOut(): Promise<void> {
   await forget([CREDENTIAL_FILE]);
@@ -675,4 +760,5 @@ export function _resetForTests(): void {
   installIdOnce = null; wakers.clear(); tickWakers.clear(); foregroundOff?.(); foregroundOff = null; backgroundOff?.(); backgroundOff = null;
   browserTickOff?.(); browserTickOff = null; inBackground = false;
   mode = GATE_MODE; session = null; checking = false; statusListeners.clear();
+  refreshing = null; refreshAgain = false;
 }

@@ -88,7 +88,8 @@ describe("item 3: the top-bar chip shows the resolution that the export sheet se
 		expect(call).toBeGreaterThan(0);
 		expect(call).toBeLessThan(SHELL.indexOf("if (!ready) {"));
 		expect(SHELL).toContain("const settings = projectSettings ?? project.settings;");
-		expect(SHELL).toContain("resolutionLabel={resolutionLabelFor(settings.canvasSize)}");
+		// 1.0.8 (round-4-export.test.ts): the chip reads the export size from the same live settings.
+		expect(SHELL).toContain("resolutionLabel={resolutionLabelFor(getExportSize({ settings }))}");
 		expect(SHELL).not.toContain("resolutionLabelFor(project.settings.canvasSize)");
 		expect(SHELL).toContain("canvasWidth={settings.canvasSize.width}");
 	});
@@ -102,8 +103,9 @@ describe("item 3: the top-bar chip shows the resolution that the export sheet se
 		const useEditor = code("packages/editor-core/react/use-editor.ts");
 		expect(useEditor).toContain("editor.project.subscribe(onChange),");
 		expect(useEditor).toContain("selector ? subscribeAll : subscribeNone,");
-		// The export sheet writes the resolution through setProjectResolution -> UpdateProjectSettingsCommand.
-		expect(code("packages/mobile-ui/src/components/panels/export-sheet.tsx")).toContain("setProjectResolution({ editor, canvasSize });");
+		// The export sheet writes the resolution through UpdateProjectSettingsCommand
+		// (1.0.8: setExportResolution sets exportShortSide; the canvas stays).
+		expect(code("packages/mobile-ui/src/components/panels/export-sheet.tsx")).toContain("setExportResolution({ editor, shortSide: preset.height });");
 		// The chip label for the 720p canvas that the export sheet sets on a 9:16 project.
 		const fn = SHELL.slice(SHELL.indexOf("function resolutionLabelFor("), SHELL.indexOf("const RATIO_PRESETS"));
 		const js = new Bun.Transpiler({ loader: "ts" }).transformSync(fn);

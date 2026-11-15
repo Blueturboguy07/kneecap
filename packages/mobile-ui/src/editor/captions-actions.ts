@@ -75,6 +75,7 @@ export const CAPTION_MESSAGES = {
 	unreadable: "Captions could not read the sound of your clips. Try again.",
 	noSpeech: "No speech was detected anywhere on the timeline.",
 	permission: "Speech recognition is off for publik kneecap. Turn it on in Settings to make captions.",
+	unsupported: "Captions need speech recognition on this phone, and this phone does not have it.",
 } as const;
 
 export interface GenerateCaptionsResult {
@@ -232,6 +233,10 @@ export async function generateCaptionsForClip({
 	// PERMISSION_DENIED (NativeBridgePlugin+Transcribe.swift): say that, not
 	// "could not read the sound" (blind test round 2).
 	let permissionDenied = false;
+	// Blind test 1.0.7, item 8: speech recognition runs on this phone only. A phone without
+	// on-device recognition rejects every job with UNSUPPORTED (AppleSpeechTranscriber.swift):
+	// say that, not "could not read the sound … Try again".
+	let onDeviceMissing = false;
 	const allElements: ReturnType<typeof buildCaptionElementsFromTranscript> = [];
 	for (const job of jobs) {
 		let segments = transcriptBySource.get(job.rawPath);
@@ -262,6 +267,7 @@ export async function generateCaptionsForClip({
 				// One unreadable/undecodable source must not lose the rest of
 				// the timeline's captions — collect and continue.
 				if (error instanceof NativeBridgeError && error.code === "PERMISSION_DENIED") permissionDenied = true;
+				if (error instanceof NativeBridgeError && error.code === "UNSUPPORTED") onDeviceMissing = true;
 				failures.push(
 					`${job.fileName}: ${error instanceof Error ? error.message : String(error)}`,
 				);
@@ -287,6 +293,9 @@ export async function generateCaptionsForClip({
 	if (failures.length > 0) console.error("captions: transcription failed for", failures);
 	if (allElements.length === 0 && permissionDenied) {
 		throw new Error(CAPTION_MESSAGES.permission);
+	}
+	if (allElements.length === 0 && onDeviceMissing) {
+		throw new Error(CAPTION_MESSAGES.unsupported);
 	}
 	if (allElements.length === 0 && failures.length === jobs.length && failures.length > 0) {
 		throw new Error(CAPTION_MESSAGES.unreadable);

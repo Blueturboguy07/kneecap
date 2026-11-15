@@ -5,8 +5,11 @@
  *  - signed out (optional mode): "Sign in with publik". It opens the publik
  *    sign-in page in the in-app browser; the app checks every 3 s and when it
  *    comes back to the front.
- *  - signed in: who is signed in, and "Sign out". In required mode the app
- *    then starts again, so the gate shows.
+ *  - signed in: who is signed in, and "Sign out". In required mode the gate
+ *    then shows at once, over the app (gate-ui.ts, showGateAfterSignOut).
+ *    The status ("publik is not reachable now") is checked again when the
+ *    app comes back to the front and when the network changes (publik.ts,
+ *    refreshStatusOnChange).
  *  - "Delete account" (signed in only): deletes the publik data on this
  *    phone, then opens publik's bare delete-account page in the in-app
  *    browser (App Store guideline 5.1.1(v)). Signed out, there is no account
@@ -28,6 +31,7 @@
 import { getPublikHost } from "@kneecap/native-bridge/publik-host";
 import { useEffect, useRef, useState } from "react";
 import { LicensesScreen } from "./licenses-screen";
+import { showGateAfterSignOut } from "../publik/gate-ui";
 import {
 	APP_VERSION,
 	DELETE_ACCOUNT_URL,
@@ -36,6 +40,7 @@ import {
 	onStatus,
 	PRIVACY_URL,
 	type PublikStatus,
+	refreshStatusOnChange,
 	setUsageCounting,
 	signIn,
 	signOut,
@@ -67,8 +72,11 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 		const off = onStatus(setStatus);
 		setStatus(getStatus());
 		usageCounting().then(setUsage, () => setUsage(null));
+		// Blind test 1.0.7, item 6: "publik is not reachable now" stayed after the network came back.
+		const stopRefresh = refreshStatusOnChange();
 		return () => {
 			off();
+			stopRefresh();
 			signInAbort.current?.abort();
 		};
 	}, []);
@@ -106,10 +114,9 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 		setNote("Signing out…");
 		try {
 			await signOut();
-			if (status.mode === "required") {
-				window.location.reload();
-				return;
-			}
+			// Blind test 1.0.7, item 5: the gate shows at once, over the app. Before, the app loaded again
+			// and showed a blank "Loading…" for 2-3 s.
+			if (status.mode === "required") void showGateAfterSignOut();
 			setNote(null);
 		} catch (err) {
 			setNote(messageOf(err));

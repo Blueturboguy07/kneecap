@@ -327,7 +327,8 @@ jobs:
         #    a text before the editor closes (1.0.7 deletes empty projects).
         # B: screenshots prove that the preview draws a text and a photo.
         # D: every Stickers tab loads all its images (no broken image), a
-        #    sticker and a bundled sound land on the timeline.
+        #    sticker and a bundled sound land on the timeline. 1.0.8: the
+        #    sticker from the sheet is 20-40% of the frame width.
         # C: a baseline export (1 photo 0-3 s, the text hidden, no stickers),
         #    then the main export: the same photo + 1 text (0-5 s) + 1 flag
         #    sticker (0-5 s) + 1 shape sticker (1-4 s, rotated, opacity 0.6),
@@ -336,14 +337,25 @@ jobs:
         #    +-0.15 s); the sheet ends with "Saved to Photos" and "Share" (no
         #    "Open Photos"). The tool compares regions of both files at 0.5,
         #    2 and 4.5 s: the text, the flag, the shape (time window, opacity,
-        #    rotation) must show; the control regions must match.
+        #    rotation) must show; the control regions must match. The regions
+        #    are in canvas pixels; the script scales them to the file size.
+        #    1.0.8 (resolution is an export setting, not the canvas): the
+        #    720p and 1080p buttons keep the canvas and the preview does not
+        #    move (screenshots before and after); each export has the size of
+        #    its button and the canvas aspect; the flag, the shape and the
+        #    text are at the same place (within 0.02 of the frame) at 720p, at
+        #    1080p and in the preview, in 16:9 and again in 9:16 (Aspect ratio
+        #    sheet, 1080x1920). That adds 3 exports (16:9 720p, 9:16 1080p,
+        #    9:16 720p).
         # E: launch 3, a new project: a generated H.264 + AAC test video
         #    through the real native proxy, preview pixels, Captions,
         #    Split/Duplicate/Delete/Mute, Import audio, and an export with a
         #    video track, a sound track that is not silent and the right length.
-        # A normal run takes about 15 minutes. The script stops a launch after
-        # 7 (first), 20 (second) and 20 (third) minutes, so 55 lets it write
-        # its summary.
+        #    1.0.8: with a clip selected, the timeline ends above the clip tools.
+        # Run 43719800179 (1.0.7 checks) took 11 minutes; with the 1.0.8
+        # checks about 17 minutes (launch 2: about 11 of its 20). The script
+        # stops a launch after 7 (first), 20 (second) and 20 (third) minutes,
+        # so 55 lets it write its summary.
         timeout-minutes: 55
         run: |
           python3 scripts/ios-sim-editor-test.py \

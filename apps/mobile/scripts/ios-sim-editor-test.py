@@ -22,7 +22,8 @@ mode in src/autotest.tsx. This script:
          (pixel checks on the screenshots);
       D. every Stickers tab shows its images (no broken image), a sticker
          tile adds a sticker, a bundled sound adds an audio clip whose file
-         loads (the app undoes both before C);
+         loads (the app undoes both before C). 1.0.8 (MEDIUM 3): the
+         sticker from the sheet is 20-40% of the frame width;
       C. the main export (1 photo 0-3 s + 1 text 0-5 s + a flag sticker
          0-5 s + a shape sticker 1-4 s, rotated 30 degrees, opacity 0.6;
          1080p, 30 fps, High) makes a file with a video track that lasts as
@@ -32,14 +33,24 @@ mode in src/autotest.tsx. This script:
          were in the preview but in no frame of the video): a baseline
          export with the same settings (text at opacity 0, no stickers) is
          compared with the main export at 0.5, 2 and 4.5 s, in the regions
-         the app logs in output pixels: the flag, its colours, the shape in
-         and out of its window, its opacity and rotation, the text, and
-         control regions where nothing is drawn (they must match);
+         the app logs in canvas pixels (scaled to the file's size): the
+         flag, its colours, the shape in and out of its window, its opacity
+         and rotation, the text, and control regions where nothing is drawn
+         (they must match).
+         1.0.8 (blind test round 4, HIGH 1: the resolution buttons changed
+         the canvas, so at 720p every sticker and text sat 1.5x farther from
+         the centre): the resolution buttons keep the canvas size; the
+         preview does not move when "720p" and "1080p" are tapped; each
+         export has the size of its button and the canvas aspect; the flag,
+         the shape and the text are at the same place (a fraction of the
+         frame, within 0.02) at 720p, at 1080p and in the preview, in 16:9
+         and again in 9:16 (through the Aspect ratio sheet: 1080x1920);
       E. launch 3, a new project: the video imports through the native
          proxy and shows in the preview; Captions "Generate" gives captions
          or a plain message; Split, Duplicate, Delete and Mute work; Import
          audio works; the export has a video track, a sound track that is
-         not silent, and the timeline's length.
+         not silent, and the timeline's length. 1.0.8 (LOW 4): with the clip
+         selected, the timeline's scroll area ends above the clip-tools bar.
 
   python3 scripts/ios-sim-editor-test.py <App.app> <output folder>
 
@@ -78,14 +89,44 @@ AUDIO_NAME = "ci-audio.m4a"  # autotest.tsx CI_AUDIO
 AUDIO_SECONDS = 3  # autotest.tsx CI_AUDIO_SECONDS
 PHASES = (1, 2, 3)
 START_LIMIT_S = 240  # first launch: boot + gate + app start
-# Phase 2 has the stickers and the 5 s export (software encode on a simulator);
+# Phase 2 has the stickers and five 5 s exports (software encode on a
+# simulator; run 43719800179: 173 s and 87 s for the two 1080p exports, launch
+# 2 took 314 s; with the three 1.0.8 exports about 650 s, at most about 900 s);
 # phase 3 has the video proxy, captions and the video export.
 PHASE_LIMIT_S = {1: 420, 2: 1200, 3: 1200}
 EXPORT_LENGTH_TOLERANCE_S = 0.15
 # The file name of each export in the output folder, by its tag
 # (autotest.tsx CiExportOptions.tag). The runner copies a file as soon as
 # the app reports it: the app prunes old exports before each new one.
-EXPORT_COPY_NAMES = {"baseline": "export-baseline.mp4", "main": "export.mp4", "sweep": "export-sweep.mp4"}
+EXPORT_COPY_NAMES = {
+    "baseline": "export-baseline.mp4",
+    "main": "export.mp4",
+    "pos169-720": "export-169-720p.mp4",
+    "pos916-1080": "export-916-1080p.mp4",
+    "pos916-720": "export-916-720p.mp4",
+    "sweep": "export-sweep.mp4",
+}
+# Test C, 1.0.8: the same frame at every export size. Positions are fractions
+# of the frame (0-1). The tool finds each element's centre with a colour mask
+# in a search box the app logs (C POS TARGET).
+POS_TOLERANCE = 0.02  # a centre may differ this much (fraction of the frame width or height)
+POS_ASPECTS = ("16:9", "9:16")
+POS_RESOLUTIONS = ("1080p", "720p")
+POS_SHORT_SIDE = {"480p": 480, "720p": 720, "1080p": 1080, "4K": 2160}
+# The screenshot pairs of "the preview does not move": (after, before, words).
+SHIFT_PAIRS = (
+    ("shift169-720", "pos169-t2", "16:9, 1080p to 720p"),
+    ("shift169-1080", "shift169-720", "16:9, 720p to 1080p"),
+    ("shift916-720", "pos916-t2", "9:16, 1080p to 720p"),
+)
+SHIFT_CHANGED_MAX = 0.01  # at most this part of the preview area changes (largest channel difference > 48)
+SHIFT_MEAN_DIFF_MAX = 4.0  # and its mean difference (0-255) is at most this
+SHIFT_RECT_TOLERANCE = 1.0  # the preview rect may move this much (CSS px)
+ASPECT_916_EXPECTED = (1080, 1920)  # 9:16 from a 1080-class canvas
+# Test D, 1.0.8: a sticker from the sheet is about 30% of the frame width.
+STICKER_WIDTH_BAND = (0.20, 0.40)
+# Test E, 1.0.8: the visible scroll area may reach this far under the clip-tools bar (px).
+CLIP_TOOLS_OVERLAP_MAX = 0.5
 # Test C, stickers in the export (1.0.7). The tool compares the main export
 # with the baseline export in each region the app logs (C REGION lines);
 # "changed" is the part of the region's pixels whose largest channel
@@ -113,6 +154,9 @@ CAPTION_MESSAGES = (
     "Captions could not read the sound of your clips. Try again.",
     "No speech was detected anywhere on the timeline.",
     "Speech recognition is off for publik kneecap. Turn it on in Settings to make captions.",
+    # 1.0.8 (LOW 8): the iOS fallback engine needs on-device recognition; a
+    # simulator with no on-device speech model shows this.
+    "Captions need speech recognition on this phone, and this phone does not have it.",
 )
 # Developer words that must never reach a person: a path, a fixture, a stack.
 DEV_WORDS = re.compile(
@@ -133,6 +177,16 @@ REGION = re.compile(
     r"^C REGION name=(\S+) box=([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+) on=(never|[\d.]+-[\d.]+)(.*)$"
 )
 STICKER_LINE = re.compile(r"^C STICKER name=(\w+) id=(\S+) via=(\S+) start=([\d.]+) end=([\d.]+)(.*)$")
+# Test C, 1.0.8 (autotest.tsx ciPositionChecks).
+POS_LAYOUT = re.compile(r"^C POS LAYOUT aspect=(\S+) canvas=(\d+)x(\d+) mode=(\S+) .*?exports=(\S+) shots=(\S+)")
+POS_TARGET = re.compile(
+    r"^C POS TARGET aspect=(\S+) name=(\w+) mask=(\w+) center=([-\d.]+),([-\d.]+) "
+    r"search=([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+) times=(\S+)"
+)
+PREVIEW_LINE = re.compile(r"^C PREVIEW name=([a-z0-9-]+) aspect=(\S+)(?: base=([a-z0-9-]+))? t=([\d.]+) canvas=(\d+)x(\d+)(.*)$")
+RESOLUTION_LINE = re.compile(r"^C RESOLUTION aspect=(\S+) pick=(\S+) via=(\S+) canvas=(\d+)x(\d+)->(\d+)x(\d+)(.*)$")
+ASPECT_LINE = re.compile(r"^C ASPECT pick=(\S+) via=(\S+) canvas=(\d+)x(\d+)->(\d+)x(\d+) expected=(\d+)x(\d+)")
+EXPORT_SIZE_LINE = re.compile(r"^EXPORT size edl=(\d+)x(\d+) canvas=(\d+)x(\d+) exportShortSide=(\S+) expected=(\d+)x(\d+)")
 
 
 def say(message):
@@ -144,6 +198,22 @@ def run(args, check=True, timeout=300):
     if check and done.returncode != 0:
         raise RuntimeError(f"{' '.join(args)} failed ({done.returncode}): {done.stderr.strip()[:800]}")
     return done.stdout
+
+
+def export_size(canvas, short):
+    """getExportSize (@kneecap/editor-core/edl, 1.0.8): the export short side
+    and the canvas aspect, even sides. (w, h)."""
+    cw, ch = canvas
+
+    def even(v):
+        return max(2, int(math.floor(v / 2 + 0.5)) * 2)
+
+    return (even(short * cw / ch), short) if cw >= ch else (short, even(short * ch / cw))
+
+
+def time_tag(seconds):
+    """2 -> "t2", 4.5 -> "t45" (autotest.tsx ciTimeTag)."""
+    return "t" + f"{seconds:g}".replace(".", "")
 
 
 # ---------------------------------------------------------------- fake publik
@@ -381,6 +451,7 @@ class EditorTest:
         self.fixture_problems = []  # the test video or audio could not be made
         self.export_tag = {}  # phase -> the tag of the export that runs now (EXPORT BEGIN)
         self.kept_exports = {}  # (phase, tag) -> the copy made when the app reported the file
+        self.export_info = {}  # (phase, tag) -> (video-check facts or None, problem or None)
         self.udid = None
         self.root = None
 
@@ -705,9 +776,20 @@ class EditorTest:
         m = re.match(r"TIMELINE end=([\d.]+)", text or "")
         return (float(m.group(1)), text) if m else (None, text)
 
+    def last_export_tag(self, phase):
+        """The tag of the last EXPORT BEGIN line of a launch, or None."""
+        tags = [re.search(r"\btag=(\S+)", text) for text in self.tagged(phase) if text.startswith("EXPORT BEGIN ")]
+        return tags[-1].group(1) if tags and tags[-1] else None
+
     def export_movie(self, phase, copy_name, tag=None):
         """The exported file of a launch (the export with this tag), checked
-        by the measuring tool. Returns (facts or None, problem text or None)."""
+        by the measuring tool. Returns (facts or None, problem text or None).
+        The answer is kept, so a second call does not measure again."""
+        if (phase, tag) not in self.export_info:
+            self.export_info[(phase, tag)] = self._export_movie(phase, copy_name, tag)
+        return self.export_info[(phase, tag)]
+
+    def _export_movie(self, phase, copy_name, tag):
         text = self.last("EXPORT DONE", phase, tag)
         failed = self.last("EXPORT FAIL", phase, tag)
         if failed and not text:
@@ -716,7 +798,7 @@ class EditorTest:
             return None, "the app logged no export result"
         if "via=direct" in text:
             print(f"::warning title=editor test::launch {phase}: the export sheet was not found, "
-                  "the test used the direct export call", flush=True)
+                  f"the test used the direct export call (export {tag})", flush=True)
         copy = self.out / copy_name
         kept = self.kept_exports.get((phase, tag))
         if kept and kept.exists():
@@ -725,12 +807,14 @@ class EditorTest:
         else:
             logged = urllib.parse.unquote(text.split(" path=", 1)[1].strip()) if " path=" in text else ""
             movie = Path(logged) if logged else None
-            # The newest file in Exports/ is only right for the last export of a launch.
-            if (not movie or not movie.exists()) and tag != "baseline":
+            # The newest file in Exports/ is only right for the last export of a
+            # launch (1.0.8: launch 2 has five exports; "main" is the second).
+            newest_ok = tag is None or tag == self.last_export_tag(phase)
+            if (not movie or not movie.exists()) and newest_ok:
                 found = sorted((self.root / "Exports").glob("*.mp4"), key=lambda p: p.stat().st_mtime)
                 movie = found[-1] if found else None
             if not movie or not movie.exists():
-                return None, f"no file at {logged or '(no path)'}" + ("" if tag == "baseline" else " and none in Exports/")
+                return None, f"no file at {logged or '(no path)'}" + (" and none in Exports/" if newest_ok else "")
             shutil.copyfile(movie, copy)
         out = run([str(self.tool), "video-check", str(copy)], check=False, timeout=300)
         try:
@@ -740,6 +824,23 @@ class EditorTest:
         info["kilobytes"] = copy.stat().st_size // 1024
         (self.out / f"{copy.stem}-metrics.json").write_text(json.dumps(info, indent=2))
         return info, None
+
+    def edl_size(self, phase, tag):
+        """The size the exporter was asked for: the EDL output resolution in
+        the "EXPORT start" line of the export with this tag. (w, h) or None."""
+        start = self.last("EXPORT start", phase, tag) or ""
+        m = re.search(r'"resolution":\{"width":(\d+),"height":(\d+)\}', start)
+        return (int(m.group(1)), int(m.group(2))) if m else None
+
+    @staticmethod
+    def movie_size(info):
+        """The video track's size from video-check. (w, h) or None."""
+        size = (info or {}).get("naturalSize")
+        try:
+            w, h = int(round(abs(float(size[0])))), int(round(abs(float(size[1]))))
+        except (TypeError, ValueError, IndexError):
+            return None
+        return (w, h) if w > 0 and h > 0 else None
 
     def problems(self, steps, kinds):
         found = []
@@ -871,6 +972,7 @@ class EditorTest:
     def judge_c(self):
         if self.texts("C SKIP"):
             self.record("C", "export makes a playable file", False, "the editor did not open")
+            self.judge_positions()
             return
         info, error = self.export_movie(2, EXPORT_COPY_NAMES["main"], tag="main")
         if error:
@@ -899,6 +1001,7 @@ class EditorTest:
                             f"{EXPORT_LENGTH_TOLERANCE_S:.2f} s")
         self.judge_export_sheet()
         self.judge_stickers()
+        self.judge_positions()
         stop = self.problems({"C"}, {"crash", "driver"})
         if stop:
             self.record("C", "no crash during the export", False, "; ".join(stop[:3]))
@@ -993,7 +1096,32 @@ class EditorTest:
         times = [float(v) for v in samples.group(1).split(",") if v] if samples else list(STICKER_SAMPLE_TIMES)
         canvas = re.search(r"canvas=(\d+)x(\d+)", layout)
         canvas = [int(canvas.group(1)), int(canvas.group(2))] if canvas else None
-        spec = {"times": times, "regions": [{"name": n, "box": r["box"]} for n, r in regions.items()]}
+        # 1.0.8: the regions are in canvas pixels; the file has the export
+        # size (getExportSize: the export short side, the canvas aspect). One
+        # output pixel = one canvas pixel x (file width / canvas width).
+        main_info, _ = self.export_movie(2, EXPORT_COPY_NAMES["main"], tag="main")
+        file_size = self.movie_size(main_info)
+        edl = self.edl_size(2, "main")
+        size_problems = []
+        sx = sy = 1.0
+        if not canvas:
+            size_problems.append("no canvas in the C LAYOUT line")
+        elif not file_size:
+            size_problems.append("the size of the main export is not known")
+        else:
+            sx, sy = file_size[0] / canvas[0], file_size[1] / canvas[1]
+            if abs(sx - sy) > 0.01 * max(sx, sy):
+                size_problems.append(f"the file {file_size[0]}x{file_size[1]} does not have the canvas aspect "
+                                     f"{canvas[0]}x{canvas[1]} (scale {sx:.3f} x {sy:.3f})")
+        if not edl:
+            size_problems.append("no EDL size in the main EXPORT start line")
+        elif file_size and file_size != edl:
+            size_problems.append(f"the file is {file_size[0]}x{file_size[1]}, the EDL asked for {edl[0]}x{edl[1]}")
+
+        def scaled(box):
+            return [box[0] * sx, box[1] * sy, box[2] * sx, box[3] * sy]
+
+        spec = {"times": times, "regions": [{"name": n, "box": scaled(r["box"])} for n, r in regions.items()]}
         spec_path = self.out / "sticker-regions-spec.json"
         spec_path.write_text(json.dumps(spec, indent=2))
         out = run([str(self.tool), "frame-regions", str(self.out / EXPORT_COPY_NAMES["baseline"]), str(main_path),
@@ -1013,8 +1141,7 @@ class EditorTest:
             problems.append(f"frame-regions: {measured['error']}")
         if base_facts.get("size") != main_facts.get("size"):
             problems.append(f"sizes differ: baseline {base_facts.get('size')}, main {main_facts.get('size')}")
-        if canvas and main_facts.get("size") and main_facts.get("size") != canvas:
-            problems.append(f"the regions are in canvas pixels {canvas[0]}x{canvas[1]}, the files are {main_facts.get('size')}")
+        problems += size_problems
         base_s = float(base_facts.get("durationSeconds") or -1)
         main_s = float(main_facts.get("durationSeconds") or -1)
         if abs(base_s - main_s) > 0.05:
@@ -1028,7 +1155,8 @@ class EditorTest:
                   "through the native fallback, not renderOverlayFrames", flush=True)
         self.record("C", base_name, not problems,
                     f"{base_s:.2f} s, {base_facts.get('size')}, overlay frames "
-                    f"{overlay.group(1) if overlay else '?'}; main {main_s:.2f} s; {layout[len('C LAYOUT '):][:160]}"
+                    f"{overlay.group(1) if overlay else '?'}; main {main_s:.2f} s; {layout[len('C LAYOUT '):][:160]}; "
+                    f"regions scaled x{sx:.3f} (file / canvas)"
                     + (f"; {'; '.join(problems)}" if problems else ""))
 
         frames = {round(float(f.get("time", -1)), 3): f for f in measured.get("frames", [])}
@@ -1174,10 +1302,373 @@ class EditorTest:
                         f"rotate {shape_region.get('rotate', '?')}: " + ("; ".join(parts) or "no sample time in the shape's window")
                         + f" (want the shape present and the corners <= {ROTATION_CORNER_MAX:.0%})")
 
+    # ----- C: the same frame at every export size (1.0.8)
+
+    # The exports whose size is checked, and the aspect of their canvas.
+    EXPORT_SIZE_TAGS = (("main", "16:9"), ("pos169-720", "16:9"), ("pos916-1080", "9:16"), ("pos916-720", "9:16"))
+    POS_ELEMENTS = ("flag", "shape", "text")
+
+    def position_lines(self):
+        """The 1.0.8 lines of launch 2 (autotest.tsx ciPositionChecks).
+        Returns (layouts, targets, missing, previews):
+          layouts[aspect] = {canvas, mode, exports {res: tag}, shots {t: name}}
+          targets[aspect][name] = {mask, center, search (canvas px), times}
+          missing[aspect][name or "*"] = why the app logged no target
+          previews[shot name] = {aspect, base, t, canvas, rect, text}"""
+        layouts, targets, missing, previews = {}, {}, {}, {}
+        for _, text in self.texts("C POS ", 2):
+            m = POS_LAYOUT.match(text)
+            if m:
+                exports = dict(part.split(":", 1) for part in m.group(5).split(",") if ":" in part)
+                shots = {}
+                for part in m.group(6).split(","):
+                    if ":" in part:
+                        t, shot = part.split(":", 1)
+                        shots[float(t)] = shot
+                layouts[m.group(1)] = {"canvas": (int(m.group(2)), int(m.group(3))), "mode": m.group(4),
+                                       "exports": exports, "shots": shots}
+                continue
+            m = POS_TARGET.match(text)
+            if m:
+                times = [] if m.group(10) == "none" else [float(v) for v in m.group(10).split(",") if v]
+                targets.setdefault(m.group(1), {})[m.group(2)] = {
+                    "mask": m.group(3), "center": (float(m.group(4)), float(m.group(5))),
+                    "search": [float(m.group(i)) for i in range(6, 10)], "times": times}
+                continue
+            m = re.match(r"C POS TARGET aspect=(\S+) (?:name=(\w+) )?none (.*)$", text)
+            if m:
+                missing.setdefault(m.group(1), {})[m.group(2) or "*"] = m.group(3)[:160]
+        for _, text in self.texts("C PREVIEW ", 2):
+            m = PREVIEW_LINE.match(text)
+            if not m:
+                continue
+            rect = re.search(r"\brect=(none|[-\d.]+,[-\d.]+,[-\d.]+,[-\d.]+)", m.group(7))
+            # 1.0.8 draws a selection box and handles over the preview; the
+            # driver clears the selection and counts what is still drawn.
+            selected = re.search(r"\bselected=(\d+)", m.group(7))
+            handles = re.search(r"\bhandles=(\d+)", m.group(7))
+            previews[m.group(1)] = {
+                "aspect": m.group(2), "base": m.group(3), "t": float(m.group(4)),
+                "canvas": (int(m.group(5)), int(m.group(6))),
+                "rect": None if not rect or rect.group(1) == "none" else [float(v) for v in rect.group(1).split(",")],
+                "selected": int(selected.group(1)) if selected else 0,
+                "handles": int(handles.group(1)) if handles else 0,
+            }
+        return layouts, targets, missing, previews
+
+    def judge_positions(self):
+        """Blind test round 4 (HIGH 1): the export sheet's 720p button made
+        the canvas 1280x720, and every sticker and text kept its position in
+        canvas pixels, so it sat 1.5x farther from the centre (in the preview
+        and in the video). 1.0.8: the buttons set the export short side only;
+        the export has that short side and the canvas aspect; one output
+        pixel = one canvas pixel x (file width / canvas width)."""
+        layouts, targets, missing, previews = self.position_lines()
+        error = self.last("C POS ERROR", 2)
+        why = f"the app logged: {error[:200]}" if error else "the app logged no C POS lines (did test C stop early?)"
+        self.judge_resolution_canvas(layouts, why)
+        self.judge_preview_shift(previews, why)
+        self.judge_export_sizes(layouts)
+        self.judge_aspect(layouts, why)
+        self.judge_centres(layouts, targets, missing, previews, why)
+
+    def judge_resolution_canvas(self, layouts, why):
+        name = "the export sheet's resolution buttons keep the canvas size"
+        picks = [m for m in (RESOLUTION_LINE.match(t) for _, t in self.texts("C RESOLUTION ", 2)) if m]
+        if not picks:
+            self.record("C", name, False, f"not measured: no C RESOLUTION line ({why})")
+            return
+        ok, parts = True, []
+        for m in picks:
+            before, after = (int(m.group(4)), int(m.group(5))), (int(m.group(6)), int(m.group(7)))
+            export = re.search(r"\bexport=(\S+)", m.group(8))
+            part = f"{m.group(1)} {m.group(2)}: canvas {before[0]}x{before[1]} -> {after[0]}x{after[1]}"
+            if before != after:
+                ok = False
+                part += " CHANGED"
+            if export:
+                part += f", export size {export.group(1)}"
+            if m.group(3) != "ui":
+                ok = False
+                part += " (not measured: the button was not found, the test set the export size directly)"
+            parts.append(part)
+        absent = [p for p in ("720p", "1080p") if p not in {m.group(2) for m in picks}]
+        if absent:
+            ok = False
+            parts.append(f"not measured: no pick of {', '.join(absent)}")
+        # The canvas when each 1.0.8 export ran (its own resolution tap) is the canvas of its aspect.
+        for tag, aspect in self.EXPORT_SIZE_TAGS[1:]:
+            m = EXPORT_SIZE_LINE.match(self.last("EXPORT size", 2, tag) or "")
+            want = (layouts.get(aspect) or {}).get("canvas")
+            if m and want:
+                got = (int(m.group(3)), int(m.group(4)))
+                ok = ok and got == want
+                parts.append(f"export {tag}: canvas {got[0]}x{got[1]}"
+                             + ("" if got == want else f" CHANGED (the {aspect} canvas is {want[0]}x{want[1]})"))
+        self.record("C", name, ok, "; ".join(parts))
+
+    def judge_preview_shift(self, previews, why):
+        """The same preview before and after a resolution tap: the same
+        canvas, the same preview rect, the same pixels (same playhead time,
+        no sheet, no selection)."""
+        metrics = {}
+        for after, before, words in SHIFT_PAIRS:
+            name = f"the preview does not move when the resolution changes ({words})"
+            a, b = previews.get(after), previews.get(before)
+            sa, sb = self.shots.get(after), self.shots.get(before)
+            absent = [n for n, line, shot in ((before, b, sb), (after, a, sa))
+                      if not line or not shot or not shot["rect"] or not shot["path"].exists()]
+            if absent:
+                self.record("C", name, False, f"not measured: no C PREVIEW line or no screenshot with a preview "
+                                              f"area for {', '.join(absent)} ({why})")
+                continue
+            problems = []
+            if a["canvas"] != b["canvas"]:
+                problems.append("the canvas changed")
+            if abs(a["t"] - b["t"]) > 0.001:
+                problems.append(f"not measured: different playhead times {b['t']:g} s and {a['t']:g} s")
+            if sa["viewport"] != sb["viewport"]:
+                problems.append(f"not measured: different viewports {sb['viewport']} and {sa['viewport']}")
+            for shot_name, line in ((before, b), (after, a)):
+                if line["selected"] or line["handles"]:
+                    problems.append(f"not measured: {shot_name} showed a selection (selected={line['selected']}, "
+                                    f"handles={line['handles']})")
+            moved = max(abs(x - y) for x, y in zip(sa["rect"], sb["rect"]))
+            if moved > SHIFT_RECT_TOLERANCE:
+                problems.append(f"the preview rect moved {moved:.1f} px")
+            out = run([str(self.tool), "image-diff", str(sb["path"]), str(sa["path"]),
+                       *[str(v) for v in sa["rect"]], *[str(v) for v in sa["viewport"]]], check=False, timeout=120)
+            try:
+                diff = json.loads(out)
+            except ValueError:
+                diff = {"error": out.strip()[:200] or "no answer"}
+            metrics[after] = {"base": before, **diff}
+            if "error" in diff:
+                problems.append(f"not measured: image-diff: {diff['error']}")
+                pixels = "no pixel comparison"
+            else:
+                pixels = f"{diff['changed']:.2%} of the preview changed, mean diff {diff['meanDiff']:.1f}"
+                if diff["changed"] > SHIFT_CHANGED_MAX or diff["meanDiff"] > SHIFT_MEAN_DIFF_MAX:
+                    bounds = diff.get("changedBounds")
+                    problems.append("the picture moved" + (
+                        f" (changed area x {bounds[0]:.2f}-{bounds[2]:.2f}, y {bounds[1]:.2f}-{bounds[3]:.2f} of the preview)"
+                        if bounds else ""))
+
+            def box(r):
+                return ",".join(f"{v:.1f}" for v in r)
+
+            detail = (f"{before} -> {after} at {a['t']:g} s: canvas {b['canvas'][0]}x{b['canvas'][1]} -> "
+                      f"{a['canvas'][0]}x{a['canvas'][1]}, rect {box(sb['rect'])} -> {box(sa['rect'])}, {pixels} "
+                      f"(allowed: the same canvas, the rect within {SHIFT_RECT_TOLERANCE:g} px, "
+                      f"<= {SHIFT_CHANGED_MAX:.0%} changed, mean diff <= {SHIFT_MEAN_DIFF_MAX:g})")
+            self.record("C", name, not problems, detail + (f"; {'; '.join(problems)}" if problems else ""))
+        (self.out / "preview-shift-metrics.json").write_text(json.dumps(metrics, indent=2))
+
+    def judge_export_sizes(self, layouts):
+        """Each export: the file = the EDL size, its short side = the button,
+        its aspect = the canvas aspect (getExportSize)."""
+        c_layout = re.search(r"canvas=(\d+)x(\d+)", self.last("C LAYOUT ", 2) or "")
+        for tag, aspect in self.EXPORT_SIZE_TAGS:
+            name = f"export {tag} has the size of its resolution button and the canvas aspect"
+            begin = re.search(r"\bresolution=(\S+)", self.last("EXPORT BEGIN", 2, tag) or "")
+            res = begin.group(1) if begin else "?"
+            info, error = self.export_movie(2, EXPORT_COPY_NAMES[tag], tag)
+            if error:
+                self.record("C", name, False, f"not measured: {error}")
+                continue
+            file_size = self.movie_size(info)
+            edl = self.edl_size(2, tag)
+            canvas = (layouts.get(aspect) or {}).get("canvas")
+            if not canvas and tag == "main" and c_layout:
+                canvas = (int(c_layout.group(1)), int(c_layout.group(2)))
+            short = POS_SHORT_SIDE.get(res)
+            absent = [what for what, value in (("the file size", file_size), ("the EDL size (EXPORT start)", edl),
+                                               (f"the {aspect} canvas (C POS LAYOUT)", canvas),
+                                               (f"the button (EXPORT BEGIN resolution={res})", short)) if not value]
+            if absent:
+                self.record("C", name, False, f"not measured: no {', no '.join(absent)}")
+                continue
+            want = export_size(canvas, short)
+            app = EXPORT_SIZE_LINE.match(self.last("EXPORT size", 2, tag) or "")
+            problems = []
+            if file_size != edl:
+                problems.append("the file is not the EDL size")
+            if min(file_size) != short:
+                problems.append(f"the short side is {min(file_size)}, not {short}")
+            if abs(file_size[0] - want[0]) > 2 or abs(file_size[1] - want[1]) > 2:
+                problems.append(f"not the canvas aspect (want {want[0]}x{want[1]})")
+            self.record("C", name, not problems,
+                        f"button {res}: file {file_size[0]}x{file_size[1]}, EDL {edl[0]}x{edl[1]}, canvas "
+                        f"{canvas[0]}x{canvas[1]}; want {want[0]}x{want[1]} (short side {short}, the canvas aspect)"
+                        + (f"; the app's export size {app.group(6)}x{app.group(7)}" if app else "")
+                        + (f"; {'; '.join(problems)}" if problems else ""))
+
+    def judge_aspect(self, layouts, why):
+        name = "the Aspect ratio sheet's 9:16 keeps the canvas short side (1080x1920)"
+        m = ASPECT_LINE.match(self.last("C ASPECT ", 2) or "")
+        if not m:
+            self.record("C", name, False, f"not measured: no C ASPECT line ({why})")
+            return
+        before, after = (int(m.group(3)), int(m.group(4))), (int(m.group(5)), int(m.group(6)))
+        expected = (int(m.group(7)), int(m.group(8)))
+        problems = []
+        if m.group(2) != "ui":
+            problems.append("not measured: the Aspect ratio sheet or its 9:16 button was not found, "
+                            "the test set the canvas directly")
+        if after != expected or after != ASPECT_916_EXPECTED:
+            problems.append(f"want {expected[0]}x{expected[1]} (the short side {min(before)} kept)"
+                            + ("" if expected == ASPECT_916_EXPECTED else
+                               f"; this test expects {ASPECT_916_EXPECTED[0]}x{ASPECT_916_EXPECTED[1]}"))
+        layout = (layouts.get("9:16") or {}).get("canvas")
+        if layout and layout != after:
+            problems.append(f"the 9:16 layout canvas is {layout[0]}x{layout[1]}")
+        self.record("C", name, not problems,
+                    f"via={m.group(2)}: canvas {before[0]}x{before[1]} -> {after[0]}x{after[1]}"
+                    + (f"; {'; '.join(problems)}" if problems else ""))
+
+    def judge_centres(self, layouts, targets, missing, previews, why):
+        """Per aspect: the centre of the flag, the shape and the text (a
+        fraction of the frame) in the 1080p file, the 720p file and the
+        preview screenshot, at the same times. The tool looks for each one
+        with a colour mask in the search box the app logged."""
+        names = {aspect: (f"{aspect}: the flag, the shape and the text are at the same place at 720p and at 1080p",
+                          f"{aspect}: the flag, the shape and the text are at the same place in the exports and in the preview")
+                 for aspect in POS_ASPECTS}
+        items, plans, blocked = [], {}, {}
+        for aspect in POS_ASPECTS:
+            key = "pos" + aspect.replace(":", "")
+            layout = layouts.get(aspect)
+            if not layout:
+                blocked[aspect] = f"no C POS LAYOUT line for {aspect} ({why})"
+                continue
+            if "*" in missing.get(aspect, {}):
+                blocked[aspect] = f"no search boxes: {missing[aspect]['*']}"
+                continue
+            W, H = layout["canvas"]
+            found_targets = targets.get(aspect, {})
+            movies = {}
+            for res in POS_RESOLUTIONS:
+                tag = layout["exports"].get(res)
+                if tag not in EXPORT_COPY_NAMES:
+                    movies[res] = (None, f"no {res} export in the C POS LAYOUT line")
+                    continue
+                info, error = self.export_movie(2, EXPORT_COPY_NAMES[tag], tag)
+                movies[res] = (None, error) if error else (self.out / EXPORT_COPY_NAMES[tag], None)
+            times = sorted({t for target in found_targets.values() for t in target["times"]})
+            for t in times:
+                here = [{"name": n, "mask": target["mask"],
+                         "box": [target["search"][0] / W, target["search"][1] / H,
+                                 target["search"][2] / W, target["search"][3] / H]}
+                        for n, target in found_targets.items() if t in target["times"]]
+                for res in POS_RESOLUTIONS:
+                    if movies[res][0]:
+                        items.append({"id": f"{key}-{res}-{time_tag(t)}", "movie": str(movies[res][0]), "time": t,
+                                      "targets": here})
+                shot_name = layout["shots"].get(t)
+                shot = self.shots.get(shot_name) if shot_name else None
+                if shot and shot["rect"] and shot["path"].exists():
+                    items.append({"id": shot_name, "image": str(shot["path"]), "rect": shot["rect"],
+                                  "viewport": shot["viewport"], "targets": here})
+            plans[aspect] = {"key": key, "canvas": (W, H), "targets": found_targets, "movies": movies,
+                             "shots": layout["shots"]}
+
+        measured, tool_error = {}, None
+        if items:
+            spec_path = self.out / "position-spec.json"
+            spec_path.write_text(json.dumps({"items": items}, indent=2))
+            out = run([str(self.tool), "find-centres", str(spec_path), str(self.out / "position-frames")],
+                      check=False, timeout=600)
+            try:
+                answer = json.loads(out)
+            except ValueError:
+                answer = {"error": out.strip()[:300] or "no answer"}
+            (self.out / "position-metrics.json").write_text(json.dumps(answer, indent=2))
+            tool_error = answer.get("error")
+            measured = {item.get("id"): item for item in answer.get("items", []) if isinstance(item, dict)}
+
+        for aspect in POS_ASPECTS:
+            same_name, preview_name = names[aspect]
+            reason = blocked.get(aspect) or (f"find-centres: {tool_error}" if tool_error else None)
+            if reason:
+                self.record("C", same_name, False, f"not measured: {reason}")
+                self.record("C", preview_name, False, f"not measured: {reason}")
+                continue
+            plan = plans[aspect]
+            W, H = plan["canvas"]
+
+            def centre(item_id, target_name, problem=None):
+                """((cx, cy) or None, text)."""
+                if problem:
+                    return None, f"not measured ({problem[:80]})"
+                item = measured.get(item_id)
+                if not item:
+                    return None, "not measured"
+                if "error" in item:
+                    return None, f"not measured ({str(item['error'])[:80]})"
+                r = (item.get("targets") or {}).get(target_name) or {}
+                if "error" in r:
+                    return None, f"not measured ({str(r['error'])[:80]})"
+                if not r.get("found"):
+                    return None, f"NOT FOUND ({r.get('pixels', 0)} px, want {r.get('minimum', '?')})"
+                return (r["cx"], r["cy"]), f"{r['cx']:.3f},{r['cy']:.3f}" + (" edge" if r.get("touchesEdge") else "")
+
+            def apart(c1, c2):
+                return max(abs(c1[0] - c2[0]), abs(c1[1] - c2[1]))
+
+            same_ok = prev_ok = True
+            same_parts, prev_parts = [], []
+            for target_name in self.POS_ELEMENTS:
+                target = plan["targets"].get(target_name)
+                if not target or not target["times"]:
+                    text = (f"{target_name}: not measured ("
+                            + (missing.get(aspect, {}).get(target_name) or
+                               ("no C POS TARGET line" if not target else "no sample time while it is on screen")) + ")")
+                    same_ok = prev_ok = False
+                    same_parts.append(text)
+                    prev_parts.append(text)
+                    continue
+                app = (target["center"][0] / W, target["center"][1] / H)
+                for t in target["times"]:
+                    tag_t = time_tag(t)
+                    got = {res: centre(f"{plan['key']}-{res}-{tag_t}", target_name, plan["movies"][res][1])
+                           for res in POS_RESOLUTIONS}
+                    shot_name = plan["shots"].get(t)
+                    line = previews.get(shot_name) or {}
+                    problem = None if shot_name in measured else f"no screenshot {shot_name or '(none planned)'}"
+                    if line.get("selected") or line.get("handles"):
+                        problem = f"{shot_name} showed a selection (handles={line.get('handles')})"
+                    got["preview"] = centre(shot_name, target_name, problem)
+                    c1080, c720, cprev = got["1080p"][0], got["720p"][0], got["preview"][0]
+                    part = (f"{target_name} {t:g} s: 1080p {got['1080p'][1]}, 720p {got['720p'][1]}")
+                    if c1080 and c720:
+                        d = apart(c1080, c720)
+                        same_ok = same_ok and d <= POS_TOLERANCE
+                        part += f", apart {d:.3f}"
+                    else:
+                        same_ok = False
+                    same_parts.append(part + f" (app {app[0]:.3f},{app[1]:.3f})")
+                    part = f"{target_name} {t:g} s: preview {got['preview'][1]}"
+                    if not cprev:
+                        prev_ok = False
+                    else:
+                        for res, c in (("1080p", c1080), ("720p", c720)):
+                            if c:
+                                d = apart(cprev, c)
+                                prev_ok = prev_ok and d <= POS_TOLERANCE
+                                part += f", {res} apart {d:.3f}"
+                            else:
+                                prev_ok = False
+                                part += f", {res} {got[res][1]}"
+                    prev_parts.append(part)
+            rule = f" (a fraction of the frame; allowed {POS_TOLERANCE:g} on each axis)"
+            self.record("C", same_name, same_ok, "; ".join(same_parts) + rule)
+            self.record("C", preview_name, prev_ok, "; ".join(prev_parts) + rule)
+
     def judge_d(self):
         """Stickers (every tab, every image), one sticker, one bundled sound."""
         if self.texts("D SKIP"):
             self.record("D", "stickers and bundled sound", False, "the editor did not open")
+            self.judge_sticker_size()
             return
         tabs = []
         for _, text in self.texts("STICKERS tab=", 2):
@@ -1203,6 +1694,7 @@ class EditorTest:
         sticker = self.last("STICKER ", 2)
         self.record("D", "a sticker tile adds a sticker to the timeline", bool(sticker and sticker.startswith("STICKER PASS")),
                     (sticker or "no STICKER line")[:240])
+        self.judge_sticker_size()
         sound = self.last("SOUND ", 2)
         self.record("D", "a bundled sound adds an audio clip and its file loads",
                     bool(sound and sound.startswith("SOUND PASS")), (sound or "no SOUND line")[:300])
@@ -1215,8 +1707,42 @@ class EditorTest:
         for warning in self.problems({"D"}, {"uncaught", "unhandled-rejection", "render"})[:3]:
             print(f"::warning title=editor test D::{warning}", flush=True)
 
+    def judge_sticker_size(self):
+        """1.0.8 (blind test round 4, MEDIUM 3): a sticker from the sheet
+        comes in at about 30% of the frame width (1.0.7: the full frame)."""
+        name = "a sticker from the Stickers sheet is about 30% of the frame width"
+        line = self.last("STICKER-SIZE", 2)
+        m = re.search(r"\bwidthFraction=([\d.]+)", line or "")
+        if not m:
+            self.record("D", name, False, f"not measured: {(line or 'no STICKER-SIZE line')[:200]}")
+            return
+        share = float(m.group(1))
+        low, high = STICKER_WIDTH_BAND
+        self.record("D", name, low <= share <= high,
+                    f"{share:.1%} of the canvas width (want {low:.0%}-{high:.0%}); {line[len('STICKER-SIZE '):][:220]}")
+
+    def judge_clip_tools(self):
+        """1.0.8 (blind test round 4, LOW 4): with a clip selected, the
+        clip-tools bar shows; the visible part of the timeline's scroll area
+        must end above it (1.0.7: the rows went under the bar)."""
+        name = "with a clip selected, the timeline scroll area ends above the clip-tools bar"
+        line = self.last("LAYOUT clip-tools", 3)
+        m = re.search(r"\boverlap=([-\d.]+)", line or "")
+        if not m:
+            self.record("E", name, False,
+                        f"not measured: {(line or 'no LAYOUT clip-tools line (the split did not run?)')[:200]}")
+            return
+        overlap = float(m.group(1))
+        self.record("E", name, overlap <= CLIP_TOOLS_OVERLAP_MAX,
+                    f"{overlap:.1f} px of the visible scroll area is under the bar (allowed {CLIP_TOOLS_OVERLAP_MAX:g}); "
+                    f"{line[len('LAYOUT clip-tools '):][:220]}")
+
     def judge_e(self):
-        """Launch 3: the video sweep in a new project."""
+        """Launch 3: the video sweep in a new project, then the clip-tools layout."""
+        self.judge_sweep()
+        self.judge_clip_tools()
+
+    def judge_sweep(self):
         if self.fixture_problems:
             self.record("E", "test video and audio files", False, "; ".join(self.fixture_problems)[:400])
         if not any(p == 3 for p, _ in self.events):

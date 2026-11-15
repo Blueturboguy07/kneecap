@@ -6,6 +6,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	type CSSProperties,
 } from "react";
 import type { TimelineProjectVM } from "../../timeline/types";
 import {
@@ -20,6 +21,7 @@ import { useElementSize } from "../../timeline/use-element-size";
 import { buildSnapTargets, resolveSnap } from "../../timeline/snapping";
 import { hapticTick } from "../../timeline/haptics";
 import { scrollTopToShowRow } from "../../timeline/row-scroll";
+import { isPastTapSlop } from "../../timeline/tap-slop";
 import { TimelineRuler } from "./timeline-ruler";
 import { TimelinePlayhead } from "./timeline-playhead";
 import {
@@ -221,6 +223,8 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	>(null);
 
 	const isProgrammaticScrollRef = useRef(false);
+	/** Round 4, item 4: a touch on the empty timeline that may still be a tap (deselect). */
+	const clearTapRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
 	const pixelsPerSecond = pixelsPerSecondForZoom({ zoom });
 
 	/**
@@ -320,6 +324,8 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 			isProgrammaticScrollRef.current = false;
 			return;
 		}
+		// Round 4, item 4: a touch that scrolls the timeline is not a tap (no deselect).
+		clearTapRef.current = null;
 		const node = scrollRef.current;
 		if (!node) return;
 		const timeSec = clampTime({
@@ -671,10 +677,20 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	const totalContentHeightPx =
 		24 /* ruler, --cc-ruler-height */ + project.tracks.length * 48; /* --cc-track-height */
 
+	// Blind test round 4, item 4: the number of track rows (and the "+ Add audio" strip)
+	// goes to CSS. components.css computes --cc-timeline-stack-height from it (time row +
+	// ruler + rows), and with the clip-tools bar the timeline is at least that tall, so no
+	// row is cut at the bar.
+	const stackStyle = {
+		height: "100%",
+		"--cc-timeline-track-count": project.tracks.length,
+		"--cc-timeline-extra-height": showAddAudio && onAddAudio ? "var(--cc-timeline-add-audio-height)" : "0px",
+	} as CSSProperties;
+
 	return (
 		<div
 			className={`cc-timeline${reorderSession ? " cc-timeline--reordering" : ""}`}
-			style={{ height: "100%" }}
+			style={stackStyle}
 		>
 			<div
 				ref={scrollRef}
@@ -696,9 +712,33 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 						paddingRight: edgePaddingPx,
 						minHeight: totalContentHeightPx,
 					}}
-					onPointerDown={() => {
+					// Blind test round 4, item 4: a TAP on the empty timeline clears the selection;
+					// a drag (a scroll up or down to a track row, or a scrub) keeps it. Before, the
+					// touch-down cleared it, so with a clip selected the rows could not be scrolled
+					// into view: the selection, and the clip-tools bar, went away first. Clips,
+					// handles and buttons stop their pointer-down, so they never start a tap here
+					// (the capture handler clears an old tap first).
+					onPointerDownCapture={() => {
+						clearTapRef.current = null;
+					}}
+					onPointerDown={(event) => {
+						clearTapRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+					}}
+					onPointerMove={(event) => {
+						const tap = clearTapRef.current;
+						if (tap && tap.pointerId === event.pointerId && isPastTapSlop({ tap, event })) {
+							clearTapRef.current = null;
+						}
+					}}
+					onPointerUp={(event) => {
+						const tap = clearTapRef.current;
+						clearTapRef.current = null;
+						if (!tap || tap.pointerId !== event.pointerId || isPastTapSlop({ tap, event })) return;
 						setSelectedClipId(null);
 						onClearSelection?.();
+					}}
+					onPointerCancel={() => {
+						clearTapRef.current = null;
 					}}
 				>
 					<TimelineRuler durationSec={project.durationSec} pixelsPerSecond={pixelsPerSecond} />

@@ -176,14 +176,20 @@ describe("LOW 5: the share sheet file name", () => {
 	});
 });
 
-describe("1.0.7: one version everywhere", () => {
-	it("iOS, Android and the publik gate say 1.0.7, build 9", () => {
+describe("1.0.7 and later: one version everywhere", () => {
+	// 1.0.8 pins its own number in round-4-export.test.ts. Here: the same
+	// version and build in iOS, Android and the publik gate, at 1.0.7 or later.
+	it("iOS, Android and the publik gate say the same version and build", () => {
 		const pbx = raw("apps/mobile/ios/App/App.xcodeproj/project.pbxproj");
-		expect([...pbx.matchAll(/MARKETING_VERSION = ([0-9.]+);/g)].map((m) => m[1])).toEqual(["1.0.7", "1.0.7"]);
-		expect([...pbx.matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)].map((m) => m[1])).toEqual(["9", "9"]);
+		const marketing = [...pbx.matchAll(/MARKETING_VERSION = ([0-9.]+);/g)].map((m) => m[1]);
+		const builds = [...pbx.matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)].map((m) => m[1]);
+		expect(marketing.length).toBe(2);
+		expect(new Set(marketing).size).toBe(1);
+		expect(new Set(builds).size).toBe(1);
+		expect(Number(builds[0])).toBeGreaterThanOrEqual(9);
 		const gradle = raw("apps/mobile/android/app/build.gradle");
-		expect(/versionCode (\d+)/.exec(gradle)?.[1]).toBe("9");
-		expect(/versionName "([^"]+)"/.exec(gradle)?.[1]).toBe("1.0.7");
-		expect(raw("apps/mobile/src/publik/publik.ts")).toContain('export const APP_VERSION = "1.0.7";');
+		expect(/versionCode (\d+)/.exec(gradle)?.[1]).toBe(builds[0]);
+		expect(/versionName "([^"]+)"/.exec(gradle)?.[1]).toBe(marketing[0]);
+		expect(raw("apps/mobile/src/publik/publik.ts")).toContain(`export const APP_VERSION = "${marketing[0]}";`);
 	});
 });

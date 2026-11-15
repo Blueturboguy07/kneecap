@@ -24,11 +24,13 @@ import {
 	snapToCenterAxes,
 	type AxisSnapFlags,
 } from "../../editor/axis-snap";
-import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from "react";
+import { RotateCw } from "lucide-react";
 import { TICKS_PER_SECOND, type MediaTime } from "@kneecap/editor-core";
 import { useEditor } from "@kneecap/editor-core/react";
-import { isVisualElement, type TimelineElement } from "@kneecap/editor-core/timeline";
+import { isVisualElement, type ElementRef, type TimelineElement } from "@kneecap/editor-core/timeline";
 import type { ParamValues } from "@kneecap/editor-core/params";
+import { getVisibleElementsWithBounds } from "@kneecap/editor-core/preview/element-bounds";
 import {
 	clipLocalTime,
 	hasClipKeyframes,
@@ -37,7 +39,20 @@ import {
 	upsertClipAnimationValues,
 	type ClipKeyframeValues,
 } from "../../editor/keyframes";
-import { useSelectedElement } from "../../editor/use-live-editor";
+import { useCurrentTimeSeconds, useSelectedElement } from "../../editor/use-live-editor";
+import { getElement, selectElement } from "../../editor/actions";
+import {
+	clientToCanvas,
+	cornerResizeFactor,
+	elementHasHandles,
+	handleRotation,
+	selectionHandleLayout,
+	topmostElementAt,
+	tracksWithOnlyElement,
+	withStickerSourceSizes,
+	type PreviewBounds,
+} from "../../editor/preview-geometry";
+import { useElementSize } from "../../timeline/use-element-size";
 import {
 	CanvasRenderer,
 	ensureGpu,
@@ -142,7 +157,9 @@ function PreviewRendererInner() {
 	const [canvasVersion, setCanvasVersion] = useState(0);
 	const mountedBackendRef = useRef<RendererBackend | null>(null);
 
-	const mountRef = useRef<HTMLDivElement>(null);
+	// Blind test round 4, item 3b: the mount's CSS width converts the handle offsets (CSS
+	// px) to canvas px.
+	const { ref: mountRef, width: mountWidth } = useElementSize<HTMLDivElement>();
 	useEffect(() => {
 		const mount = mountRef.current;
 		if (!mount) return;
@@ -206,9 +223,21 @@ function PreviewRendererInner() {
 	const gestureHandlers = usePreviewTransformGesture({
 		mountRef,
 		canvasWidth: width,
+		canvasHeight: height,
 	});
 
-	const { snapGuides, ...pointerHandlers } = gestureHandlers;
+	const { snapGuides, beginHandleGesture, ...pointerHandlers } = gestureHandlers;
+
+	// Blind test round 4, item 3b: the selected sticker, shape, text or picture-in-picture
+	// clip shows its box, four corner handles (resize) and one rotate handle. A child
+	// component draws them: it follows the playhead, so only it re-renders on each
+	// playback tick, and only while such an element is selected.
+	const [selectedRef, selectedElement] = useSelectedElement();
+	const showHandles =
+		selectedRef !== null &&
+		selectedElement !== null &&
+		mountWidth > 0 &&
+		elementHasHandles({ element: selectedElement, isMainTrack: tracks.main.id === selectedRef.trackId });
 
 	return (
 		<div
@@ -233,9 +262,120 @@ function PreviewRendererInner() {
 					aria-hidden="true"
 				/>
 			)}
+			{showHandles && selectedRef && (
+				<PreviewSelectionHandles
+					selectedRef={selectedRef}
+					tracks={tracks}
+					mediaAssets={mediaAssets}
+					canvasWidth={width}
+					canvasHeight={height}
+					mountWidth={mountWidth}
+					beginHandleGesture={beginHandleGesture}
+				/>
+			)}
 		</div>
 	);
 }
+
+type BoundsInput = Parameters<typeof getVisibleElementsWithBounds>[0];
+
+/**
+ * Round 4, item 3b: the selection box, the four corner handles and the rotate handle of the
+ * selected element. The bounds come from the render tracks (they follow a drag frame by
+ * frame) at the playhead (useCurrentTimeSeconds re-renders this on each playback tick and
+ * seek). Everything turns with the element.
+ */
+function PreviewSelectionHandles({
+	selectedRef,
+	tracks,
+	mediaAssets,
+	canvasWidth: width,
+	canvasHeight: height,
+	mountWidth,
+	beginHandleGesture,
+}: {
+	selectedRef: ElementRef;
+	tracks: BoundsInput["tracks"];
+	mediaAssets: BoundsInput["mediaAssets"];
+	canvasWidth: number;
+	canvasHeight: number;
+	mountWidth: number;
+	beginHandleGesture: ReturnType<typeof usePreviewTransformGesture>["beginHandleGesture"];
+}) {
+	const editor = useEditor();
+	useCurrentTimeSeconds();
+	const selection = (() => {
+		let bounds: PreviewBounds | null = null;
+		try {
+			const [item] = getVisibleElementsWithBounds({
+				tracks: withStickerSourceSizes({ tracks: tracksWithOnlyElement({ tracks, ...selectedRef }) }),
+				currentTime: editor.playback.getCurrentTime(),
+				canvasSize: { width, height },
+				mediaAssets,
+			});
+			bounds = item?.bounds ?? null;
+		} catch (error) {
+			console.error("preview selection bounds failed:", error);
+		}
+		if (!bounds) return null;
+		const layout = selectionHandleLayout({
+			bounds,
+			canvasWidth: width,
+			canvasHeight: height,
+			rotateOffset: (ROTATE_HANDLE_OFFSET_CSS_PX * width) / mountWidth,
+		});
+		return { bounds, layout };
+	})();
+	if (!selection) return null;
+	/** A box centred on a canvas point, in % of the mount (the mount is the canvas box). */
+	const atCanvasPoint = ({ x, y, rotation }: { x: number; y: number; rotation: number }): CSSProperties => ({
+		left: `${(x / width) * 100}%`,
+		top: `${(y / height) * 100}%`,
+		transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+	});
+
+	return (
+		<>
+			<div
+				className="cc-preview-selection"
+				aria-hidden="true"
+				style={{
+					...atCanvasPoint({ x: selection.bounds.cx, y: selection.bounds.cy, rotation: selection.bounds.rotation }),
+					width: `${(Math.abs(selection.bounds.width) / width) * 100}%`,
+					height: `${(Math.abs(selection.bounds.height) / height) * 100}%`,
+				}}
+			/>
+			{selection.layout.corners.map(({ corner, x, y }) => (
+				<div
+					key={corner}
+					className={`cc-preview-handle cc-preview-handle--resize cc-preview-handle--${corner}`}
+					data-handle={corner}
+					aria-hidden="true"
+					style={atCanvasPoint({ x, y, rotation: selection.bounds.rotation })}
+					onPointerDown={(event) => beginHandleGesture({ event, kind: "resize", bounds: selection.bounds })}
+				>
+					<span className="cc-preview-handle__dot" />
+				</div>
+			))}
+			<div
+				className={`cc-preview-handle cc-preview-handle--rotate cc-preview-handle--rotate-${selection.layout.rotate.side}`}
+				data-handle="rotate"
+				aria-hidden="true"
+				style={atCanvasPoint({ x: selection.layout.rotate.x, y: selection.layout.rotate.y, rotation: selection.bounds.rotation })}
+				onPointerDown={(event) => beginHandleGesture({ event, kind: "rotate", bounds: selection.bounds })}
+			>
+				<span className="cc-preview-handle__dot">
+					<RotateCw size={12} strokeWidth={2.5} />
+				</span>
+			</div>
+		</>
+	);
+}
+
+/** Item 3b: how far (CSS px) the rotate handle sits out from the element's top edge. */
+const ROTATE_HANDLE_OFFSET_CSS_PX = 30;
+/** Item 3b: the smallest drawn side (CSS px on the preview) that a corner drag can make. */
+const MIN_HANDLE_RESIZE_CSS_PX = 24;
 
 /**
  * SELECTION-GATED manipulation on the preview (round 23, founder: "maybe
@@ -264,8 +404,22 @@ function PreviewRendererInner() {
  * TracksSnapshotCommand (`timeline.commitPreview`). Tap semantics: only
  * real drags swallow the up-event; plain taps bubble but nothing above
  * listens anymore (see the stage-tap removal note in the header).
+ *
+ * BLIND TEST ROUND 4 (1.0.8), item 2: the tester dragged on a flag sticker and the
+ * selected text moved. Now the first finger selects the TOP-MOST visible element under
+ * it (the order the preview draws: later tracks on top, captions on top of all;
+ * `topmostElementAt`), and the drag moves that element. Text and captions are
+ * hit-testable now (editor-core `getVisibleElementsWithBounds` measures them). A touch
+ * on empty canvas keeps the selection-gated rule above. Pinch (a second finger) and the
+ * item 3b handles act on the selected element.
+ *
+ * Item 3b: a corner handle resizes the selected element uniformly about its centre, and
+ * the rotate handle turns it. They use the same preview overlay + one commit, so one
+ * handle drag is one undo step, the same as a pinch.
  */
 const DRAG_SLOP_PX = 6;
+
+type GestureMode = "move" | "resize" | "rotate";
 
 /** One element a preview gesture writes to: the selection, or every caption
  *  when a caption is selected (they move as one). Round 47: a target that
@@ -290,9 +444,11 @@ interface GestureTarget {
 function usePreviewTransformGesture({
 	mountRef,
 	canvasWidth,
+	canvasHeight,
 }: {
 	mountRef: RefObject<HTMLDivElement | null>;
 	canvasWidth: number;
+	canvasHeight: number;
 }) {
 	const editor = useEditor();
 	const [selectedRef, selectedElement] = useSelectedElement();
@@ -321,6 +477,14 @@ function usePreviewTransformGesture({
 		 *  is selected — the shared transform fans out to all of them per
 		 *  frame, each written its own way (params vs keyframe). */
 		targets: GestureTarget[];
+		/** "move": one finger drags, two fingers pinch. "resize" / "rotate": a handle
+		 *  drag (round 4, item 3b), one finger only. */
+		mode: GestureMode;
+		/** The rotation at the start of the gesture (a rotate-handle drag changes it). */
+		anchorRotate: number;
+		/** Handle drags: the element centre (client px) and the element's drawn size
+		 *  (canvas px) at the start. */
+		handle: { center: { x: number; y: number }; startWidth: number; startHeight: number } | null;
 	} | null>(null);
 
 	const centroidAndDistance = (pointers: Map<number, { x: number; y: number }>) => {
@@ -357,6 +521,38 @@ function usePreviewTransformGesture({
 	const currentTransform = (session: Session) => {
 		const scale = pxToCanvas();
 		const { centroid, distance } = centroidAndDistance(session.pointers);
+		if (session.mode !== "move" && session.handle) {
+			// Item 3b: a handle drag. The position stays; resize scales both axes by the same
+			// factor (about the centre), rotate turns about the centre.
+			const start = session.startCentroid;
+			const factor =
+				session.mode === "resize"
+					? cornerResizeFactor({
+							center: session.handle.center,
+							start,
+							current: centroid,
+							startWidth: session.handle.startWidth,
+							startHeight: session.handle.startHeight,
+							minSizePx: MIN_HANDLE_RESIZE_CSS_PX * scale,
+						})
+					: 1;
+			return {
+				positionX: session.anchorPositionX,
+				positionY: session.anchorPositionY,
+				scaleX: session.anchorScaleX * factor,
+				scaleY: session.anchorScaleY * factor,
+				rotate:
+					session.mode === "rotate"
+						? handleRotation({
+								center: session.handle.center,
+								start,
+								current: centroid,
+								startRotation: session.anchorRotate,
+							})
+						: session.anchorRotate,
+				snapped: NO_SNAP,
+			};
+		}
 		const factor =
 			distance !== null && session.startDistance && session.startDistance > 0
 				? distance / session.startDistance
@@ -378,6 +574,7 @@ function usePreviewTransformGesture({
 			positionY: snap.y,
 			scaleX: session.anchorScaleX * factor,
 			scaleY: session.anchorScaleY * factor,
+			rotate: session.anchorRotate,
 			snapped: snap.snapped,
 		};
 	};
@@ -409,12 +606,17 @@ function usePreviewTransformGesture({
 		}
 		session.snapped = current.snapped;
 		setSnapGuides(current.snapped);
-		const transformPatch: ParamValues = {
-			"transform.positionX": current.positionX,
-			"transform.positionY": current.positionY,
-			"transform.scaleX": current.scaleX,
-			"transform.scaleY": current.scaleY,
-		};
+		// A move or resize writes position + scale (as before); a rotate-handle drag writes
+		// only the rotation.
+		const transformPatch: Partial<ClipKeyframeValues> =
+			session.mode === "rotate"
+				? { "transform.rotate": current.rotate }
+				: {
+						"transform.positionX": current.positionX,
+						"transform.positionY": current.positionY,
+						"transform.scaleX": current.scaleX,
+						"transform.scaleY": current.scaleY,
+					};
 		editor.timeline.previewElements({
 			updates: session.targets.map((t) => ({
 				trackId: t.trackId,
@@ -427,16 +629,10 @@ function usePreviewTransformGesture({
 							animations: upsertClipAnimationValues({
 								element: t.element,
 								localTime: t.localTime,
-								values: {
-									...t.baseValues,
-									"transform.positionX": current.positionX,
-									"transform.positionY": current.positionY,
-									"transform.scaleX": current.scaleX,
-									"transform.scaleY": current.scaleY,
-								},
+								values: { ...t.baseValues, ...transformPatch },
 							}),
 						}
-					: { params: { ...t.element.params, ...transformPatch } },
+					: { params: { ...t.element.params, ...(transformPatch as ParamValues) } },
 			})),
 		});
 	};
@@ -492,11 +688,15 @@ function usePreviewTransformGesture({
 		element,
 		target,
 		isCaption,
+		mode = "move",
+		handle = null,
 	}: {
 		pointers: Map<number, { x: number; y: number }>;
 		element: TimelineElement;
 		target: { trackId: string; elementId: string };
 		isCaption: boolean;
+		mode?: GestureMode;
+		handle?: Session["handle"];
 	}) => {
 		const { centroid, distance } = centroidAndDistance(pointers);
 		const targets = isCaption ? collectCaptionFanout() : [];
@@ -518,7 +718,43 @@ function usePreviewTransformGesture({
 			dragging: false,
 			snapped: NO_SNAP,
 			targets,
+			mode,
+			anchorRotate: primary.baseValues["transform.rotate"],
+			handle,
 		};
+	};
+
+	/** Round 4, item 2: the top-most visible element under a touch (client px), as the
+	 *  NOMINAL scene element (the one commands and the gesture write to), or null on
+	 *  empty canvas. The bounds come from the render tracks at the playhead: what is on
+	 *  the screen. */
+	const pickElementAt = (point: { x: number; y: number }): { ref: ElementRef; element: TimelineElement } | null => {
+		const rect = mountRef.current?.getBoundingClientRect();
+		if (!rect) return null;
+		const at = clientToCanvas({ clientX: point.x, clientY: point.y, rect, canvasWidth, canvasHeight });
+		const tracks = editor.timeline.getRenderTracks() ?? editor.scenes.getActiveSceneOrNull()?.tracks ?? null;
+		if (!at || !tracks) return null;
+		try {
+			const painted = getVisibleElementsWithBounds({
+				tracks: withStickerSourceSizes({ tracks }),
+				currentTime: editor.playback.getCurrentTime(),
+				canvasSize: { width: canvasWidth, height: canvasHeight },
+				mediaAssets: editor.media.getAssets(),
+			});
+			const hit = topmostElementAt({
+				bottomToTop: painted.map((item) => ({ ...item, isCaption: item.element.type === "caption" })),
+				x: at.x,
+				y: at.y,
+			});
+			if (!hit) return null;
+			const ref = { trackId: hit.trackId, elementId: hit.elementId };
+			const element = getElement({ editor, ref });
+			return element && isVisualElement(element) ? { ref, element } : null;
+		} catch (error) {
+			// A failed measure must not kill the touch: it falls back to the selection.
+			console.error("preview hit test failed:", error);
+			return null;
+		}
 	};
 
 	const selectionIsManipulable =
@@ -526,27 +762,92 @@ function usePreviewTransformGesture({
 		selectedElement !== null &&
 		isVisualElement(selectedElement);
 
+	const onPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+		const point = { x: event.clientX, y: event.clientY };
+		const existing = sessionRef.current;
+		if (existing) {
+			// A handle drag is one finger; another finger does not change it.
+			if (existing.mode !== "move") return;
+			existing.pointers.set(event.pointerId, point);
+			reanchor(existing);
+			return;
+		}
+
+		// Round 4, item 2: the touch selects the top-most element under the finger, and
+		// the drag moves THAT element (not the one selected before).
+		const picked = pickElementAt(point);
+		if (picked) {
+			if (selectedRef?.trackId !== picked.ref.trackId || selectedRef?.elementId !== picked.ref.elementId) {
+				selectElement({ editor, ref: picked.ref });
+			}
+			openSession({
+				pointers: new Map([[event.pointerId, point]]),
+				element: picked.element,
+				target: picked.ref,
+				isCaption: picked.element.type === "caption",
+			});
+			return;
+		}
+
+		// Empty canvas (no element under the finger): unchanged. Selection-gated: a touch
+		// only manipulates the element selected in the timeline. No selection → the touch is
+		// fully inert (the stage has no tap handler anymore — see the header note).
+		if (selectionIsManipulable && selectedRef && selectedElement) {
+			openSession({
+				pointers: new Map([[event.pointerId, point]]),
+				element: selectedElement,
+				target: selectedRef,
+				isCaption: selectedElement.type === "caption",
+			});
+		}
+	};
+
 	return {
 		snapGuides,
-		onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => {
-			const point = { x: event.clientX, y: event.clientY };
-			const existing = sessionRef.current;
-			if (existing) {
-				existing.pointers.set(event.pointerId, point);
-				reanchor(existing);
+		onPointerDown,
+		/** Round 4, item 3b: a finger down on a corner handle ("resize") or on the rotate
+		 *  handle ("rotate") of the selected element. `bounds` is the element's drawn box
+		 *  (canvas px) that the handles show. The mount takes the pointer, so the drag goes
+		 *  on when the finger leaves the small handle. */
+		beginHandleGesture: ({
+			event,
+			kind,
+			bounds,
+		}: {
+			event: ReactPointerEvent<HTMLElement>;
+			kind: "resize" | "rotate";
+			bounds: PreviewBounds;
+		}) => {
+			// The mount's own pointer-down must not pick the element under the handle.
+			event.stopPropagation();
+			if (sessionRef.current) {
+				// A second finger on a handle during a pinch: it is part of the pinch.
+				onPointerDown(event);
 				return;
 			}
-
-			// Selection-gated: a touch only manipulates the element selected
-			// in the timeline. No selection → the touch is fully inert (the
-			// stage has no tap handler anymore — see the header note).
-			if (selectionIsManipulable && selectedRef && selectedElement) {
-				openSession({
-					pointers: new Map([[event.pointerId, point]]),
-					element: selectedElement,
-					target: selectedRef,
-					isCaption: selectedElement.type === "caption",
-				});
+			const mount = mountRef.current;
+			const rect = mount?.getBoundingClientRect();
+			if (!mount || !rect || !(rect.width > 0) || !selectedRef || !selectedElement) return;
+			if (!isVisualElement(selectedElement)) return;
+			openSession({
+				pointers: new Map([[event.pointerId, { x: event.clientX, y: event.clientY }]]),
+				element: selectedElement,
+				target: selectedRef,
+				isCaption: false,
+				mode: kind,
+				handle: {
+					center: {
+						x: rect.left + (bounds.cx * rect.width) / canvasWidth,
+						y: rect.top + (bounds.cy * rect.height) / canvasHeight,
+					},
+					startWidth: bounds.width,
+					startHeight: bounds.height,
+				},
+			});
+			try {
+				mount.setPointerCapture(event.pointerId);
+			} catch {
+				// Best-effort, as in onPointerMove below.
 			}
 		},
 		onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -576,7 +877,7 @@ function usePreviewTransformGesture({
 			if (!session || !session.pointers.has(event.pointerId)) return;
 			session.pointers.delete(event.pointerId);
 			if (session.pointers.size > 0) {
-				reanchor(session);
+				if (session.mode === "move") reanchor(session);
 				return;
 			}
 			const ended = endSession(true);

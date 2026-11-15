@@ -33,6 +33,15 @@ export interface TProjectSettings {
 	lastCustomCanvasSize?: TCanvasSize | null;
 	originalCanvasSize?: TCanvasSize | null;
 	background: TBackground;
+	/**
+	 * The export resolution as the SHORT side in pixels ("720p" = 720), set by
+	 * the mobile export sheet (1.0.8, blind test round 4). It never changes
+	 * `canvasSize`: the canvas is the layout space that every position, size
+	 * and the preview use, and the export draws that same layout at the
+	 * export size with one scale factor (`getExportSize` in `edl/export-size.ts`).
+	 * Unset: the export size is the canvas size.
+	 */
+	exportShortSide?: number;
 }
 
 export interface TTimelineViewState {

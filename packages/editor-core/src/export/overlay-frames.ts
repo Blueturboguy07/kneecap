@@ -66,6 +66,7 @@ import {
 	drawTransformedCanvas,
 } from "@/services/renderer/compositor/frame-descriptor";
 import { DEFAULT_GRAPHIC_SOURCE_SIZE } from "@/graphics";
+import { getExportScale } from "@/edl/export-size";
 
 export interface OverlayFrame {
 	/** Inclusive start / exclusive end on the OUTPUT timeline, in ticks. */
@@ -247,11 +248,19 @@ async function toPngBase64(canvas: HTMLCanvasElement | OffscreenCanvas): Promise
 export interface RenderOverlayFramesParams {
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
-	/** EXPORT resolution — not the preview's canvas size. The drawing code
-	 *  scales every dimension off this (`fontSize × height / 90`), so
-	 *  rendering here at the output size is what makes the exported result
-	 *  match the preview shape-for-shape at any resolution. */
+	/** EXPORT resolution: the size of every PNG. */
 	canvasSize: TCanvasSize;
+	/**
+	 * The project canvas, the layout space of every position and size
+	 * (1.0.8, blind test round 4). Defaults to `canvasSize`. When the export
+	 * size differs, the nodes are resolved and laid out at THIS size, exactly
+	 * as the preview does, and drawn through one scale transform to the
+	 * export size. So positions, sizes, text metrics, letter spacing and
+	 * padding all scale by the same factor, and the frame matches the preview
+	 * at every export resolution. (Until 1.0.8 the export size was the canvas
+	 * size, and a position, which is canvas pixels, did not scale.)
+	 */
+	layoutSize?: TCanvasSize;
 	fps: FrameRate;
 	durationTicks: number;
 	ticksPerSecond: number;
@@ -263,6 +272,7 @@ export async function renderOverlayFrames({
 	tracks,
 	mediaAssets,
 	canvasSize,
+	layoutSize,
 	fps,
 	durationTicks,
 	ticksPerSecond,
@@ -273,6 +283,10 @@ export async function renderOverlayFrames({
 		height: canvasSize.height,
 	});
 	if (!surface) return [];
+	// The layout space (the project canvas) and the one factor per axis from
+	// it to the output pixels.
+	const layout = layoutSize ?? canvasSize;
+	const drawScale = getExportScale({ canvasSize: layout, outputSize: canvasSize });
 
 	const durationSeconds = durationTicks / ticksPerSecond;
 	const frameSeconds = fps.denominator / fps.numerator;
@@ -282,8 +296,8 @@ export async function renderOverlayFrames({
 	// width/height the resolvers scale against). Nothing is composited
 	// through it here — the 2D draws above are the whole output.
 	const renderer = new CanvasRenderer({
-		width: canvasSize.width,
-		height: canvasSize.height,
+		width: layout.width,
+		height: layout.height,
 		fps,
 	});
 	// OVERLAY TRACKS ONLY. Resolving the full scene would resolve VideoNodes
@@ -308,7 +322,7 @@ export async function renderOverlayFrames({
 		tracks: overlayOnlyTracks,
 		mediaAssets,
 		duration: durationTicks,
-		canvasSize,
+		canvasSize: layout,
 		// Transparent everywhere the overlay does not paint — the exporter
 		// composites this OVER the video, so the scene background must not
 		// contribute. (No background node is emitted for a color background.)
@@ -340,8 +354,13 @@ export async function renderOverlayFrames({
 			flush(timeTicks);
 			let pngBase64 = "";
 			if (hash !== "") {
+				surface.ctx.setTransform(1, 0, 0, 1, 0, 0);
 				surface.ctx.clearRect(0, 0, canvasSize.width, canvasSize.height);
+				// Draw in layout units; the base transform maps them to output
+				// pixels (identity when the export size is the canvas size).
+				surface.ctx.setTransform(drawScale.x, 0, 0, drawScale.y, 0, 0);
 				for (const node of nodes) drawOverlayNode({ node, ctx: surface.ctx, renderer });
+				surface.ctx.setTransform(1, 0, 0, 1, 0, 0);
 				pngBase64 = await toPngBase64(surface.canvas);
 			}
 			openFrame = { startTicks: timeTicks, hash, pngBase64 };

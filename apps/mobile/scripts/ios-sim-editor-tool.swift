@@ -18,6 +18,26 @@
 //       mean of that difference, and the mean colour in each file. With a
 //       folder it also writes each frame as PNG, the main frames with the
 //       region outlines.
+//   editor-ci-tool find-centres <spec.json> [<frames folder>]
+//       1.0.8: where an element is, as a fraction of the frame. spec:
+//       {"items": [{"id": "...", "movie": "<mp4>", "time": s, "targets": [...]},
+//                  {"id": "...", "image": "<png>", "rect": [x, y, w, h],
+//                   "viewport": [w, h], "targets": [...]}]}
+//       A movie item reads the exact frame at the time; its frame is the
+//       whole picture. An image item is a screenshot; its frame is the
+//       preview rect in CSS pixels (scale = image width / viewport width).
+//       A target is {"name": "...", "mask": "flag" | "light", "box": [x, y, w, h]}
+//       with the search box as fractions of the frame. "flag": clearly blue
+//       or clearly yellow pixels; "light": white or grey pixels (each
+//       channel at least 80, channels within 48 of each other). For each
+//       target: the mask pixels in the box, their centre (mean position)
+//       and their bounds, as fractions of the frame. With a folder it writes
+//       each frame as PNG with the search boxes and the centres.
+//   editor-ci-tool image-diff <a.png> <b.png> <x> <y> <w> <h> <viewportW> <viewportH>
+//       1.0.8: two screenshots inside one rect (CSS pixels, 2 px kept clear
+//       of the edge): the part of the pixels whose largest channel
+//       difference is more than 48 levels ("changed"), the mean difference,
+//       and the bounds of the changed pixels (fractions of the rect).
 //
 // It prints one JSON object. Exit 0: measured. Exit 1: could not measure.
 import AVFoundation
@@ -688,6 +708,332 @@ func frameRegions(_ args: [String]) async -> Int32 {
     return 0
 }
 
+// ---------------------------------------------------------------- find-centres
+
+/// The frame inside a picture, in pixels (x1, y1 not included).
+struct PixelFrame {
+    let x0: Int
+    let y0: Int
+    let x1: Int
+    let y1: Int
+}
+
+/// 0: not in the mask. "flag": 1 blue, 2 yellow. "light": 1 (white or grey).
+func maskPart(_ mask: String, _ r: Int, _ g: Int, _ b: Int) -> Int {
+    switch mask {
+    case "flag":
+        if b >= 120 && b - r >= 70 && b - g >= 30 { return 1 }
+        if r >= 160 && g >= 130 && r - b >= 90 && g - b >= 70 { return 2 }
+        return 0
+    case "light":
+        let low = min(r, g, b)
+        let high = max(r, g, b)
+        return low >= 80 && high - low <= 48 ? 1 : 0
+    default:
+        return 0
+    }
+}
+
+/// A search box (fractions x, y, w, h of the frame) in pixels, clipped to the frame; nil when empty.
+func searchPixels(_ box: [Double], frame: PixelFrame) -> (Int, Int, Int, Int)? {
+    guard box.count == 4 else { return nil }
+    let fw = Double(frame.x1 - frame.x0)
+    let fh = Double(frame.y1 - frame.y0)
+    func px(_ v: Double) -> Int { max(frame.x0, min(frame.x1, frame.x0 + Int((v * fw).rounded()))) }
+    func py(_ v: Double) -> Int { max(frame.y0, min(frame.y1, frame.y0 + Int((v * fh).rounded()))) }
+    let x0 = px(box[0])
+    let y0 = py(box[1])
+    let x1 = px(box[0] + box[2])
+    let y1 = py(box[1] + box[3])
+    return x1 > x0 && y1 > y0 ? (x0, y0, x1, y1) : nil
+}
+
+/// The mask pixels of one target: count, centre (mean position) and bounds, as fractions of the frame.
+/// "found" needs at least 0.2% of the search box (and at least 50 pixels).
+func findCentre(_ p: RGBA, frame: PixelFrame, mask: String, box: [Double]) -> [String: Any] {
+    guard ["flag", "light"].contains(mask) else { return ["found": false, "error": "unknown mask \(mask)"] }
+    guard let pixels = searchPixels(box, frame: frame) else {
+        return ["found": false, "error": "the search box is empty or outside the frame"]
+    }
+    let (x0, y0, x1, y1) = pixels
+    let fw = Double(frame.x1 - frame.x0)
+    let fh = Double(frame.y1 - frame.y0)
+    var count = [0, 0, 0]
+    var sumX = [0.0, 0.0, 0.0]
+    var sumY = [0.0, 0.0, 0.0]
+    var minX = Int.max
+    var minY = Int.max
+    var maxX = -1
+    var maxY = -1
+    for y in y0..<y1 {
+        var i = (y * p.width + x0) * 4
+        for x in x0..<x1 {
+            let part = maskPart(mask, Int(p.bytes[i]), Int(p.bytes[i + 1]), Int(p.bytes[i + 2]))
+            if part > 0 {
+                for index in [0, part] {
+                    count[index] += 1
+                    sumX[index] += Double(x) + 0.5
+                    sumY[index] += Double(y) + 0.5
+                }
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+            }
+            i += 4
+        }
+    }
+    let area = (x1 - x0) * (y1 - y0)
+    let minimum = max(50, area / 500)
+    var result: [String: Any] = [
+        "pixels": count[0],
+        "boxPixels": area,
+        "share": Double(count[0]) / Double(max(area, 1)),
+        "minimum": minimum,
+        "searchPx": [x0, y0, x1 - x0, y1 - y0],
+    ]
+    guard count[0] >= minimum else {
+        result["found"] = false
+        return result
+    }
+    func fx(_ v: Double) -> Double { (v - Double(frame.x0)) / fw }
+    func fy(_ v: Double) -> Double { (v - Double(frame.y0)) / fh }
+    result["found"] = true
+    result["cx"] = fx(sumX[0] / Double(count[0]))
+    result["cy"] = fy(sumY[0] / Double(count[0]))
+    result["bounds"] = [fx(Double(minX)), fy(Double(minY)), fx(Double(maxX + 1)), fy(Double(maxY + 1))]
+    // True when the pixels reach the edge of the search box: part of the element may be outside it.
+    result["touchesEdge"] = minX <= x0 || minY <= y0 || maxX >= x1 - 1 || maxY >= y1 - 1
+    if mask == "flag" {
+        var parts: [String: Any] = [:]
+        for (index, name) in [(1, "blue"), (2, "yellow")] where count[index] > 0 {
+            parts[name] = [
+                "pixels": count[index],
+                "cx": fx(sumX[index] / Double(count[index])),
+                "cy": fy(sumY[index] / Double(count[index])),
+            ]
+        }
+        result["parts"] = parts
+    }
+    return result
+}
+
+/// The frame part of the picture with the search boxes (magenta) and the centres (green crosses).
+func annotatedFrame(_ image: CGImage, frame: PixelFrame, marks: [([Double], Double?, Double?)]) -> CGImage? {
+    let fw = frame.x1 - frame.x0
+    let fh = frame.y1 - frame.y0
+    guard fw > 0, fh > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+          let context = CGContext(
+              data: nil, width: fw, height: fh, bitsPerComponent: 8, bytesPerRow: 0,
+              space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+          ) else { return nil }
+    // CGContext has its origin at the bottom left; the frame at the top left of the picture.
+    context.draw(image, in: CGRect(x: -frame.x0, y: fh - image.height + frame.y0, width: image.width, height: image.height))
+    let w = Double(fw)
+    let h = Double(fh)
+    context.setLineWidth(max(2, w / 400))
+    for (box, cx, cy) in marks {
+        if box.count == 4 {
+            context.setStrokeColor(red: 1, green: 0, blue: 1, alpha: 1)
+            context.stroke(CGRect(x: box[0] * w, y: h - (box[1] + box[3]) * h, width: box[2] * w, height: box[3] * h))
+        }
+        if let cx, let cy {
+            let x = cx * w
+            let y = h - cy * h
+            let arm = max(8, w / 60)
+            context.setStrokeColor(red: 0, green: 1, blue: 0, alpha: 1)
+            context.strokeLineSegments(between: [
+                CGPoint(x: x - arm, y: y), CGPoint(x: x + arm, y: y),
+                CGPoint(x: x, y: y - arm), CGPoint(x: x, y: y + arm),
+            ])
+        }
+    }
+    return context.makeImage()
+}
+
+func findCentres(_ args: [String]) async -> Int32 {
+    guard args.count == 1 || args.count == 2 else {
+        printJSON(["error": "find-centres needs <spec.json> [<frames folder>]"])
+        return 1
+    }
+    guard let data = FileManager.default.contents(atPath: args[0]),
+          let spec = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          let items = spec["items"] as? [[String: Any]] else {
+        printJSON(["error": "cannot read the spec \(args[0])"])
+        return 1
+    }
+    let folder = args.count == 2 ? args[1] : nil
+    if let folder {
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+    }
+    var movies: [String: MovieFrames] = [:]
+    var movieErrors: [String: String] = [:]
+    var results: [[String: Any]] = []
+    for item in items {
+        let id = (item["id"] as? String) ?? "item\(results.count)"
+        var entry: [String: Any] = ["id": id]
+        var picture: CGImage?
+        var frame: PixelFrame?
+        if let path = item["movie"] as? String {
+            let time = (item["time"] as? Double) ?? 0
+            entry["movie"] = path
+            entry["time"] = time
+            if movies[path] == nil && movieErrors[path] == nil {
+                do {
+                    movies[path] = try await openMovie(path)
+                } catch {
+                    movieErrors[path] = error.localizedDescription
+                }
+            }
+            if let problem = movieErrors[path] {
+                entry["error"] = problem
+            } else if let movie = movies[path] {
+                entry["movieSize"] = movie.size
+                entry["durationSeconds"] = movie.seconds
+                do {
+                    let got = try await movie.generator.image(at: CMTime(seconds: time, preferredTimescale: 600))
+                    picture = got.image
+                    entry["actualTime"] = CMTimeGetSeconds(got.actualTime)
+                } catch {
+                    entry["error"] = error.localizedDescription
+                }
+            }
+        } else if let path = item["image"] as? String {
+            entry["image"] = path
+            if let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+                picture = image
+                let rect = (item["rect"] as? [Double]) ?? []
+                let viewport = (item["viewport"] as? [Double]) ?? []
+                if rect.count == 4, viewport.count == 2, viewport[0] > 0 {
+                    // Capacitor's web view fills the screen: one scale fits both axes (image-stats).
+                    let scale = Double(image.width) / viewport[0]
+                    func clampX(_ v: Double) -> Int { max(0, min(image.width, Int((v * scale).rounded()))) }
+                    func clampY(_ v: Double) -> Int { max(0, min(image.height, Int((v * scale).rounded()))) }
+                    let f = PixelFrame(x0: clampX(rect[0]), y0: clampY(rect[1]), x1: clampX(rect[0] + rect[2]), y1: clampY(rect[1] + rect[3]))
+                    if f.x1 > f.x0 && f.y1 > f.y0 {
+                        frame = f
+                        entry["scale"] = scale
+                    } else {
+                        entry["error"] = "the preview rect is outside the screenshot"
+                        picture = nil
+                    }
+                } else {
+                    entry["error"] = "an image item needs rect [x, y, w, h] and viewport [w, h]"
+                    picture = nil
+                }
+            } else {
+                entry["error"] = "cannot read \(path)"
+            }
+        } else {
+            entry["error"] = "an item needs a movie or an image"
+        }
+        guard let image = picture, let pixels = rgba(image) else {
+            if entry["error"] == nil { entry["error"] = "could not read the frame as RGBA" }
+            results.append(entry)
+            continue
+        }
+        let f = frame ?? PixelFrame(x0: 0, y0: 0, x1: pixels.width, y1: pixels.height)
+        entry["size"] = [pixels.width, pixels.height]
+        entry["frame"] = [f.x0, f.y0, f.x1 - f.x0, f.y1 - f.y0]
+        var found: [String: Any] = [:]
+        var marks: [([Double], Double?, Double?)] = []
+        for target in (item["targets"] as? [[String: Any]]) ?? [] {
+            guard let name = target["name"] as? String else { continue }
+            let mask = (target["mask"] as? String) ?? ""
+            let box = (target["box"] as? [Double]) ?? []
+            let measured = findCentre(pixels, frame: f, mask: mask, box: box)
+            found[name] = measured
+            marks.append((box, measured["cx"] as? Double, measured["cy"] as? Double))
+        }
+        entry["targets"] = found
+        if let folder, let marked = annotatedFrame(image, frame: f, marks: marks) {
+            let safe = id.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "-" }
+            writePNG(marked, to: "\(folder)/\(String(safe)).png")
+        }
+        results.append(entry)
+    }
+    printJSON(["items": results])
+    return 0
+}
+
+// ---------------------------------------------------------------- image-diff
+
+func imageDiff(_ args: [String]) -> Int32 {
+    guard args.count == 8 else {
+        printJSON(["error": "image-diff needs <a.png> <b.png> <x> <y> <w> <h> <viewportW> <viewportH>"])
+        return 1
+    }
+    guard let a = loadImage(args[0]), let b = loadImage(args[1]) else {
+        printJSON(["error": "cannot read \(args[0]) or \(args[1])"])
+        return 1
+    }
+    guard a.width == b.width && a.height == b.height else {
+        printJSON(["error": "the screenshots have different sizes: \(a.width)x\(a.height) and \(b.width)x\(b.height)"])
+        return 1
+    }
+    let numbers = args.dropFirst(2).compactMap { Double($0) }
+    guard numbers.count == 6, numbers[2] > 0, numbers[3] > 0, numbers[4] > 0 else {
+        printJSON(["error": "bad numbers"])
+        return 1
+    }
+    let scale = Double(a.width) / numbers[4]
+    func px(_ v: Double, _ limit: Int) -> Int { max(0, min(limit, Int((v * scale).rounded()))) }
+    // 2 px clear of the edge: the rounded corners and the edge smoothing of the canvas.
+    let x0 = px(numbers[0], a.width) + 2
+    let y0 = px(numbers[1], a.height) + 2
+    let x1 = px(numbers[0] + numbers[2], a.width) - 2
+    let y1 = px(numbers[1] + numbers[3], a.height) - 2
+    guard x1 > x0, y1 > y0 else {
+        printJSON(["error": "the rect is outside the screenshots"])
+        return 1
+    }
+    var changed = 0
+    var count = 0
+    var diffSum = 0.0
+    var minX = Int.max
+    var minY = Int.max
+    var maxX = -1
+    var maxY = -1
+    for y in y0..<y1 {
+        var i = (y * a.width + x0) * 4
+        for x in x0..<x1 {
+            var d = 0
+            for c in 0..<3 {
+                d = max(d, abs(Int(a.bytes[i + c]) - Int(b.bytes[i + c])))
+            }
+            if d > changedLevel {
+                changed += 1
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+            }
+            diffSum += Double(d)
+            count += 1
+            i += 4
+        }
+    }
+    let total = Double(max(count, 1))
+    let w = Double(x1 - x0)
+    let h = Double(y1 - y0)
+    var result: [String: Any] = [
+        "pixels": count,
+        "changed": Double(changed) / total,
+        "meanDiff": diffSum / total,
+        "changedLevel": changedLevel,
+        "rectPx": [x0, y0, x1 - x0, y1 - y0],
+        "scale": scale,
+    ]
+    if changed > 0 {
+        result["changedBounds"] = [
+            Double(minX - x0) / w, Double(minY - y0) / h, Double(maxX + 1 - x0) / w, Double(maxY + 1 - y0) / h,
+        ]
+    }
+    printJSON(result)
+    return 0
+}
+
 let arguments = Array(CommandLine.arguments.dropFirst())
 switch arguments.first {
 case "image-stats":
@@ -698,9 +1044,15 @@ case "make-video":
     exit(await makeVideo(Array(arguments.dropFirst())))
 case "frame-regions":
     exit(await frameRegions(Array(arguments.dropFirst())))
+case "find-centres":
+    exit(await findCentres(Array(arguments.dropFirst())))
+case "image-diff":
+    exit(imageDiff(Array(arguments.dropFirst())))
 default:
     FileHandle.standardError.write(Data(("usage: editor-ci-tool image-stats <png> <x> <y> <w> <h> <viewportW> <viewportH>"
         + " | video-check <movie> | make-video <out.mp4> <tone.wav> <seconds>"
-        + " | frame-regions <baseline.mp4> <main.mp4> <spec.json> [<frames folder>]\n").utf8))
+        + " | frame-regions <baseline.mp4> <main.mp4> <spec.json> [<frames folder>]"
+        + " | find-centres <spec.json> [<frames folder>]"
+        + " | image-diff <a.png> <b.png> <x> <y> <w> <h> <viewportW> <viewportH>\n").utf8))
     exit(2)
 }

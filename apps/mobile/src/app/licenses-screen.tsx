@@ -2,12 +2,25 @@
  * Settings > Licenses: the third-party software in kneecap and its license
  * texts. The list is public/licenses/third-party-licenses.json, made by
  * scripts/generate-licenses.py from the installed packages; it ships in the
- * app, so this screen works offline.
+ * app, so this screen works offline. The screen shows the parts of this
+ * app only (licenses-platform.ts): iOS parts on iOS, Android parts on
+ * Android, the shared web parts on both.
  */
+import { getNativeBridge } from "@kneecap/native-bridge";
 import { getPublikHost } from "@kneecap/native-bridge/publik-host";
 import { useEffect, useState } from "react";
+import { licensesFor, type LicensePlatform } from "./licenses-platform";
 
 const LICENSES_PATH = "/licenses/third-party-licenses.json";
+
+/** The platform of this app, from the native bridge. "web" (all entries) when the bridge does not answer. */
+async function appPlatform(): Promise<LicensePlatform> {
+	try {
+		return (await getNativeBridge()).platform;
+	} catch {
+		return "web";
+	}
+}
 
 interface LicenseEntry {
 	name: string;
@@ -39,9 +52,9 @@ export function LicensesScreen({ onBack }: { onBack: () => void }) {
 
 	useEffect(() => {
 		let live = true;
-		loadLicenses().then(
-			(list) => {
-				if (live) setEntries(list);
+		Promise.all([loadLicenses(), appPlatform()]).then(
+			([list, platform]) => {
+				if (live) setEntries(licensesFor(list, platform));
 			},
 			() => {
 				if (live) setFailed(true);

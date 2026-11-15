@@ -286,6 +286,8 @@ public enum AppleSpeechTranscriber {
 	/// Pre-26 engine: the buffer-request workaround. Partials ON and the
 	/// richest transcription kept — on-device file recognition is known to
 	/// deliver good partials and then a poorer (even empty) final.
+	/// On-device only: `requiresOnDeviceRecognition` is always true, and a
+	/// phone without an on-device model fails with `onDeviceUnavailable`.
 	static func recognizeWithBufferRequest(
 		url: URL,
 		localeId: String,
@@ -300,22 +302,23 @@ public enum AppleSpeechTranscriber {
 			return
 		}
 		print("[kneecap-stt] buffer engine: locale=\(localeId) onDevice=\(recognizer.supportsOnDeviceRecognition)")
-
-		let request = SFSpeechAudioBufferRecognitionRequest()
-		request.shouldReportPartialResults = true
-		request.taskHint = .dictation
-		if #available(iOS 16.0, macOS 13.0, *) {
-			request.addsPunctuation = true
-		}
-		// Local-first: never silently upload the user's audio.
-		if recognizer.supportsOnDeviceRecognition {
-			request.requiresOnDeviceRecognition = true
-		} else {
+		// Local-first (blind test 1.0.7, item 8): speech recognition runs on this phone only. Without an
+		// on-device model there is no request at all, so Apple's server path never runs; the Captions panel
+		// shows its plain message for UNSUPPORTED (NativeBridgePlugin+Transcribe.swift).
+		guard recognizer.supportsOnDeviceRecognition else {
 			completion(.failure(.onDeviceUnavailable(
 				"locale \(localeId) has no on-device model on this device — " +
 				"download it in Settings > General > Keyboard > Dictation, or use a supported language"
 			)))
 			return
+		}
+
+		let request = SFSpeechAudioBufferRecognitionRequest()
+		request.requiresOnDeviceRecognition = true
+		request.shouldReportPartialResults = true
+		request.taskHint = .dictation
+		if #available(iOS 16.0, macOS 13.0, *) {
+			request.addsPunctuation = true
 		}
 
 		var bestWords: [RecognizedWord] = []

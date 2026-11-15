@@ -145,7 +145,7 @@ describe("1.0.6 item 2: captions on iOS 26", () => {
 	it("Info.plist: a true speech recognition text, and no microphone or camera text", () => {
 		const plist = raw("apps/mobile/ios/App/App/Info.plist").replace(/<!--[\s\S]*?-->/g, "");
 		const speech = /<key>NSSpeechRecognitionUsageDescription<\/key>\s*<string>([^<]+)<\/string>/.exec(plist)?.[1] ?? "";
-		expect(speech).toContain("on this device");
+		expect(speech).toContain("on this phone");
 		expect(speech).toContain("captions");
 		expect(plist).not.toContain("NSMicrophoneUsageDescription");
 		expect(plist).not.toContain("NSCameraUsageDescription");

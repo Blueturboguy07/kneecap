@@ -44,6 +44,7 @@ import {
 import { registerDefaultGraphics } from "@kneecap/editor-core/graphics";
 import { buildElementFromMedia } from "@kneecap/editor-core/timeline";
 import { rewriteCaptionWords } from "./caption-text";
+import { newStickerScale, stickerSourceSize } from "./preview-geometry";
 import {
 	adjacentClipKeyframeTime,
 	applyClipKeyframeEasing,
@@ -1022,7 +1023,14 @@ export async function insertLocalSound({
 /** Inserts a sticker at the playhead. `name` is the name the Stickers panel
  *  shows ("Albania", "Star"); the timeline clip shows it. Without a name,
  *  editor-core makes one from the sticker id (for a flag, the country code
- *  "AL": blind test round 3, item 4). */
+ *  "AL": blind test round 3, item 4).
+ *
+ *  Blind test round 4, item 3a: the sticker comes in at the centre of the frame, about
+ *  30% of the frame width (it came in at the full contain-fit size and hid the photo and
+ *  the text). The scale comes from the source size and the contain-fit
+ *  (`newStickerScale`). A bundled flag (640 x 480) or shape (512 x 512) also stores that
+ *  size as its intrinsic size, so the renderer, the hit test and the handles use the same
+ *  size even when the image reports no natural size; another sticker uses a square. */
 export function insertStickerElement({
 	editor,
 	stickerId,
@@ -1033,7 +1041,18 @@ export function insertStickerElement({
 	name?: string;
 }): ElementRef | null {
 	const displayName = name?.trim() ? name.trim() : undefined;
-	const create = buildStickerElement({ stickerId, name: displayName, startTime: editor.playback.getCurrentTime() });
+	const source = stickerSourceSize({ stickerId });
+	const { width: canvasWidth, height: canvasHeight } = editor.project.getActive().settings.canvasSize;
+	const scale = newStickerScale({ canvasWidth, canvasHeight, sourceWidth: source.width, sourceHeight: source.height });
+	const intrinsic = source.known ? { intrinsicWidth: source.width, intrinsicHeight: source.height } : {};
+	const create = buildStickerElement({ stickerId, name: displayName, startTime: editor.playback.getCurrentTime(), ...intrinsic });
+	create.params = {
+		...create.params,
+		"transform.positionX": 0,
+		"transform.positionY": 0,
+		"transform.scaleX": scale,
+		"transform.scaleY": scale,
+	};
 	const command = new InsertElementCommand({ element: create, placement: { mode: "auto", trackType: "graphic" } });
 	editor.command.execute({ command });
 	const trackId = command.getTrackId();
@@ -1131,6 +1150,53 @@ export function setProjectResolution({
 	editor.command.execute({
 		command: new UpdateProjectSettingsCommand({ canvasSize, canvasSizeMode: "preset" }),
 	});
+}
+
+/**
+ * The export sheet's resolution (1.0.8, blind test round 4, HIGH 1): the
+ * SHORT side of the exported video ("720p" = 720). It does NOT change the
+ * canvas. The canvas is the layout space of every position (canvas pixels
+ * from the centre) and of the preview; when the export sheet changed it,
+ * every sticker and text moved 1.5x farther from the centre at 720p. The
+ * export draws the same layout at this size with one scale factor
+ * (getExportSize / getExportScale in @kneecap/editor-core/edl).
+ */
+export function setExportResolution({ editor, shortSide }: { editor: EditorCore; shortSide: number }): void {
+	editor.command.execute({ command: new UpdateProjectSettingsCommand({ exportShortSide: shortSide }) });
+}
+
+/**
+ * The Aspect ratio sheet (1.0.8): the canvas gets the new aspect at its
+ * CURRENT short side, so the layout scale (canvas pixels per unit of the
+ * short side) does not change. A 1080-class canvas gets the same sizes as
+ * before (9:16 = 1080x1920, 16:9 = 1920x1080). Only a canvas of another
+ * class (an old project whose canvas a pre-1.0.8 export sheet set to 720p,
+ * for example) now keeps its class, instead of a jump to 1080 that moved
+ * every element relative to the frame.
+ */
+export function setProjectAspectRatio({
+	editor,
+	ratio,
+}: {
+	editor: EditorCore;
+	ratio: { width: number; height: number };
+}): void {
+	const { width, height } = editor.project.getActive().settings.canvasSize;
+	setProjectResolution({ editor, canvasSize: canvasSizeForAspect({ shortSide: Math.min(width, height), ratio }) });
+}
+
+/** The canvas of an aspect ratio at a given short side (even pixels). */
+export function canvasSizeForAspect({
+	shortSide,
+	ratio,
+}: {
+	shortSide: number;
+	ratio: { width: number; height: number };
+}): TCanvasSize {
+	const even = (v: number) => Math.max(2, Math.round(v / 2) * 2);
+	return ratio.width >= ratio.height
+		? { width: even((shortSide * ratio.width) / ratio.height), height: shortSide }
+		: { width: shortSide, height: even((shortSide * ratio.height) / ratio.width) };
 }
 
 export function setProjectFps({ editor, fps }: { editor: EditorCore; fps: FrameRate }): void {

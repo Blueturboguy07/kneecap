@@ -1,4 +1,5 @@
 import {
+	Blend,
 	Captions,
 	Contrast,
 	Layers,
@@ -6,7 +7,6 @@ import {
 	PaintBucket,
 	Scissors,
 	Sliders,
-	Sparkles,
 	Square,
 	Sticker,
 	Type,
@@ -30,7 +30,8 @@ export const PRIMARY_TOOLBAR_ITEMS: ToolbarItemDef[] = [
 	{ id: "edit", label: "Edit", icon: Scissors },
 	{ id: "audio", label: "Audio", icon: Music },
 	{ id: "text", label: "Text", icon: Type },
-	{ id: "effects", label: "Effects", icon: Sparkles },
+	// Blind test round 4, item 10b: a neutral icon. Sparkles read as "AI magic", not as effects.
+	{ id: "effects", label: "Effects", icon: Blend },
 	{ id: "overlay", label: "Overlay", icon: Layers },
 	{ id: "captions", label: "Captions", icon: Captions },
 	{ id: "filters", label: "Filters", icon: Sliders },

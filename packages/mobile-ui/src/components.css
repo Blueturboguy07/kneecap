@@ -1737,3 +1737,75 @@
 .cc-thumbgrid--stickers .cc-thumb__label {
 	background: rgb(0 0 0 / 72%);
 }
+
+/* 1.0.8: blind test round 4 */
+/* Item 4: with a clip selected, the bottom track row was still cut at the clip-tools bar.
+   The cause: the timeline's scroll area is shorter than its track stack. On an iPhone 17
+   Pro the timeline gets 2/5 of the free height (233 px); under the 20 px time row that
+   leaves 212 px, but the ruler (25 px) and 4 rows of 49 px need 221 px, and 5 rows need
+   270 px. 1.0.7 kept that height when the bar showed and scrolled only the SELECTED row
+   into view, so the bottom row stayed cut, right on top of the bar. Now, while the bar
+   shows, the timeline is at least as tall as its whole stack (the preview gives the
+   height), up to 45% of the screen height. Above that the rows scroll, and a scroll keeps
+   the selection (timeline-view.tsx). TimelineView sets --cc-timeline-track-count and
+   --cc-timeline-extra-height (the "+ Add audio" strip) on .cc-timeline. */
+.cc-timeline {
+	/* .cc-timeline__add-audio: 34 px high + 8 px margin-top. */
+	--cc-timeline-add-audio-height: calc(34px + 8px);
+	/* The time row, the ruler (+1 px border) and each track row (+1 px border). */
+	--cc-timeline-stack-height: calc(
+		var(--cc-timecode-row-height, 20px) + var(--cc-ruler-height) + 1px +
+			var(--cc-timeline-track-count, 0) * (var(--cc-track-height) + 1px) + var(--cc-timeline-extra-height, 0px)
+	);
+}
+/* The content-based minimum: the timeline mount is never shorter than the timeline. */
+.cc-editor-shell--clip-tools .cc-editor-shell__timeline {
+	min-height: auto;
+}
+.cc-editor-shell--clip-tools .cc-timeline {
+	min-height: min(var(--cc-timeline-stack-height), 45vh);
+	max-height: 45vh;
+}
+
+/* Item 3b: the selected element's box and its handles (preview-renderer.tsx). The box and
+   the handles turn with the element. A corner handle resizes about the centre; the round
+   handle above (or, at the top of the frame, below) the element turns it. Each handle is
+   a 44 x 44 pt touch target that shows a smaller dot. */
+.cc-preview-selection {
+	position: absolute;
+	box-sizing: border-box;
+	border: 1.5px solid #ffffff;
+	outline: 1px solid rgb(0 0 0 / 40%);
+	pointer-events: none;
+	z-index: 3;
+}
+.cc-preview-handle {
+	position: absolute;
+	width: var(--cc-touch-target-ios);
+	height: var(--cc-touch-target-ios);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	touch-action: none;
+	z-index: 4;
+}
+.cc-preview-handle__dot {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: #ffffff;
+	border: 1.5px solid var(--cc-accent);
+	box-shadow: 0 0 0 1px rgb(0 0 0 / 35%);
+	pointer-events: none;
+}
+.cc-preview-handle--rotate .cc-preview-handle__dot {
+	width: 22px;
+	height: 22px;
+	background: var(--cc-accent);
+	border-color: #ffffff;
+	color: var(--cc-accent-contrast);
+}

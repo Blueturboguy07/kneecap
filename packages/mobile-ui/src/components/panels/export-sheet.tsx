@@ -4,7 +4,7 @@ import { SheetHeader } from "../sheet-header";
 import { SegmentedControl } from "../segmented-control";
 import { ProgressOverlay } from "../progress-overlay";
 import type { EditorCore } from "@kneecap/editor-core";
-import { buildEdl, type Edl } from "@kneecap/editor-core/edl";
+import { buildEdl, getExportSize, type Edl } from "@kneecap/editor-core/edl";
 import type { ExportFormat, ExportQuality } from "@kneecap/editor-core/export";
 import { getNativeBridge, type ExportProgress, type NativeBridge } from "@kneecap/native-bridge";
 import {
@@ -12,7 +12,7 @@ import {
 	type OverlayFrame,
 } from "@kneecap/editor-core/export/overlay-frames";
 import {
-	buildNativeEdlAssetResolver, setProjectFps, setProjectResolution, toEdlMediaAssets } from "../../editor/actions";
+	buildNativeEdlAssetResolver, setExportResolution, setProjectFps, toEdlMediaAssets } from "../../editor/actions";
 import { shareFileName } from "../../editor/share-file-name";
 import type { SceneTracks } from "@kneecap/editor-core/timeline";
 import type { FrameRate } from "opencut-wasm";
@@ -86,9 +86,12 @@ type PhotosSaveState = "saving" | "saved" | "denied" | "failed";
  * M8 Export sheet — task scope: "resolution/fps/quality." Resolution and
  * fps write straight to REAL `TProjectSettings` via
  * `UpdateProjectSettingsCommand` (the same command the rest of the editor
- * uses) — there is no separate "export resolution" concept in this engine,
- * the canvas size IS the render resolution (see actions.ts's
- * `setProjectResolution` header note). Quality/format are draft
+ * uses). 1.0.8 (blind test round 4, HIGH 1): the resolution is its own
+ * setting, `exportShortSide` (actions.ts `setExportResolution`). It no
+ * longer changes the canvas: positions are canvas pixels, so a smaller
+ * canvas moved every sticker and text away from the centre. The export
+ * draws the canvas layout at `getExportSize` with one scale factor (the EDL
+ * builder and `renderOverlayFrames({ layoutSize })`). Quality/format are draft
  * `ExportOptions` (real types from `@/export`) held as local sheet state,
  * since `ExportOptions` is passed at `editor.project.export()` call time,
  * not persisted project state.
@@ -127,14 +130,13 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 	// and that untouched default is exactly the grainy-export path
 	// (2026-08-22). Resolution presets mean the canvas's SHORT side (the
 	// "p" convention — a portrait 1080×1920 canvas is 1080p).
-	const canvasShortSide = Math.min(
-		project.settings.canvasSize.width,
-		project.settings.canvasSize.height,
-	);
+	// 1.0.8: the export size (exportShortSide, or the canvas when unset).
+	const exportSize = getExportSize({ settings: project.settings });
+	const exportShortSide = Math.min(exportSize.width, exportSize.height);
 	const [resolutionId, setResolutionId] = useState(() => {
 		const nearest = [...RESOLUTIONS].sort(
 			(a, b) =>
-				Math.abs(a.height - canvasShortSide) - Math.abs(b.height - canvasShortSide),
+				Math.abs(a.height - exportShortSide) - Math.abs(b.height - exportShortSide),
 		)[0];
 		return nearest?.id ?? "1080p";
 	});
@@ -181,15 +183,8 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 		// preset.height is the SHORT side ("1080p" on a portrait canvas is
 		// 1080×1920, not 608×1080 — the old height-is-vertical math DOWN-
 		// graded every portrait project the moment the chip was tapped).
-		const { width: cw, height: ch } = project.settings.canvasSize;
-		const aspect = cw / ch;
-		const even = (v: number) => Math.max(2, Math.round(v / 2) * 2);
-		const shortSide = preset.height;
-		const canvasSize =
-			aspect >= 1
-				? { width: even(shortSide * aspect), height: shortSide }
-				: { width: shortSide, height: even(shortSide / aspect) };
-		setProjectResolution({ editor, canvasSize });
+		// 1.0.8: the export size only; the canvas and the preview stay.
+		setExportResolution({ editor, shortSide: preset.height });
 	};
 
 	const applyFps = (id: string) => {
@@ -202,8 +197,10 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 	const buildCurrentEdl = (): Edl => {
 		const scene = editor.scenes.getActiveScene();
 		const fpsPreset = FPS_OPTIONS.find((f) => f.id === fpsId)?.fps;
+		// Read the project now: the resolution and fps buttons update it.
+		const current = editor.project.getActive();
 		return buildEdl({
-			project,
+			project: current,
 			scene,
 			// Real live media assets, not a hardcoded `[]` — genuinely empty
 			// today only because no panel in this app can insert a video/image
@@ -222,6 +219,9 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 				bitrate: QUALITY_BITRATE[quality],
 				includeAudio: true,
 				fps: fpsPreset,
+				// 1.0.8: the export size. buildEdl scales the positions from
+				// canvas pixels to these output pixels.
+				resolution: getExportSize({ settings: current.settings }),
 			},
 		});
 	};
@@ -316,6 +316,9 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 						width: edl.output.resolution.width,
 						height: edl.output.resolution.height,
 					},
+					// 1.0.8: lay out on the project canvas, as the preview does,
+					// and draw scaled to the export size.
+					layoutSize: editor.project.getActive().settings.canvasSize,
 					fps: edl.output.fps,
 					durationTicks: edl.meta.durationTicks,
 					ticksPerSecond: edl.meta.ticksPerSecond,
