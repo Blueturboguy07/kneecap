@@ -1266,7 +1266,52 @@ async function ciPreview(ctx: CiContext, editor: EditorCore): Promise<void> {
 	const photo = await ciAddPhoto(ctx, editor);
 	ciLog(`IMPORT ${photo.ok ? "PASS" : "FAIL"} via=${photo.via} ${photo.detail}`);
 	await ciSettle(editor, 4000);
+	await ciClipCheck();
 	await ciShot(ctx, "photo");
+}
+
+/**
+ * Blind test item 11: the photo clip on the timeline shows the photo. Logs
+ * "CLIP kind=image thumbs=N thumbHeight=H clipHeight=H image=WxH|error|...
+ * rect=x,y,w,h": the filmstrip slots, the first slot's height, the clip's
+ * height, the slot image (loaded again here), and the clip's on-screen rect.
+ * The runner checks the numbers and looks for the photo's colours inside
+ * that rect on the "photo" screenshot.
+ */
+async function ciClipCheck(): Promise<void> {
+	const clip = document.querySelector<HTMLElement>(".cc-timeline__clip--image");
+	if (!clip) {
+		ciLog("CLIP kind=image none (no photo clip on the timeline)");
+		return;
+	}
+	const thumbs = [...clip.querySelectorAll<HTMLElement>(".cc-timeline__clip-thumbnail")];
+	const first = thumbs[0];
+	const url = first ? /url\(["']?(.*?)["']?\)/.exec(getComputedStyle(first).backgroundImage)?.[1] : undefined;
+	let image = "no-url";
+	if (url) {
+		image = await new Promise<string>((resolve) => {
+			const probe = new Image();
+			const timer = setTimeout(() => resolve("timeout"), 10_000);
+			probe.onload = () => {
+				clearTimeout(timer);
+				resolve(`${probe.naturalWidth}x${probe.naturalHeight}`);
+			};
+			probe.onerror = () => {
+				clearTimeout(timer);
+				resolve("error");
+			};
+			probe.src = url;
+		});
+	}
+	await ciSleep(500);
+	const box = clip.getBoundingClientRect();
+	const left = Math.max(0, box.left);
+	const right = Math.min(window.innerWidth, box.right);
+	const rect = [left, box.top, Math.max(0, right - left), box.height].map((v) => v.toFixed(1)).join(",");
+	ciLog(
+		`CLIP kind=image thumbs=${thumbs.length} thumbHeight=${(first?.getBoundingClientRect().height ?? 0).toFixed(1)} ` +
+			`clipHeight=${box.height.toFixed(1)} image=${image} rect=${rect}`,
+	);
 }
 
 /** The export sheet's steps when the sheet cannot be driven (export-sheet.tsx startExport). */

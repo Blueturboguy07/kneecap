@@ -391,7 +391,10 @@ export function TimelineClip({
 			aria-label={`${clip.name}, ${durationLabel}${isSelected ? ", selected" : ""}`}
 			aria-pressed={isSelected}
 		>
-			{(clip.kind === "video" || clip.kind === "image") && (
+			{/* Only real images: a photo, or real video frames. A clip
+			    without them keeps its plain colour (the placeholder
+			    pattern never showed in the app, see ClipFilmstrip). */}
+			{(clip.kind === "video" || clip.kind === "image") && (clip.posterUri || clip.thumbnails) && (
 				<ClipFilmstrip
 					clip={clip}
 					widthPx={widthPx}
@@ -516,6 +519,12 @@ function ClipFilmstrip({
 					style={{
 						position: "absolute",
 						left: timeToPixels({ timeSec: slotSec, pixelsPerSecond }),
+						// The slot takes the clip's height. Without top and
+						// bottom, the slot has no height, and the frame inside
+						// (height 100%) is 0 px tall: the 1.0.4 blind test saw
+						// a photo clip without its photo.
+						top: 0,
+						bottom: 0,
 					}}
 				>
 					<FilmstripThumbnail

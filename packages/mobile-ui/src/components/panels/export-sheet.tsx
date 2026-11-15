@@ -116,8 +116,13 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 
 	const [runState, setRunState] = useState<ExportRunState>("idle");
 	const [progress, setProgress] = useState<{ stage: ExportProgress["stage"]; fraction: number } | null>(null);
-	const [exportError, setExportError] = useState<string | null>(null);
-	const [outputUri, setOutputUri] = useState<string | null>(null);
+	// The sheet shows plain words only: no file path and no error text. The
+	// details go to the console (the native side also adds the video to
+	// Photos, see NativeBridgePlugin+Export.swift).
+	const failExport = (detail: unknown) => {
+		console.error("export failed:", detail instanceof Error ? detail.message : detail);
+		setRunState("error");
+	};
 	// Holds the in-flight generator ONLY so Cancel can `.return()` it — never
 	// read for anything else. A ref, not state: swapping it must not trigger
 	// a re-render.
@@ -182,8 +187,6 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 	};
 
 	const startExport = async () => {
-		setExportError(null);
-		setOutputUri(null);
 		setProgress({ stage: "preparing", fraction: 0 });
 		setRunState("exporting");
 
@@ -191,8 +194,7 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 		try {
 			edl = buildCurrentEdl();
 		} catch (error) {
-			setRunState("error");
-			setExportError(error instanceof Error ? error.message : String(error));
+			failExport(error);
 			return;
 		}
 
@@ -227,13 +229,11 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 			for await (const event of generator) {
 				setProgress({ stage: event.stage, fraction: event.fraction });
 				if (event.stage === "error") {
-					setRunState("error");
-					setExportError(event.error ?? "Export failed");
+					failExport(event.error ?? "the exporter sent no error text");
 					break;
 				}
 				if (event.stage === "done") {
 					setRunState("done");
-					setOutputUri(event.outputUri ?? null);
 					break;
 				}
 			}
@@ -242,10 +242,9 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 			// the web-fallback bridge throws the moment this generator is first
 			// iterated (no native shell present) — same typed-error contract
 			// every other `getNativeBridge()` caller in this package relies on
-			// (see captions-actions.ts), surfaced here as plain sheet text
-			// rather than an uncaught rejection.
-			setRunState("error");
-			setExportError(error instanceof Error ? error.message : String(error));
+			// (see captions-actions.ts), surfaced here as the plain sheet
+			// message rather than an uncaught rejection.
+			failExport(error);
 		} finally {
 			activeExportRef.current = null;
 		}
@@ -300,10 +299,8 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 				>
 					Export video
 				</button>
-				{runState === "error" && exportError && <p className="cc-panel-note">Export failed: {exportError}</p>}
-				{runState === "done" && (
-					<p className="cc-panel-note">Export complete{outputUri ? ` — ${outputUri}` : "."}</p>
-				)}
+				{runState === "error" && <p className="cc-panel-note">Export failed. Try again.</p>}
+				{runState === "done" && <p className="cc-panel-note">Export complete.</p>}
 			</PanelSheet>
 			{runState === "exporting" && progress && (
 				<ProgressOverlay

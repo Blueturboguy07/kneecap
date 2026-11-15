@@ -14,7 +14,8 @@ mode in src/autotest.tsx. This script:
          reopen) with no crash screen, no uncaught error, no
          "GPU context not initialized", and exactly 1 project;
       B. the preview is one colour when empty, then shows a text element,
-         then the photo (pixel checks on the screenshots);
+         then the photo, and the photo clip on the timeline shows the photo
+         (pixel checks on the screenshots);
       C. the export (1 photo + 1 text, 1080p, 30 fps, High) makes a file
          with duration > 0 and a video track (AVFoundation on this Mac).
 
@@ -475,11 +476,12 @@ class EditorTest:
         gpu = self.problems({"boot", "A", "B", "C"}, {"gpu"}) + [f"app log: {line}" for line in self.raw_gpu]
         self.record("A", 'no "GPU context not initialized"', not gpu, "; ".join(gpu[:3]) if gpu else "none")
 
-    def measure(self, name):
+    def measure(self, name, rect=None):
         shot = self.shots.get(name)
-        if not shot or not shot["rect"] or not shot["path"].exists():
+        rect = rect or (shot["rect"] if shot else None)
+        if not shot or not rect or not shot["path"].exists():
             return None, f"no screenshot '{name}' with a preview area"
-        x, y, w, h = shot["rect"]
+        x, y, w, h = rect
         vw, vh = shot["viewport"]
         out = run([str(self.tool), "image-stats", str(shot["path"]), str(x), str(y), str(w), str(h), str(vw), str(vh)],
                   check=False, timeout=120)
@@ -521,6 +523,7 @@ class EditorTest:
                         f"{photo['offFraction']:.1%} not background, luma spread {photo['lumaStd']:.0f}; {import_line[:160]}")
         elif not import_line.startswith("IMPORT PASS"):
             self.record("B", "photo import", False, import_line[:200])
+        self.judge_clip()
         stop = self.problems({"B"}, {"crash", "driver"})
         if stop:
             self.record("B", "no crash during the preview checks", False, "; ".join(stop[:3]))
@@ -528,6 +531,27 @@ class EditorTest:
             print(f"::warning title=editor test B::{warning}", flush=True)
         for via in [t for _, t in self.texts("TEXT ") + self.texts("IMPORT ") if "via=direct" in t]:
             print(f"::warning title=editor test B::the UI control was not found, the test used the direct call: {via[:160]}", flush=True)
+
+    def judge_clip(self):
+        """Blind test item 11: the photo clip on the timeline shows the photo."""
+        line = next((t for _, t in self.texts("CLIP ")), "CLIP (no line)")
+        m = re.match(r"CLIP kind=image thumbs=(\d+) thumbHeight=([\d.]+) clipHeight=([\d.]+) image=(\S+) "
+                     r"rect=([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)", line)
+        if not m:
+            self.record("B", "timeline photo clip shows the photo", False, line[:200])
+            return
+        thumbs, slot_h, clip_h, image = int(m.group(1)), float(m.group(2)), float(m.group(3)), m.group(4)
+        rect = [float(m.group(i)) for i in range(5, 9)]
+        found = []
+        stats, error = self.measure("photo", rect) if rect[2] > 0 and rect[3] > 0 else (None, "the clip is off screen")
+        if stats:
+            colours = stats.get("colours", {})
+            found = [c for c in ("red", "green", "blue", "yellow") if colours.get(c, 0) >= 0.005]
+        ok = thumbs > 0 and clip_h > 0 and slot_h >= 0.8 * clip_h and re.fullmatch(r"\d+x\d+", image) and len(found) >= 2
+        self.record("B", "timeline photo clip shows the photo", bool(ok),
+                    f"{thumbs} slot(s), slot height {slot_h:.0f} of {clip_h:.0f} pt, image {image}, "
+                    f"photo colours in the clip {len(found)}/4 ({', '.join(found) or 'none'})"
+                    + (f"; {error}" if error else ""))
 
     def judge_c(self):
         if self.texts("C SKIP"):

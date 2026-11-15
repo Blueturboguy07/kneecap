@@ -173,6 +173,32 @@ describe("item 9: tap targets of at least 44 pt", () => {
 	});
 });
 
+describe("item 11: a photo clip shows the photo on the timeline", () => {
+	const clip = code("packages/mobile-ui/src/components/timeline/timeline-clip.tsx");
+
+	it("the clip gets the photo, and each filmstrip slot takes the clip's height", () => {
+		expect(code("packages/mobile-ui/src/editor/use-timeline-project-vm.ts")).toContain("posterUri: photoPosterUri(");
+		const strip = clip.slice(clip.indexOf("function ClipFilmstrip("));
+		// A slot with no height makes its frame (height 100%) 0 px tall.
+		expect(strip).toMatch(/position: "absolute",\s*left: timeToPixels\([^)]*\),\s*top: 0,\s*bottom: 0,/);
+	});
+
+	it("only a clip with a real image draws a filmstrip (no made-up frames)", () => {
+		expect(clip).toMatch(/\(clip\.posterUri \|\| clip\.thumbnails\) && \(\s*<ClipFilmstrip/);
+	});
+});
+
+describe("the export sheet uses plain words", () => {
+	const sheet = code("packages/mobile-ui/src/components/panels/export-sheet.tsx");
+
+	it("shows no file path and no error text", () => {
+		expect(sheet).toContain('<p className="cc-panel-note">Export complete.</p>');
+		expect(sheet).toContain('<p className="cc-panel-note">Export failed. Try again.</p>');
+		expect(sheet).not.toContain("outputUri");
+		expect(sheet).not.toMatch(/Export failed: \{/);
+	});
+});
+
 describe("item 13 and 14: phone words, and no Delete account when signed out", () => {
 	it("the sign-in screens say Tap and this screen, never Click or this window", () => {
 		for (const path of ["apps/mobile/src/publik/publik.ts", "apps/mobile/src/publik/gate-ui.ts", "apps/mobile/src/app/settings-screen.tsx"]) {
