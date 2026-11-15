@@ -3,7 +3,7 @@ import type { AnyBaseNode } from "./nodes/base-node";
 import { createCanvasSurface } from "./canvas-utils";
 import { Canvas2dCompositor } from "./compositor/canvas2d-compositor";
 import { buildFrameDescriptor } from "./compositor/frame-descriptor";
-import { isGpuBroken, reportGpuFailure } from "./compositor/gpu";
+import { gpuDisabledReason, isGpuBroken, reportGpuFailure } from "./compositor/gpu";
 import { wasmCompositor } from "./compositor/wasm-compositor";
 import { resolveRenderTree } from "./resolve";
 import {
@@ -77,7 +77,7 @@ export class CanvasRenderer {
 	 */
 	getBackend(): RendererBackend {
 		if (this.backend) return this.backend;
-		if (!isGpuBroken()) {
+		if (!isGpuBroken() && !gpuDisabledReason()) {
 			try {
 				wasmCompositor.ensureInitialized({
 					width: this.width,

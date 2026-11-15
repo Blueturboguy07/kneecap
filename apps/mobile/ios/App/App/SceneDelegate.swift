@@ -1,5 +1,6 @@
 import UIKit
 import SwiftUI
+import WebKit
 import Capacitor
 
 /// Capacitor does NOT auto-discover app-local plugin classes on iOS — a
@@ -21,6 +22,20 @@ class KneecapBridgeViewController: CAPBridgeViewController {
         webView?.isOpaque = false
         webView?.backgroundColor = .black
         webView?.scrollView.backgroundColor = .black
+        #if targetEnvironment(simulator)
+        // The simulator's WebGPU starts, but the first real frame fails with
+        // a wgpu "Out of Memory" panic that leaves the wasm compositor
+        // unusable (1.0.4 simulator test). The preview draws with Canvas 2D
+        // there from the start (editor-core compositor/gpu.ts reads this
+        // flag). Device builds never have this code.
+        webView?.configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: "window.__KNEECAP_NO_GPU__ = 'ios-simulator';",
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
+        #endif
         bridge?.registerPluginInstance(NativeBridgePlugin())
         #if DEBUG
         // The M1 spike's diagnostics plugin is a developer tool: Debug builds only.

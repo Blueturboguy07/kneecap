@@ -14,6 +14,19 @@ import { initializeGpu } from "opencut-wasm";
 export const GPU_START_TIMEOUT_MS = 5000;
 
 let startPromise: Promise<boolean> | null = null;
+
+/**
+ * The app shell can turn the GPU off before the page loads, with
+ * `window.__KNEECAP_NO_GPU__` (a reason string). The iOS shell does this in
+ * the simulator (SceneDelegate.swift): there WebGPU starts, but the first
+ * real frame fails with a wgpu "Out of Memory" panic, and the panic leaves
+ * the wasm instance unusable (1.0.4 simulator test). The renderer then draws
+ * with Canvas 2D from the first frame.
+ */
+export function gpuDisabledReason(): string | null {
+	const flag = (globalThis as { __KNEECAP_NO_GPU__?: unknown }).__KNEECAP_NO_GPU__;
+	return flag ? String(flag) : null;
+}
 let ready = false;
 let broken = false;
 
@@ -27,6 +40,10 @@ function errorMessage(error: unknown): string {
  * renderer then draws with Canvas 2D.
  */
 export function ensureGpu(): Promise<boolean> {
+	if (!startPromise && gpuDisabledReason()) {
+		console.info(`GPU renderer off (${gpuDisabledReason()}), drawing with Canvas 2D`);
+		startPromise = Promise.resolve(false);
+	}
 	if (!startPromise) {
 		const start = Promise.resolve()
 			.then(() => initializeGpu())
