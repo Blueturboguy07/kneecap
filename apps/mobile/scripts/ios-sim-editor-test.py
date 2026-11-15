@@ -336,6 +336,7 @@ class EditorTest:
                     line = ""
                 if line is None:
                     self.notes.append(f"launch {phase}: the app stopped before the test ended")
+                    self.collect_crash_reports(begin)
                     break
                 match = EVENT.search(line) if line else None
                 if match:
@@ -370,6 +371,45 @@ class EditorTest:
             if not ended:
                 return False
         return True
+
+    def collect_crash_reports(self, since):
+        """Copies the host crash reports of the app (simulator apps write them to
+        ~/Library/Logs/DiagnosticReports) into the artifact, and prints the
+        exception and the first frames of the crashed thread."""
+        time.sleep(5)  # the report is written a moment after the process ends
+        folder = Path.home() / "Library" / "Logs" / "DiagnosticReports"
+        found = []
+        for report in sorted(folder.glob("*.ips")) if folder.exists() else []:
+            try:
+                if report.stat().st_mtime < since - 5:
+                    continue
+                text = report.read_text(errors="replace")
+            except OSError:
+                continue
+            if "dev.kneecap.app" not in text and '"App"' not in text:
+                continue
+            target = self.out / f"crash-{report.name}"
+            target.write_text(text)
+            found.append(target)
+            try:
+                body = json.loads(text.split("\n", 1)[1])
+                exc = body.get("exception", {})
+                say(f"crash report {report.name}: {exc.get('type')} {exc.get('signal')} {body.get('termination', {}).get('indicator', '')}")
+                threads = body.get("threads", [])
+                images = body.get("usedImages", [])
+                for thread in threads:
+                    if not thread.get("triggered"):
+                        continue
+                    for frame in thread.get("frames", [])[:20]:
+                        image = images[frame.get("imageIndex", 0)].get("name", "?") if images else "?"
+                        say(f"  {image} {frame.get('symbol', '?')} +{frame.get('symbolLocation', 0)}")
+                reasons = body.get("asi") or body.get("lastExceptionBacktrace")
+                if reasons:
+                    say(f"  asi/last exception: {json.dumps(reasons)[:1500]}")
+            except Exception as error:  # a report in another format: the file is in the artifact
+                say(f"crash report {report.name}: saved ({error})")
+        if not found:
+            say("no crash report for the app in ~/Library/Logs/DiagnosticReports")
 
     def on_shot(self, text):
         match = SHOT.match(text)

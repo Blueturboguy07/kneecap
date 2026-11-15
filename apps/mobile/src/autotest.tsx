@@ -976,10 +976,19 @@ async function ciShot(ctx: CiContext, name: string): Promise<void> {
 	} catch {
 		degraded = "error";
 	}
+	// Every canvas in the preview mount, for the log only (a swap from the GPU
+	// canvas to the Canvas 2D canvas must leave exactly one).
+	const all = [...document.querySelectorAll<HTMLCanvasElement>(".cc-preview-stage__render canvas")].map((c) => {
+		try {
+			return `${c.width}x${c.height}:${sampleLitFraction(c).toFixed(3)}`;
+		} catch {
+			return `${c.width}x${c.height}:error`;
+		}
+	});
 	ciLog(
 		`SHOT name=${name} rect=${rect} viewport=${window.innerWidth}x${window.innerHeight} ` +
 			`dpr=${window.devicePixelRatio} canvas=${out ? `${out.width}x${out.height}` : "none"} canvasLit=${lit} ` +
-			`degraded=${String(degraded)}`,
+			`degraded=${String(degraded)} canvases=[${all.join(",")}]`,
 	);
 	const deadline = Date.now() + 60_000;
 	while (Date.now() < deadline) {
