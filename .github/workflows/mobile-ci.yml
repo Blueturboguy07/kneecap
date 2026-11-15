@@ -353,10 +353,12 @@ jobs:
         #    video track, a sound track that is not silent and the right length.
         #    1.0.8: with a clip selected, the timeline ends above the clip tools.
         # Run 43719800179 (1.0.7 checks) took 11 minutes; with the 1.0.8
-        # checks about 17 minutes (launch 2: about 11 of its 20). The script
-        # stops a launch after 7 (first), 20 (second) and 20 (third) minutes,
-        # so 55 lets it write its summary.
-        timeout-minutes: 55
+        # checks about 17 minutes (launch 2: about 11 of its 40). On a slow
+        # runner launch 2 needs more than 20 minutes (run 43751037832,
+        # attempt 1). The script stops a launch after 7 (first), 40 (second)
+        # and 20 (third) minutes, plus about 3 minutes of setup and checks,
+        # so 80 lets it write its summary.
+        timeout-minutes: 80
         run: |
           python3 scripts/ios-sim-editor-test.py \
             "$RUNNER_TEMP/editor-test-dd/Build/Products/Debug-iphonesimulator/App.app" \

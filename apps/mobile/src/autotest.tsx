@@ -2076,22 +2076,53 @@ async function ciSound(editor: EditorCore): Promise<number> {
 	return added ? 1 : 0;
 }
 
-/** Test D. The inserts are undone at the end, so test C exports photo + text only. */
+/** The clean-up after test D: at most this many undo steps, and at most this long. */
+const CI_CLEANUP_MAX_UNDOS = 12;
+const CI_CLEANUP_LIMIT_MS = 20_000;
+
+/**
+ * Test D. The inserts are undone at the end, so test C exports photo + text only.
+ *
+ * One insert can be more than one undo step: the sticker insert sets its size
+ * a moment later as a second command (ciStickers), so "one undo per insert"
+ * left the sticker on the timeline (runs 43751037832 attempts 1 and 2:
+ * CLEANUP FAIL undone=2 end={"sticker":1,…}). The clean-up now undoes one
+ * step at a time until the element counts are the start counts again. It
+ * stops early when no undo step is left, when a count goes below its start
+ * value (an undo went past test D), after CI_CLEANUP_MAX_UNDOS steps or after
+ * CI_CLEANUP_LIMIT_MS. Logs
+ *   CLEANUP PASS|FAIL inserted=… undone=… start={…} end={…}
+ */
 async function ciStickersAndSound(ctx: CiContext, editor: EditorCore): Promise<void> {
 	await ciSettle(editor, 300);
-	const start = JSON.stringify(ciCounts(editor));
+	const startCounts = ciCounts(editor);
+	const start = JSON.stringify(startCounts);
 	let inserted = 0;
 	try {
 		inserted += await ciStickers(ctx, editor);
 		inserted += await ciSound(editor);
 	} finally {
 		await ciCloseSheet();
-		for (let i = 0; i < inserted; i++) {
+		const atStart = () => JSON.stringify(ciCounts(editor)) === start;
+		const belowStart = () => {
+			const now = ciCounts(editor);
+			return Object.entries(startCounts).some(([type, count]) => (now[type] ?? 0) < count);
+		};
+		const begin = Date.now();
+		let undone = 0;
+		while (
+			!atStart() &&
+			!belowStart() &&
+			editor.command.canUndo() &&
+			undone < CI_CLEANUP_MAX_UNDOS &&
+			Date.now() - begin < CI_CLEANUP_LIMIT_MS
+		) {
 			editor.command.undo();
+			undone++;
 			await ciSleep(300);
 		}
 		const end = JSON.stringify(ciCounts(editor));
-		ciLog(`CLEANUP ${end === start ? "PASS" : "FAIL"} undone=${inserted} start=${start} end=${end}`);
+		ciLog(`CLEANUP ${end === start ? "PASS" : "FAIL"} inserted=${inserted} undone=${undone} start=${start} end=${end}`);
 		await ciSettle(editor, 500);
 	}
 }

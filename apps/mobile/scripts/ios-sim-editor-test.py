@@ -91,9 +91,14 @@ PHASES = (1, 2, 3)
 START_LIMIT_S = 240  # first launch: boot + gate + app start
 # Phase 2 has the stickers and five 5 s exports (software encode on a
 # simulator; run 43719800179: 173 s and 87 s for the two 1080p exports, launch
-# 2 took 314 s; with the three 1.0.8 exports about 650 s, at most about 900 s);
-# phase 3 has the video proxy, captions and the video export.
-PHASE_LIMIT_S = {1: 420, 2: 1200, 3: 1200}
+# 2 took 314 s; with the three 1.0.8 exports about 650 s). The runner speed
+# varies a lot: run 43751037832 took about 690 s for launch 2 on its second
+# attempt, but on its first attempt each 1080p export took about 330 s and
+# launch 2 needed more than 1200 s (the old limit stopped it during its last
+# export, so test C was "not measured"). 2400 s is about twice that slow run.
+# The limit only stops a launch that hangs; it checks nothing.
+# Phase 3 has the video proxy, captions and the video export.
+PHASE_LIMIT_S = {1: 420, 2: 2400, 3: 1200}
 EXPORT_LENGTH_TOLERANCE_S = 0.15
 # The file name of each export in the output folder, by its tag
 # (autotest.tsx CiExportOptions.tag). The runner copies a file as soon as
