@@ -13,7 +13,11 @@ import { buildParityChannels, parityChannelToScalarChannel, paritySampleTicks } 
 describe("keyframe evaluation parity fixture", () => {
 	test("checked-in fixture matches the engine's channels and sample grid", () => {
 		const channels = buildParityChannels();
-		expect(fixture.channels).toEqual(channels);
+		// The JSON import infers `componentKey: null` (the generator wrote no
+		// keyed channels), which is narrower than EdlAnimationChannel's
+		// `string | null`. Compare as `unknown` so the deep-equality check
+		// stays exactly the same at runtime.
+		expect<unknown>(fixture.channels).toEqual(channels);
 		const expectedSamples = channels.flatMap((channel, channelIndex) =>
 			paritySampleTicks({ channel }).map((timeTicks) => ({ channel: channelIndex, timeTicks })),
 		);
