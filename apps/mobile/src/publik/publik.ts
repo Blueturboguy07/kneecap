@@ -32,12 +32,12 @@
 // kneecap shows no purchase link: USES_AI is false, so the plan screen ("Get a plan") never shows, and
 // the sign-in button opens only publik's claim page (never the wallet page).
 // The in-app browser opens only publik's bare in-app pages (no site menu, footer, prices or plan links):
-// the claim page with in_app=1 added (inAppClaimUrl()), DELETE_ACCOUNT_URL and PRIVACY_URL.
+// the claim page with in_app=1 added (inAppClaimUrl()), DELETE_ACCOUNT_URL, PRIVACY_URL and SUPPORT_URL.
 import type { PublikFileName, PublikHost, PublikLaunch } from "@kneecap/native-bridge/publik-host";
 
 export const APP_SLUG = "kneecap";
 /** The version in a browser preview. On a phone the module uses the native app version (Info.plist / build.gradle), which is the same. */
-export const APP_VERSION = "1.0.3";
+export const APP_VERSION = "1.0.4";
 /** false: kneecap calls no model (captions and retouch run on the phone). It still signs in and counts users; it skips the plan screen. */
 export const USES_AI = false;
 /** true: a phone that signed in before opens the app when publik does not answer (kneecap is local-first). The first sign-in needs the network. */
@@ -48,6 +48,8 @@ export const DEFAULT_BASE_URL = `${ORIGIN}/api/v1`;
 export const DELETE_ACCOUNT_URL = `${ORIGIN}/in-app/delete-account`;
 /** Settings > Privacy policy opens this bare publik page in the in-app browser (App Store guideline 5.1.1(i)). */
 export const PRIVACY_URL = `${ORIGIN}/in-app/privacy`;
+/** Settings > Help and support opens this bare publik page in the in-app browser. */
+export const SUPPORT_URL = `${ORIGIN}/in-app/support`;
 
 /**
  * The sign-in page for the in-app browser: the server's claim_url with in_app=1 added. The other query items

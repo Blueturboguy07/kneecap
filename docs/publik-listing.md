@@ -59,7 +59,7 @@ to anyone's server.
 
 Everything runs on-device:
   • Multi-track timeline — video, overlays, text, stickers, audio
-  • Trim, split, speed ramp, reverse, freeze frame
+  • Trim, split, speed, keyframes, and one-tap removal of silent gaps
   • Transitions, filters, and an Adjust panel (brightness, contrast,
     saturation, temperature, and more)
   • Text and stickers with animation, from a bundled local library

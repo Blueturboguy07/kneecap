@@ -29,8 +29,8 @@ android {
         applicationId "dev.kneecap.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "1.0.3"
+        versionCode 6
+        versionName "1.0.4"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // On-device captions: libkneecap_whisper.so (whisper.cpp + the JNI
         // glue in src/main/cpp). arm64-v8a only — it is every current real

@@ -65,12 +65,9 @@ type ExportRunState = "idle" | "exporting" | "done" | "error";
  * since `ExportOptions` is passed at `editor.project.export()` call time,
  * not persisted project state.
  *
- * The "Preview EDL output" button is a REAL verification step, not
- * decoration: it calls the actual `buildEdl()` (same function the real
- * export below calls) with the CURRENT sheet selections and displays
- * `output.resolution`/`output.fps` back — proving the sheet's controls
- * really do reach the EDL bridge contract, not just the UI. No file is
- * produced by preview; it exists purely to inspect the EDL shape.
+ * The developer button "Preview EDL output" is gone (App Store rule 2.1,
+ * completeness): it only printed the EDL's resolution and fps. The EDL
+ * tests in packages/editor-core cover that check.
  *
  * Structural-gap fixer pass ("Export video"): the actual export handoff.
  * Builds the same real `Edl` via `buildEdl()`, then drives it through
@@ -92,7 +89,7 @@ type ExportRunState = "idle" | "exporting" | "done" | "error";
  * and shown as an honest in-sheet message, not a crash. That IS "the
  * web-fallback path still working in dev": the sheet stays usable, nothing
  * throws past this component, and every OTHER control (resolution/fps/
- * quality/EDL preview) keeps working exactly as before.
+ * quality) keeps working exactly as before.
  */
 export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 	const project = editor.project.getActive();
@@ -116,8 +113,6 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 	const [fpsId, setFpsId] = useState("30");
 	const [quality, setQuality] = useState<ExportQuality>("high");
 	const [format] = useState<ExportFormat>("mp4");
-	const [previewResult, setPreviewResult] = useState<{ fps: string; resolution: string } | null>(null);
-	const [previewError, setPreviewError] = useState<string | null>(null);
 
 	const [runState, setRunState] = useState<ExportRunState>("idle");
 	const [progress, setProgress] = useState<{ stage: ExportProgress["stage"]; fraction: number } | null>(null);
@@ -158,9 +153,7 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 		if (preset) setProjectFps({ editor, fps: preset.fps });
 	};
 
-	/** Shared by both "Preview EDL output" and "Export video" — the real
-	 *  export must build the EDL the exact same way the preview claims to,
-	 *  or the preview would be lying about what gets exported. */
+	/** The EDL for "Export video", from the current sheet selections. */
 	const buildCurrentEdl = (): Edl => {
 		const scene = editor.scenes.getActiveScene();
 		const fpsPreset = FPS_OPTIONS.find((f) => f.id === fpsId)?.fps;
@@ -186,19 +179,6 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 				fps: fpsPreset,
 			},
 		});
-	};
-
-	const previewEdl = () => {
-		setPreviewError(null);
-		try {
-			const edl = buildCurrentEdl();
-			setPreviewResult({
-				fps: `${edl.output.fps.numerator}/${edl.output.fps.denominator}`,
-				resolution: `${edl.output.resolution.width}x${edl.output.resolution.height}`,
-			});
-		} catch (error) {
-			setPreviewError(error instanceof Error ? error.message : String(error));
-		}
 	};
 
 	const startExport = async () => {
@@ -312,15 +292,6 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 						}}
 					/>
 				</div>
-				<button type="button" className="cc-export-sheet__action" onClick={previewEdl}>
-					Preview EDL output
-				</button>
-				{previewResult && (
-					<p className="cc-panel-note">
-						EDL output reflects the sheet: resolution {previewResult.resolution}, fps {previewResult.fps}.
-					</p>
-				)}
-				{previewError && <p className="cc-panel-note">EDL preview failed: {previewError}</p>}
 				<button
 					type="button"
 					className="cc-export-sheet__action cc-export-sheet__action--primary"

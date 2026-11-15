@@ -872,12 +872,14 @@ describe("founder checks, Nov 14 (1.0.3): the in-app browser opens only publik's
 		expect(seen.at(-1)).toMatchObject({ id: "unreachable", body: "publik sent no sign-in link. Try again." });
 	});
 
-	it("Delete account and Privacy policy open publik's bare in-app pages, and Settings opens no other publik page", () => {
+	it("Delete account, Help and support and Privacy policy open publik's bare in-app pages, and Settings opens no other publik page", () => {
 		expect(gate.DELETE_ACCOUNT_URL).toBe("https://publikhq.com/in-app/delete-account");
 		expect(gate.PRIVACY_URL).toBe("https://publikhq.com/in-app/privacy");
+		expect(gate.SUPPORT_URL).toBe("https://publikhq.com/in-app/support");
 		const settings = readFileSync(join(import.meta.dir, "../src/app/settings-screen.tsx"), "utf8");
-		expect([...settings.matchAll(/openUrl\(\{ url: ([A-Z_]+) \}\)/g)].map((m) => m[1]).sort()).toEqual(["DELETE_ACCOUNT_URL", "PRIVACY_URL"]);
-		expect(settings.match(/openUrl\(/g)?.length).toBe(2);
+		expect([...settings.matchAll(/openUrl\(\{ url: ([A-Z_]+) \}\)/g)].map((m) => m[1]).sort()).toEqual(["DELETE_ACCOUNT_URL", "PRIVACY_URL", "SUPPORT_URL"]);
+		expect(settings.match(/openUrl\(/g)?.length).toBe(3);
+		expect(settings).toContain("<span>Help and support</span>");
 		expect(settings).not.toContain("publikhq.com");
 	});
 });

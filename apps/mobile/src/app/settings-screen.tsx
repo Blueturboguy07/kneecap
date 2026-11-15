@@ -11,12 +11,14 @@
  *    publik's bare delete-account page in the in-app browser (App Store
  *    guideline 5.1.1(v)).
  *  - "Count app use": the usage-counting switch (consent.json).
+ *  - "Help and support": publik's bare support page in the in-app browser.
  *  - "Privacy policy": publik's bare privacy page in the in-app browser (App
  *    Store guideline 5.1.1(i)).
  *  - "Licenses": the third-party software and its licenses (licenses-screen.tsx).
  *
  * The publik pages that open here are publik's in-app pages: no site menu,
- * footer, prices or plan links (publik.ts, PRIVACY_URL and DELETE_ACCOUNT_URL).
+ * footer, prices or plan links (publik.ts: SUPPORT_URL, PRIVACY_URL and
+ * DELETE_ACCOUNT_URL).
  *
  * Sign out and Delete account act on this phone first (the key file goes,
  * usage counting stops); revoking the key at publik is best effort with a
@@ -36,6 +38,7 @@ import {
 	setUsageCounting,
 	signIn,
 	signOut,
+	SUPPORT_URL,
 	usageCounting,
 } from "../publik/publik";
 
@@ -231,6 +234,14 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 					<h2 id="kc-settings-about">About</h2>
 					<div className="kc-settings__group">
 						<p className="kc-settings__row kc-settings__row--text">publik kneecap {APP_VERSION}</p>
+						<button
+							type="button"
+							className="kc-settings__row"
+							onClick={() => void getPublikHost().openUrl({ url: SUPPORT_URL }).catch(() => {})}
+						>
+							<span>Help and support</span>
+							<span aria-hidden="true">›</span>
+						</button>
 						<button
 							type="button"
 							className="kc-settings__row"

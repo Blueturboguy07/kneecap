@@ -1,8 +1,6 @@
 import {
 	Captions,
 	Contrast,
-	FileText,
-	LayoutTemplate,
 	Layers,
 	Music,
 	PaintBucket,
@@ -20,12 +18,13 @@ import type { ToolbarItemDef } from "../toolbar-row";
  * (2026-08-18, not kept in the repo: two overlapping scroll positions of
  * the same bar). This closes the corpus 04 §3 [NEEDS-CAPTURE] on ordering:
  * Edit / Audio / Text / Effects / Overlay / Captions / Filters / Adjust /
- * Stickers / Transcript / Aspect ratio / Background / Template. Every
- * pre-capture "canonical superset" guess is superseded by this.
+ * Stickers / Aspect ratio / Background. Every pre-capture "canonical
+ * superset" guess is superseded by this.
  *
- * Transcript and Template open a "not in kneecap yet" sheet (deliberate,
- * visible response — v1 scope per docs/DECISIONS.md); Aspect ratio and
- * Background are real panels over the engine's project settings.
+ * Every item opens a real panel (App Store rule 2.1, completeness).
+ * Transcript and Template are gone: they only opened a "not in publik
+ * kneecap yet" sheet. Aspect ratio and Background are real panels over
+ * the engine's project settings.
  */
 export const PRIMARY_TOOLBAR_ITEMS: ToolbarItemDef[] = [
 	{ id: "edit", label: "Edit", icon: Scissors },
@@ -37,10 +36,8 @@ export const PRIMARY_TOOLBAR_ITEMS: ToolbarItemDef[] = [
 	{ id: "filters", label: "Filters", icon: Sliders },
 	{ id: "adjust", label: "Adjust", icon: Contrast },
 	{ id: "stickers", label: "Stickers", icon: Sticker },
-	{ id: "transcript", label: "Transcript", icon: FileText },
 	{ id: "ratio", label: "Aspect ratio", icon: Square },
 	{ id: "background", label: "Background", icon: PaintBucket },
-	{ id: "template", label: "Template", icon: LayoutTemplate },
 ];
 
 export type PrimaryToolId = (typeof PRIMARY_TOOLBAR_ITEMS)[number]["id"];

@@ -125,6 +125,8 @@ brings the app back in front (iOS: dismiss; Android: MainActivity with
     where the person confirms.
   - **Count app use**: the usage-counting switch (`consent.json`). It is
     off and locked when `DO_NOT_TRACK` or `PUBLIK_TELEMETRY=0` is set.
+  - **Help and support**: opens `https://publikhq.com/in-app/support` in
+    the in-app browser.
   - **Privacy policy**: opens `https://publikhq.com/in-app/privacy` in the
     in-app browser (App Store guideline 5.1.1(i)).
   - **Licenses** (`src/app/licenses-screen.tsx`): the third-party software

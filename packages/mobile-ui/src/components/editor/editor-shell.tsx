@@ -40,7 +40,6 @@ import {
 	duplicateSelected,
 	setRetime,
 	setElementParam,
-	toggleReversed,
 	selectElement,
 	insertTextElement,
 	importAndPlaceOverlay,
@@ -62,8 +61,7 @@ import {
 	setClipKeyframeEasing,
 	type DeadSpaceCutOutcome,
 } from "../../editor/actions";
-import { Scissors, ScissorsLineDashed, Trash2, CopyPlus, SlidersHorizontal, Spline, Type, VolumeX, WandSparkles, ImagePlus } from "lucide-react";
-import { CC_ICON_STROKE } from "../../tokens";
+import { Scissors, ScissorsLineDashed, Trash2, CopyPlus, SlidersHorizontal, Spline, Type } from "lucide-react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { ProgressOverlay } from "../progress-overlay";
@@ -351,7 +349,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	if (!ready) {
 		return (
 			<div className={cn("cc-editor-shell", className)} data-kneecap-theme="kneecap-mobile">
-				<p className="cc-panel-note">Loading demo project…</p>
+				<p className="cc-panel-note">Loading the project…</p>
 			</div>
 		);
 	}
@@ -427,6 +425,8 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 
 			{timelineProject && (
 				<div className="cc-editor-shell__timeline">
+					{/* No helper chips left of the main track (App Store rule 2.1, completeness): the
+					    "Mute clip audio", "AI clipper" and "Cover" chips did nothing, so they are gone. */}
 					<TimelineView
 						project={timelineProject}
 						onTimeChange={({ timeSec }) => seekToSeconds({ editor, seconds: timeSec })}
@@ -488,31 +488,6 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 						onAddAudio={() => setActiveSheet("audio")}
 						onQuickAddAudio={() => setActiveSheet("audio")}
 						onQuickAddText={() => setActiveSheet("text")}
-						leadingChips={
-							<>
-								{/* Main-track helper chips (capture 2026-08-18).
-								    Mute-clip-audio and AI-clipper/Cover need per-clip audio
-								    state and features outside v1 — parity chrome, tracked in
-								    docs/STATUS.md, inert rather than fake-wired. */}
-								<span className="cc-timeline__helper-chip" aria-hidden="true">
-									<VolumeX size={18} strokeWidth={CC_ICON_STROKE} />
-									<span>
-										Mute clip
-										<br />
-										audio
-									</span>
-								</span>
-								<span className="cc-timeline__helper-chip cc-timeline__helper-chip--card" aria-hidden="true">
-									<span className="cc-timeline__helper-badge">New</span>
-									<WandSparkles size={18} strokeWidth={CC_ICON_STROKE} />
-									<span>AI clipper</span>
-								</span>
-								<span className="cc-timeline__helper-chip cc-timeline__helper-chip--card" aria-hidden="true">
-									<ImagePlus size={18} strokeWidth={CC_ICON_STROKE} />
-									<span>Cover</span>
-								</span>
-							</>
-						}
 					/>
 				</div>
 			)}
@@ -602,7 +577,6 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 					}
 					onSetSpeed={({ rate, maintainPitch }) => setRetime({ editor, ref: selectedRef, rate, maintainPitch })}
 					onSetVolume={(db) => setElementParam({ editor, ref: selectedRef, key: "volume", value: db })}
-					onToggleReverse={() => toggleReversed({ editor, ref: selectedRef })}
 				/>
 			)}
 
@@ -732,17 +706,6 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 							/>
 						))}
 					</div>
-				</PanelSheet>
-			)}
-
-			{(activeSheet === "transcript" || activeSheet === "template") && (
-				<PanelSheet onScrimClick={closeSheet} header={<SheetHeader onClose={closeSheet} />}>
-					<p className="cc-sheet-title">{activeSheet === "transcript" ? "Transcript" : "Template"}</p>
-					<p className="cc-panel-note">
-						{activeSheet === "transcript"
-							? "Transcript editing isn't in publik kneecap yet — use Captions for on-device auto-captions."
-							: "Templates aren't in publik kneecap yet."}
-					</p>
 				</PanelSheet>
 			)}
 

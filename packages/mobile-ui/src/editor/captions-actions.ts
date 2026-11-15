@@ -273,7 +273,7 @@ export async function generateCaptionsForClip({
 		// single empty token and the panel silently reported "done" with
 		// nothing inserted.
 		throw new Error(
-			"No speech was detected anywhere on the timeline. If your clips definitely have speech, check the language setting.",
+			"No speech was detected anywhere on the timeline.",
 		);
 	}
 	return inserted;

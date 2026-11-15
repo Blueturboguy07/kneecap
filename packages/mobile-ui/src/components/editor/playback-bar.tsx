@@ -1,4 +1,4 @@
-import { Copy, Maximize2, Minimize2, Pause, Play, Redo2, Undo2 } from "lucide-react";
+import { Maximize2, Minimize2, Pause, Play, Redo2, Undo2 } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 import { cn } from "../../lib/cn";
 
@@ -19,7 +19,7 @@ interface PlaybackBarProps {
  * Playback row, measured from a reference capture (not kept in the
  * repo): fullscreen
  * expand on the left, the play/pause triangle centered, and on the right
- * the compare-with-original toggle (icon + tiny "OFF" tag) then undo/redo.
+ * undo/redo.
  * The timecode readout ("00:00 / 00:34") is NOT here — the reference editor renders it
  * pinned top-left of the timeline area (see TimelineView's timecode
  * overlay), which is where this kit moved it in the same pass.
@@ -30,8 +30,8 @@ interface PlaybackBarProps {
  * call for an unimplemented control but reads as a broken button once
  * someone taps it.
  *
- * Compare/view-original is still inert chrome, and still a span rather than
- * a dead button for that reason.
+ * The compare-with-original icon is gone (App Store rule 2.1, completeness):
+ * it did nothing.
  */
 export function PlaybackBar({
 	isPlaying,
@@ -72,10 +72,6 @@ export function PlaybackBar({
 				)}
 			</button>
 			<div className="cc-playbackbar__right">
-				<span className="cc-topbar__icon-btn cc-topbar__icon-btn--chrome cc-playbackbar__compare" aria-hidden="true">
-					<Copy size={18} strokeWidth={CC_ICON_STROKE} />
-					<span className="cc-playbackbar__compare-tag">OFF</span>
-				</span>
 				<button
 					type="button"
 					className="cc-topbar__icon-btn"

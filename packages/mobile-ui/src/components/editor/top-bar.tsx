@@ -1,4 +1,4 @@
-import { ChevronDown, Search, X } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 import { ExportButton } from "../export-button";
 import { cn } from "../../lib/cn";
@@ -16,15 +16,13 @@ interface TopBarProps {
 
 /**
  * Top bar, measured from a reference capture (not kept in the repo):
- * ✕ close +
- * search on the left, then a spacer, then the dark "AI UHD ▾" resolution
+ * ✕ close on the left, then a spacer, then the dark "AI UHD ▾" resolution
  * pill and the cyan Export pill. No project title, no undo/redo up here —
  * the reference editor puts undo/redo on the playback row (see playback-bar.tsx), which
  * is where this kit moved them in the same capture-driven pass.
  *
- * Search is parity chrome: rendered because the real bar has it, but
- * project search is not a v1 feature — tracked in docs/STATUS.md residual
- * debt, deliberately non-interactive rather than opening a fake surface.
+ * No search icon (App Store rule 2.1, completeness): project search is not
+ * a feature, and the icon did nothing.
  */
 export function TopBar({ onClose, resolutionLabel, onOpenExportSettings, onExport, className }: TopBarProps) {
 	return (
@@ -32,9 +30,6 @@ export function TopBar({ onClose, resolutionLabel, onOpenExportSettings, onExpor
 			<button type="button" className="cc-topbar__icon-btn" onClick={onClose} aria-label="Close project">
 				<X size={24} strokeWidth={CC_ICON_STROKE} />
 			</button>
-			<span className="cc-topbar__icon-btn cc-topbar__icon-btn--chrome" aria-hidden="true">
-				<Search size={22} strokeWidth={CC_ICON_STROKE} />
-			</span>
 			<span className="cc-topbar__spacer" />
 			<button
 				type="button"
