@@ -19,6 +19,7 @@ import { usePinchZoom } from "../../timeline/use-pinch-zoom";
 import { useElementSize } from "../../timeline/use-element-size";
 import { buildSnapTargets, resolveSnap } from "../../timeline/snapping";
 import { hapticTick } from "../../timeline/haptics";
+import { scrollTopToShowRow } from "../../timeline/row-scroll";
 import { TimelineRuler } from "./timeline-ruler";
 import { TimelinePlayhead } from "./timeline-playhead";
 import {
@@ -275,6 +276,31 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 		setCurrentTimeSec(playbackTimeSec);
 		syncScrollToTime(playbackTimeSec);
 	}, [isPlaying, playbackTimeSec, syncScrollToTime]);
+
+	// Blind test round 3, item 8: a selected clip's whole track row comes into view. The
+	// audio track at the bottom was cut by the bottom edge of the timeline, just above the
+	// clip-tools bar. Only scrollTop moves (scrollLeft is the playhead time), and the
+	// programmatic flag keeps this scroll from becoming a seek in handleScroll. A no-op
+	// returns null first, so the flag is never left armed.
+	useEffect(() => {
+		const node = scrollRef.current;
+		if (!node || !selectedClipId) return;
+		const row = node
+			.querySelector<HTMLElement>(".cc-timeline__clip--selected")
+			?.closest<HTMLElement>(".cc-timeline__track-row");
+		if (!row) return;
+		const target = scrollTopToShowRow({
+			scrollTop: node.scrollTop,
+			viewHeight: node.clientHeight,
+			contentHeight: node.scrollHeight,
+			rowTop: row.offsetTop,
+			rowBottom: row.offsetTop + row.offsetHeight,
+			topInset: node.querySelector<HTMLElement>(".cc-timeline__ruler")?.offsetHeight ?? 0,
+		});
+		if (target === null) return;
+		isProgrammaticScrollRef.current = true;
+		node.scrollTop = target;
+	}, [selectedClipId, scrollRef]);
 
 	useImperativeHandle(
 		ref,

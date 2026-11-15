@@ -218,6 +218,9 @@ object EdlToComposition {
         }
         for (track in overlayVisualTracks) {
             for (clip in track.clips.sortedBy { it.startTicks }) {
+                // Stickers and graphics have no media asset: the preview-drawn
+                // overlay frames carry them (1.0.7, see OverlayClips).
+                if (!OverlayClips.isPipMediaClip(clip)) continue
                 val asset = requireAsset(edl, clip)
                 val animated = KeyframeEvaluator.hasVisualAnimations(clip)
                 val item = buildEditedMediaItem(

@@ -695,6 +695,9 @@ describe("createCapacitorBridge: the export result block (1.0.5 — saveToPhotos
 		const bridge = createCapacitorBridge({ plugin: fakePlugin({ shareFile }) as never });
 		await bridge.shareFile({ uri: PLAYBACK_URL });
 		expect(shareFile).toHaveBeenCalledWith({ uri: RAW_PATH });
+		// 1.0.7: the name the share sheet shows goes to native unchanged.
+		await bridge.shareFile({ uri: PLAYBACK_URL, fileName: "publik kneecap My trip.mp4" });
+		expect(shareFile).toHaveBeenLastCalledWith({ uri: RAW_PATH, fileName: "publik kneecap My trip.mp4" });
 		// 1.0.6: no bridge opens the Photos app (App Store guideline 2.5.1).
 		expect("openPhotos" in bridge).toBe(false);
 

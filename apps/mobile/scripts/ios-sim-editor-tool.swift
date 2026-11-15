@@ -10,6 +10,14 @@
 //   editor-ci-tool make-video <out.mp4> <tone.wav> <seconds>
 //       the test video: H.264 1280x720 at 30 fps (red, green, blue and
 //       yellow quarters with a moving white bar) plus the WAV as AAC.
+//   editor-ci-tool frame-regions <baseline.mp4> <main.mp4> <spec.json> [<frames folder>]
+//       spec: {"times": [s, ...], "regions": [{"name": "...", "box": [x, y, w, h]}, ...]}
+//       with boxes in output pixels. For each time it reads the exact frame
+//       of both files and, per region, gives the part of the pixels whose
+//       largest channel difference is more than 48 levels ("changed"), the
+//       mean of that difference, and the mean colour in each file. With a
+//       folder it also writes each frame as PNG, the main frames with the
+//       region outlines.
 //
 // It prints one JSON object. Exit 0: measured. Exit 1: could not measure.
 import AVFoundation
@@ -490,6 +498,196 @@ func makeVideo(_ args: [String]) async -> Int32 {
     return 0
 }
 
+// ---------------------------------------------------------------- frame-regions
+
+/// A pixel difference above this (largest of R, G, B, 0-255) counts as changed.
+let changedLevel = 48
+
+struct RegionBox {
+    let name: String
+    let x: Double
+    let y: Double
+    let w: Double
+    let h: Double
+}
+
+/// The facts of one movie file for frame-regions: size, length and a frame reader.
+struct MovieFrames {
+    let size: [Int]
+    let seconds: Double
+    let generator: AVAssetImageGenerator
+}
+
+func openMovie(_ path: String) async throws -> MovieFrames {
+    let asset = AVURLAsset(url: URL(fileURLWithPath: path))
+    let duration = try await asset.load(.duration)
+    guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+        throw NSError(domain: "editor-ci-tool", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(path) has no video track"])
+    }
+    let natural = try await track.load(.naturalSize)
+    let generator = AVAssetImageGenerator(asset: asset)
+    generator.appliesPreferredTrackTransform = true
+    // The exact frame at each time: the default tolerance may return a key
+    // frame up to a second away.
+    generator.requestedTimeToleranceBefore = .zero
+    generator.requestedTimeToleranceAfter = .zero
+    let seconds = CMTimeGetSeconds(duration)
+    return MovieFrames(
+        size: [Int(natural.width.rounded()), Int(natural.height.rounded())],
+        seconds: seconds.isFinite ? seconds : -1,
+        generator: generator
+    )
+}
+
+/// The box clipped to the image, in whole pixels (x0, y0, x1, y1), or nil when empty.
+func clip(_ box: RegionBox, width: Int, height: Int) -> (Int, Int, Int, Int)? {
+    let x0 = max(0, min(width, Int(box.x.rounded())))
+    let y0 = max(0, min(height, Int(box.y.rounded())))
+    let x1 = max(0, min(width, Int((box.x + box.w).rounded())))
+    let y1 = max(0, min(height, Int((box.y + box.h).rounded())))
+    return x1 > x0 && y1 > y0 ? (x0, y0, x1, y1) : nil
+}
+
+/// main vs baseline inside one box: changed part, mean difference, mean colours.
+func compareRegion(main: RGBA, base: RGBA, box: (Int, Int, Int, Int)) -> [String: Any] {
+    let (x0, y0, x1, y1) = box
+    var changed = 0
+    var count = 0
+    var diffSum = 0.0
+    var mainSum = [0.0, 0.0, 0.0]
+    var baseSum = [0.0, 0.0, 0.0]
+    for y in y0..<y1 {
+        var i = (y * main.width + x0) * 4
+        for _ in x0..<x1 {
+            var d = 0
+            for c in 0..<3 {
+                let m = Int(main.bytes[i + c])
+                let b = Int(base.bytes[i + c])
+                d = max(d, abs(m - b))
+                mainSum[c] += Double(m)
+                baseSum[c] += Double(b)
+            }
+            if d > changedLevel { changed += 1 }
+            diffSum += Double(d)
+            count += 1
+            i += 4
+        }
+    }
+    let total = Double(max(count, 1))
+    return [
+        "pixels": count,
+        "box": [x0, y0, x1 - x0, y1 - y0],
+        "changed": Double(changed) / total,
+        "meanDiff": diffSum / total,
+        "main": mainSum.map { $0 / total },
+        "base": baseSum.map { $0 / total },
+    ]
+}
+
+func writePNG(_ image: CGImage, to path: String) {
+    guard let destination = CGImageDestinationCreateWithURL(
+        URL(fileURLWithPath: path) as CFURL, "public.png" as CFString, 1, nil
+    ) else { return }
+    CGImageDestinationAddImage(destination, image, nil)
+    CGImageDestinationFinalize(destination)
+}
+
+/// The frame with each region's outline (controls green, the rest magenta).
+func outlined(_ image: CGImage, regions: [RegionBox]) -> CGImage? {
+    let width = image.width
+    let height = image.height
+    guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+          let context = CGContext(
+              data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+              space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+          ) else { return nil }
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    context.setLineWidth(3)
+    for region in regions {
+        let control = region.name.hasPrefix("control")
+        context.setStrokeColor(red: control ? 0 : 1, green: control ? 1 : 0, blue: control ? 0 : 1, alpha: 1)
+        // CGContext has its origin at the bottom left; the boxes at the top left.
+        context.stroke(CGRect(x: region.x, y: Double(height) - region.y - region.h, width: region.w, height: region.h))
+    }
+    return context.makeImage()
+}
+
+func frameRegions(_ args: [String]) async -> Int32 {
+    guard args.count == 3 || args.count == 4 else {
+        printJSON(["error": "frame-regions needs <baseline.mp4> <main.mp4> <spec.json> [<frames folder>]"])
+        return 1
+    }
+    guard let data = FileManager.default.contents(atPath: args[2]),
+          let spec = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          let times = spec["times"] as? [Double],
+          let rawRegions = spec["regions"] as? [[String: Any]] else {
+        printJSON(["error": "cannot read the spec \(args[2])"])
+        return 1
+    }
+    var regions: [RegionBox] = []
+    for raw in rawRegions {
+        guard let name = raw["name"] as? String, let box = raw["box"] as? [Double], box.count == 4 else { continue }
+        regions.append(RegionBox(name: name, x: box[0], y: box[1], w: box[2], h: box[3]))
+    }
+    let folder = args.count == 4 ? args[3] : nil
+    if let folder {
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+    }
+    var result: [String: Any] = ["changedLevel": changedLevel]
+    do {
+        let base = try await openMovie(args[0])
+        let main = try await openMovie(args[1])
+        result["baseline"] = ["file": args[0], "size": base.size, "durationSeconds": base.seconds]
+        result["main"] = ["file": args[1], "size": main.size, "durationSeconds": main.seconds]
+        var frames: [[String: Any]] = []
+        for time in times {
+            var entry: [String: Any] = ["time": time]
+            let at = CMTime(seconds: time, preferredTimescale: 600)
+            do {
+                let mainFrame = try await main.generator.image(at: at)
+                let baseFrame = try await base.generator.image(at: at)
+                entry["mainTime"] = CMTimeGetSeconds(mainFrame.actualTime)
+                entry["baseTime"] = CMTimeGetSeconds(baseFrame.actualTime)
+                if let folder {
+                    let stamp = String(format: "%.2f", time)
+                    writePNG(baseFrame.image, to: "\(folder)/baseline-\(stamp)s.png")
+                    writePNG(outlined(mainFrame.image, regions: regions) ?? mainFrame.image, to: "\(folder)/main-\(stamp)s.png")
+                }
+                guard let m = rgba(mainFrame.image), let b = rgba(baseFrame.image) else {
+                    entry["error"] = "could not read the frames as RGBA"
+                    frames.append(entry)
+                    continue
+                }
+                entry["size"] = [m.width, m.height]
+                guard m.width == b.width && m.height == b.height else {
+                    entry["error"] = "the frames have different sizes: main \(m.width)x\(m.height), baseline \(b.width)x\(b.height)"
+                    frames.append(entry)
+                    continue
+                }
+                var measured: [String: Any] = [:]
+                for region in regions {
+                    if let box = clip(region, width: m.width, height: m.height) {
+                        measured[region.name] = compareRegion(main: m, base: b, box: box)
+                    } else {
+                        measured[region.name] = ["pixels": 0, "error": "the box is outside the frame"]
+                    }
+                }
+                entry["regions"] = measured
+            } catch {
+                entry["error"] = error.localizedDescription
+            }
+            frames.append(entry)
+        }
+        result["frames"] = frames
+    } catch {
+        result["error"] = error.localizedDescription
+        printJSON(result)
+        return 1
+    }
+    printJSON(result)
+    return 0
+}
+
 let arguments = Array(CommandLine.arguments.dropFirst())
 switch arguments.first {
 case "image-stats":
@@ -498,8 +696,11 @@ case "video-check" where arguments.count == 2:
     exit(await videoCheck(arguments[1]))
 case "make-video":
     exit(await makeVideo(Array(arguments.dropFirst())))
+case "frame-regions":
+    exit(await frameRegions(Array(arguments.dropFirst())))
 default:
     FileHandle.standardError.write(Data(("usage: editor-ci-tool image-stats <png> <x> <y> <w> <h> <viewportW> <viewportH>"
-        + " | video-check <movie> | make-video <out.mp4> <tone.wav> <seconds>\n").utf8))
+        + " | video-check <movie> | make-video <out.mp4> <tone.wav> <seconds>"
+        + " | frame-regions <baseline.mp4> <main.mp4> <spec.json> [<frames folder>]\n").utf8))
     exit(2)
 }

@@ -365,7 +365,13 @@ export interface NativeBridge {
 	saveToPhotos(params: { uri: string }): Promise<SaveToPhotosResult>;
 	/** Opens the system share sheet for that video. Rejects with a
 	 *  `NativeBridgeError` when it cannot. */
-	shareFile(params: { uri: string }): Promise<void>;
+	shareFile(params: {
+		uri: string;
+		/** The name the share sheet shows (1.0.7), e.g. "publik kneecap
+		 *  My trip.mp4". Native cleans it again and keeps the export's
+		 *  extension. Omitted: the export's own file name. */
+		fileName?: string;
+	}): Promise<void>;
 	// 1.0.6: no "open the Photos app" method. iOS has no public API for it,
 	// and the private Photos URL scheme breaks App Store guideline 2.5.1.
 	transcribe(params: {

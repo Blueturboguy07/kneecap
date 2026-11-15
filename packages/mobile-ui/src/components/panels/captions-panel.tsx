@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { WandSparkles } from "lucide-react";
+import { Captions } from "lucide-react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { ChipRow } from "../chip-row";
@@ -85,9 +85,10 @@ export function CaptionsPanel({ editor, onClose, onInserted, selectedCaption }: 
 
 	return (
 		<PanelSheet onScrimClick={onClose} header={<SheetHeader onClose={onClose} />}>
+			{/* Blind test round 3, item 7: plain words (no "zero network, zero cloud" or
+			    "trims respected"). The app has no AI feature, so no wand or sparkle icon. */}
 			<p className="cc-panel-note">
-				Generate transcribes audio from your whole timeline on this device (zero
-				network, zero cloud) — every clip and voiceover, with trims respected.
+				Captions come from the speech in your clips. Speech recognition runs on this phone.
 			</p>
 			{selectedCaption && (
 				<div className="cc-param-row">
@@ -125,7 +126,7 @@ export function CaptionsPanel({ editor, onClose, onInserted, selectedCaption }: 
 				disabled={state === "generating"}
 				onClick={handleGenerate}
 			>
-				<WandSparkles className="cc-panel-cta__icon" size={18} aria-hidden="true" />
+				<Captions className="cc-panel-cta__icon" size={18} aria-hidden="true" />
 				<span>
 					{state === "generating"
 						? "Generating…"

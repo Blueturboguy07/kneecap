@@ -115,7 +115,8 @@ describe("item 2: the bridge", () => {
 		expect(types).toContain('export type SaveToPhotosFailure = "denied" | "failed";');
 		expect(types).toMatch(/export interface SaveToPhotosResult \{\s*saved: boolean;\s*reason\?: SaveToPhotosFailure;\s*\}/);
 		expect(types).toContain("saveToPhotos(params: { uri: string }): Promise<SaveToPhotosResult>;");
-		expect(types).toContain("shareFile(params: { uri: string }): Promise<void>;");
+		// 1.0.7: shareFile also takes the name the share sheet shows.
+		expect(types).toMatch(/shareFile\(params: \{\s*uri: string;[\s\S]*?fileName\?: string;\s*\}\): Promise<void>;/);
 		expect(types).not.toContain("openPhotos");
 	});
 
@@ -140,7 +141,8 @@ describe("item 2: the export sheet", () => {
 		const done = between(sheet, 'if (event.stage === "done") {', "break;");
 		expect(done).toContain("saveExportToPhotos({ bridge, uri: event.outputUri, run })");
 		expect(sheet).toContain("const result = await bridge.saveToPhotos({ uri });");
-		expect(sheet).toContain("await bridge.shareFile({ uri });");
+		// 1.0.7: with the readable file name (round-3-export.test.ts).
+		expect(sheet).toContain("await bridge.shareFile({ uri, fileName });");
 		expect(sheet).not.toContain("openPhotos");
 	});
 

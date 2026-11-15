@@ -14,17 +14,27 @@ mode in src/autotest.tsx. This script:
   - judges five tests and exits 1 when one fails:
       A. the editor opens 5 times (new, reopen, reopen, relaunch, reopen,
          reopen) with no crash screen, no uncaught error, no
-         "GPU context not initialized", and exactly 1 project;
+         "GPU context not initialized", and exactly 1 project; the new
+         project gets a text before it closes (1.0.7: the app deletes a
+         project with no elements when the editor closes);
       B. the preview is one colour when empty, then shows a text element,
          then the photo, and the photo clip on the timeline shows the photo
          (pixel checks on the screenshots);
       D. every Stickers tab shows its images (no broken image), a sticker
          tile adds a sticker, a bundled sound adds an audio clip whose file
          loads (the app undoes both before C);
-      C. the export (1 photo 0-3 s + 1 text 0-5 s, 1080p, 30 fps, High)
-         makes a file with a video track that lasts as long as the timeline
-         (the latest end over all tracks, +-0.15 s), and the export sheet
-         ends with "Saved to Photos" and "Share" (1.0.6: no "Open Photos");
+      C. the main export (1 photo 0-3 s + 1 text 0-5 s + a flag sticker
+         0-5 s + a shape sticker 1-4 s, rotated 30 degrees, opacity 0.6;
+         1080p, 30 fps, High) makes a file with a video track that lasts as
+         long as the timeline (the latest end over all tracks, +-0.15 s),
+         and the export sheet ends with "Saved to Photos" and "Share"
+         (1.0.6: no "Open Photos"). 1.0.7 (blind test round 3: stickers
+         were in the preview but in no frame of the video): a baseline
+         export with the same settings (text at opacity 0, no stickers) is
+         compared with the main export at 0.5, 2 and 4.5 s, in the regions
+         the app logs in output pixels: the flag, its colours, the shape in
+         and out of its window, its opacity and rotation, the text, and
+         control regions where nothing is drawn (they must match);
       E. launch 3, a new project: the video imports through the native
          proxy and shows in the preview; Captions "Generate" gives captions
          or a plain message; Split, Duplicate, Delete and Mute work; Import
@@ -72,6 +82,29 @@ START_LIMIT_S = 240  # first launch: boot + gate + app start
 # phase 3 has the video proxy, captions and the video export.
 PHASE_LIMIT_S = {1: 420, 2: 1200, 3: 1200}
 EXPORT_LENGTH_TOLERANCE_S = 0.15
+# The file name of each export in the output folder, by its tag
+# (autotest.tsx CiExportOptions.tag). The runner copies a file as soon as
+# the app reports it: the app prunes old exports before each new one.
+EXPORT_COPY_NAMES = {"baseline": "export-baseline.mp4", "main": "export.mp4", "sweep": "export-sweep.mp4"}
+# Test C, stickers in the export (1.0.7). The tool compares the main export
+# with the baseline export in each region the app logs (C REGION lines);
+# "changed" is the part of the region's pixels whose largest channel
+# difference is more than 48 of 255 levels.
+STICKER_SAMPLE_TIMES = (0.5, 2.0, 4.5)  # used when the C LAYOUT line has no samples=
+STICKER_PRESENT_MIN = {"background": 0.30, "photo": 0.15}  # a sticker on screen: its inner box changes this much
+STICKER_ABSENT_MAX = 0.05  # a sticker off screen: its box changes at most this much
+TEXT_PRESENT_MIN = 0.03  # the glyphs cover only a part of the text box
+CONTROL_CHANGED_MAX = 0.02  # a control region (nothing drawn) changes at most this much...
+CONTROL_MEAN_DIFF_MAX = 6.0  # ...and its mean difference (0-255) is at most this (encoder noise only)
+ROTATION_CORNER_MAX = 0.20  # the corners of the unrotated square stay background when the rotation is drawn
+# The white shape at opacity 0.6 moves the pixels under it this part of the
+# way to white: (main luma - baseline luma) / (1 - baseline luma). It is 0.60
+# with an sRGB blend, about 0.80 with a linear blend over black. Opaque
+# (opacity lost) is about 1.0; no shape is about 0.
+OPACITY_LUMA_BAND = (0.40, 0.88)
+OPACITY_UNDER_MAX = 0.10  # over the background: the baseline under the shape must be black (luma / 255)
+OPACITY_PHOTO_UNDER_MAX = 0.80  # over the photo: the baseline must leave room to move toward white
+FLAG_ID = "flags:UA"  # autotest.tsx CI_FLAG: blue top half, yellow bottom half
 # The plain words the Captions sheet may show (CAPTION_MESSAGES in
 # packages/mobile-ui/src/editor/captions-actions.ts).
 CAPTION_MESSAGES = (
@@ -95,6 +128,11 @@ GPU_TEXT = re.compile(r"GPU context not initialized", re.I)
 CRASH_TEXT = re.compile(r"kneecap crashed|publik kneecap stopped|kneecap editor failed", re.I)
 # App log lines worth showing in the CI log (the export's tracks, the preview backend).
 NATIVE_INFO = re.compile(r"\[kneecap-export\]|preview renderer:")
+# Test C: one region the app logs, in output pixels (autotest.tsx ciStickerExport).
+REGION = re.compile(
+    r"^C REGION name=(\S+) box=([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+) on=(never|[\d.]+-[\d.]+)(.*)$"
+)
+STICKER_LINE = re.compile(r"^C STICKER name=(\w+) id=(\S+) via=(\S+) start=([\d.]+) end=([\d.]+)(.*)$")
 
 
 def say(message):
@@ -341,6 +379,8 @@ class EditorTest:
         self.notes = []  # why the run stopped early
         self.results = []  # (test, name, passed, detail)
         self.fixture_problems = []  # the test video or audio could not be made
+        self.export_tag = {}  # phase -> the tag of the export that runs now (EXPORT BEGIN)
+        self.kept_exports = {}  # (phase, tag) -> the copy made when the app reported the file
         self.udid = None
         self.root = None
 
@@ -517,6 +557,11 @@ class EditorTest:
                         started = True
                     elif text.startswith("SHOT "):
                         self.on_shot(text)
+                    elif text.startswith("EXPORT BEGIN "):
+                        tag = re.search(r"\btag=(\S+)", text)
+                        self.export_tag[phase] = tag.group(1) if tag else None
+                    elif text.startswith("EXPORT DONE"):
+                        self.keep_export(phase, self.export_tag.get(phase), text)
                     elif text.startswith("END"):
                         ended = True
                 elif line:
@@ -583,6 +628,20 @@ class EditorTest:
         if not found:
             say("no crash report for the app in ~/Library/Logs/DiagnosticReports")
 
+    def keep_export(self, phase, tag, text):
+        """Copies an exported file as soon as the app reports it. Launch 2 has
+        two exports, and the app prunes old exports before each new one."""
+        if " path=" not in text:
+            return
+        source = Path(urllib.parse.unquote(text.split(" path=", 1)[1].strip()))
+        target = self.out / EXPORT_COPY_NAMES.get(tag or "", f"export-launch{phase}-{tag or 'untagged'}.mp4")
+        try:
+            if source.exists():
+                shutil.copyfile(source, target)
+                self.kept_exports[(phase, tag)] = target
+        except OSError as error:
+            say(f"could not copy the export {source}: {error}")
+
     def on_shot(self, text):
         match = SHOT.match(text)
         if not match:
@@ -604,14 +663,34 @@ class EditorTest:
     def texts(self, prefix, phase=None):
         return [(p, text) for p, text in self.events if text.startswith(prefix) and phase in (None, p)]
 
-    def last(self, prefix, phase=None):
-        """The text of the last line with this prefix, or None."""
+    def tagged(self, phase, tag=None):
+        """The lines of one export: from its "EXPORT BEGIN tag=<tag>" line to
+        the next EXPORT BEGIN line of the launch. All lines of the launch when
+        tag is None."""
+        if tag is None:
+            return [text for p, text in self.events if p == phase]
+        found, inside = [], False
+        for p, text in self.events:
+            if p != phase:
+                continue
+            if text.startswith("EXPORT BEGIN "):
+                m = re.search(r"\btag=(\S+)", text)
+                inside = bool(m) and m.group(1) == tag
+            if inside:
+                found.append(text)
+        return found
+
+    def last(self, prefix, phase=None, tag=None):
+        """The text of the last line with this prefix (in the export with this tag), or None."""
+        if tag is not None:
+            found = [text for text in self.tagged(phase, tag) if text.startswith(prefix)]
+            return found[-1] if found else None
         found = self.texts(prefix, phase)
         return found[-1][1] if found else None
 
-    def json_line(self, prefix, phase=None):
+    def json_line(self, prefix, phase=None, tag=None):
         """The JSON object after the prefix of the last such line, or None."""
-        text = self.last(prefix, phase)
+        text = self.last(prefix, phase, tag)
         if text is None:
             return None
         try:
@@ -620,17 +699,17 @@ class EditorTest:
             return {"_unreadable": text[:200]}
         return value if isinstance(value, dict) else {"_unreadable": text[:200]}
 
-    def timeline_end(self, phase):
+    def timeline_end(self, phase, tag=None):
         """The latest end over all tracks that the app logged before its export."""
-        text = self.last("TIMELINE ", phase)
+        text = self.last("TIMELINE ", phase, tag)
         m = re.match(r"TIMELINE end=([\d.]+)", text or "")
         return (float(m.group(1)), text) if m else (None, text)
 
-    def export_movie(self, phase, copy_name):
-        """The exported file of a launch, checked by the measuring tool.
-        Returns (facts or None, problem text or None)."""
-        text = self.last("EXPORT DONE", phase)
-        failed = self.last("EXPORT FAIL", phase)
+    def export_movie(self, phase, copy_name, tag=None):
+        """The exported file of a launch (the export with this tag), checked
+        by the measuring tool. Returns (facts or None, problem text or None)."""
+        text = self.last("EXPORT DONE", phase, tag)
+        failed = self.last("EXPORT FAIL", phase, tag)
         if failed and not text:
             return None, failed[:300]
         if not text:
@@ -638,15 +717,21 @@ class EditorTest:
         if "via=direct" in text:
             print(f"::warning title=editor test::launch {phase}: the export sheet was not found, "
                   "the test used the direct export call", flush=True)
-        logged = urllib.parse.unquote(text.split(" path=", 1)[1].strip()) if " path=" in text else ""
-        movie = Path(logged) if logged else None
-        if not movie or not movie.exists():
-            found = sorted((self.root / "Exports").glob("*.mp4"), key=lambda p: p.stat().st_mtime)
-            movie = found[-1] if found else None
-        if not movie:
-            return None, f"no file at {logged or '(no path)'} and none in Exports/"
         copy = self.out / copy_name
-        shutil.copyfile(movie, copy)
+        kept = self.kept_exports.get((phase, tag))
+        if kept and kept.exists():
+            if kept != copy:
+                shutil.copyfile(kept, copy)
+        else:
+            logged = urllib.parse.unquote(text.split(" path=", 1)[1].strip()) if " path=" in text else ""
+            movie = Path(logged) if logged else None
+            # The newest file in Exports/ is only right for the last export of a launch.
+            if (not movie or not movie.exists()) and tag != "baseline":
+                found = sorted((self.root / "Exports").glob("*.mp4"), key=lambda p: p.stat().st_mtime)
+                movie = found[-1] if found else None
+            if not movie or not movie.exists():
+                return None, f"no file at {logged or '(no path)'}" + ("" if tag == "baseline" else " and none in Exports/")
+            shutil.copyfile(movie, copy)
         out = run([str(self.tool), "video-check", str(copy)], check=False, timeout=300)
         try:
             info = json.loads(out)
@@ -691,6 +776,13 @@ class EditorTest:
                 bad_counts.append(f"launch {phase} {m.group(1)}: {m.group(2)} projects, want {want}")
         self.record("A", "no extra project after an open", not bad_counts,
                     "; ".join(bad_counts) if bad_counts else "1 project the whole time")
+
+        # 1.0.7: the app deletes a project with no elements when the editor
+        # closes, so the new project gets a text before it closes (else the
+        # reopens by name have no card to open).
+        content = self.last("CONTENT n=1 ", 1)
+        self.record("A", "the new project gets a text before the editor closes", bool(content and content.startswith("CONTENT n=1 PASS")),
+                    (content or "no CONTENT line (did open 1 fail?)")[:240])
 
         crash = self.problems({"boot", "A"}, {"uncaught", "unhandled-rejection", "crash", "driver"})
         crash += [f"app log: {line}" for line in self.raw_crash]
@@ -780,7 +872,7 @@ class EditorTest:
         if self.texts("C SKIP"):
             self.record("C", "export makes a playable file", False, "the editor did not open")
             return
-        info, error = self.export_movie(2, "export.mp4")
+        info, error = self.export_movie(2, EXPORT_COPY_NAMES["main"], tag="main")
         if error:
             self.record("C", "export makes a playable file", False, error)
         else:
@@ -797,7 +889,7 @@ class EditorTest:
                 print("::warning title=editor test C::the exported frame at 0.5 s is almost one colour "
                       "(the photo may be missing from the export)", flush=True)
             # Blind test 1.0.5: photo 0-3 s + text 0-5 s exported 3.00 s.
-            end, line = self.timeline_end(2)
+            end, line = self.timeline_end(2, "main")
             if end is None:
                 self.record("C", "export lasts as long as the timeline", False, f"no TIMELINE line ({line or 'none'})")
             else:
@@ -806,6 +898,7 @@ class EditorTest:
                             f"{line.split(' tracks=', 1)[-1].split(' ', 1)[0]}), allowed difference "
                             f"{EXPORT_LENGTH_TOLERANCE_S:.2f} s")
         self.judge_export_sheet()
+        self.judge_stickers()
         stop = self.problems({"C"}, {"crash", "driver"})
         if stop:
             self.record("C", "no crash during the export", False, "; ".join(stop[:3]))
@@ -815,7 +908,7 @@ class EditorTest:
         button "Share" (Photos add permission granted before launch); a failed
         export keeps "Export failed. Try again.". 1.0.6: no "Open Photos"
         button (no public iOS API opens the Photos app; guideline 2.5.1)."""
-        sheet = self.json_line("EXPORT SHEET", 2)
+        sheet = self.json_line("EXPORT SHEET", 2, "main")
         name = 'export sheet ends with "Saved to Photos" and "Share", no "Open Photos"'
         if sheet is None:
             self.record("C", name, False, "the app logged no EXPORT SHEET line (no export through the sheet)")
@@ -835,6 +928,251 @@ class EditorTest:
         if not ok and "could not save" in (" ".join(notes) + " " + str(sheet.get("text", ""))).casefold():
             detail = f"the save to Photos failed (photos-add grant?); {detail}"
         self.record("C", name, ok, detail)
+
+    # ----- C: stickers in the export (1.0.7)
+
+    STICKER_CHECKS = (
+        "control regions match the baseline (the comparison is sound)",
+        "text is in the exported video",
+        "flag sticker is in the exported video",
+        "flag sticker has its own colours (blue over yellow)",
+        "shape sticker is in the exported video, only in its time window",
+        "shape sticker opacity is in the exported video",
+        "shape sticker rotation is in the exported video",
+    )
+
+    def sticker_regions(self):
+        """The C REGION lines of launch 2: name -> {box, on (start, end) or None, attributes}."""
+        regions = {}
+        for _, text in self.texts("C REGION ", 2):
+            m = REGION.match(text)
+            if not m:
+                continue
+            attrs = dict(re.findall(r"(\w+)=(\S+)", m.group(7)))
+            on = None if m.group(6) == "never" else tuple(float(v) for v in m.group(6).split("-"))
+            regions[m.group(1)] = {**attrs, "box": [float(m.group(i)) for i in range(2, 6)], "on": on}
+        return regions
+
+    def judge_stickers(self):
+        """Blind test round 3 (HIGH): a star and a flag were in the preview and
+        on the Home card but in no frame of the exported video. The main
+        export is compared with a baseline export (same settings, text at
+        opacity 0, no stickers) in the regions the app logged."""
+        base_name = "sticker test: baseline export (same settings, text hidden, no stickers)"
+        layout = self.last("C LAYOUT ", 2)
+        regions = self.sticker_regions()
+        stickers = {}
+        for _, text in self.texts("C STICKER ", 2):
+            m = STICKER_LINE.match(text)
+            if m:
+                stickers[m.group(1)] = {"id": m.group(2), "via": m.group(3), "start": float(m.group(4)),
+                                        "end": float(m.group(5)), "text": text}
+        for name, sticker in stickers.items():
+            if sticker["via"] != "ui":
+                print(f"::warning title=editor test C::the {name} sticker was not found in the Stickers sheet, "
+                      f"the test inserted it directly: {sticker['text'][:200]}", flush=True)
+        for text in [t for _, t in self.texts("C STICKER", 2) if " FAIL " in t][:3]:
+            print(f"::warning title=editor test C::{text[:200]}", flush=True)
+
+        base_info, base_error = self.export_movie(2, EXPORT_COPY_NAMES["baseline"], tag="baseline")
+        main_path = self.out / EXPORT_COPY_NAMES["main"]
+        blocked = []
+        if base_error:
+            blocked.append(f"no baseline export ({base_error})")
+        if not main_path.exists():
+            blocked.append("no main export file")
+        if not layout or not regions:
+            blocked.append("the app logged no C LAYOUT and C REGION lines")
+        if blocked:
+            self.record("C", base_name, False, "; ".join(blocked))
+            for check in self.STICKER_CHECKS:
+                self.record("C", check, False, "not measured: " + "; ".join(blocked))
+            return
+
+        samples = re.search(r"samples=([\d.,]+)", layout)
+        times = [float(v) for v in samples.group(1).split(",") if v] if samples else list(STICKER_SAMPLE_TIMES)
+        canvas = re.search(r"canvas=(\d+)x(\d+)", layout)
+        canvas = [int(canvas.group(1)), int(canvas.group(2))] if canvas else None
+        spec = {"times": times, "regions": [{"name": n, "box": r["box"]} for n, r in regions.items()]}
+        spec_path = self.out / "sticker-regions-spec.json"
+        spec_path.write_text(json.dumps(spec, indent=2))
+        out = run([str(self.tool), "frame-regions", str(self.out / EXPORT_COPY_NAMES["baseline"]), str(main_path),
+                   str(spec_path), str(self.out / "sticker-frames")], check=False, timeout=300)
+        try:
+            measured = json.loads(out)
+        except ValueError:
+            measured = {"error": out.strip()[:300] or "no answer"}
+        (self.out / "sticker-regions-metrics.json").write_text(json.dumps(measured, indent=2))
+
+        # The baseline itself: same size and length as the main export, the
+        # size the app laid the regions out in, and its own overlay frames.
+        problems = []
+        base_facts = measured.get("baseline") or {}
+        main_facts = measured.get("main") or {}
+        if "error" in measured:
+            problems.append(f"frame-regions: {measured['error']}")
+        if base_facts.get("size") != main_facts.get("size"):
+            problems.append(f"sizes differ: baseline {base_facts.get('size')}, main {main_facts.get('size')}")
+        if canvas and main_facts.get("size") and main_facts.get("size") != canvas:
+            problems.append(f"the regions are in canvas pixels {canvas[0]}x{canvas[1]}, the files are {main_facts.get('size')}")
+        base_s = float(base_facts.get("durationSeconds") or -1)
+        main_s = float(main_facts.get("durationSeconds") or -1)
+        if abs(base_s - main_s) > 0.05:
+            problems.append(f"lengths differ: baseline {base_s:.2f} s, main {main_s:.2f} s")
+        frame_errors = [f"{f.get('time')} s: {f['error']}" for f in measured.get("frames", []) if "error" in f]
+        problems += frame_errors[:2]
+        start = self.last("EXPORT start", 2, "baseline") or ""
+        overlay = re.search(r"overlayFrames=(\d+)", start)
+        if overlay and int(overlay.group(1)) == 0:
+            print("::warning title=editor test C::the baseline export had no overlay frames: its text went "
+                  "through the native fallback, not renderOverlayFrames", flush=True)
+        self.record("C", base_name, not problems,
+                    f"{base_s:.2f} s, {base_facts.get('size')}, overlay frames "
+                    f"{overlay.group(1) if overlay else '?'}; main {main_s:.2f} s; {layout[len('C LAYOUT '):][:160]}"
+                    + (f"; {'; '.join(problems)}" if problems else ""))
+
+        frames = {round(float(f.get("time", -1)), 3): f for f in measured.get("frames", [])}
+
+        def metric(name, t):
+            return ((frames.get(round(t, 3)) or {}).get("regions") or {}).get(name)
+
+        def on_at(region, t):
+            on = region.get("on")
+            return bool(on) and on[0] + 0.01 <= t < on[1] - 0.01
+
+        def show(name, t):
+            m = metric(name, t)
+            if not m or "changed" not in m:
+                return f"{t:g} s: not measured"
+            return f"{t:g} s: {m['changed']:.0%} changed (mean diff {m['meanDiff']:.0f})"
+
+        def luma(rgb):
+            return (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 if rgb else 0.0
+
+        for t in times:
+            say("C regions at {:g} s: ".format(t) + ", ".join(
+                f"{n} {metric(n, t)['changed']:.0%}" if metric(n, t) and "changed" in metric(n, t) else f"{n} -"
+                for n in regions))
+
+        # 1. Controls: nothing is drawn there, so main = baseline up to encoder noise.
+        controls = [n for n in regions if n.startswith("control")]
+        bad, parts = [], []
+        for n in controls:
+            values = [metric(n, t) for t in times]
+            if any(not v or "changed" not in v for v in values):
+                bad.append(f"{n} not measured")
+                continue
+            worst_changed = max(v["changed"] for v in values)
+            worst_mean = max(v["meanDiff"] for v in values)
+            parts.append(f"{n} at most {worst_changed:.1%} changed, mean diff {worst_mean:.1f}")
+            if worst_changed > CONTROL_CHANGED_MAX or worst_mean > CONTROL_MEAN_DIFF_MAX:
+                bad.append(n)
+        self.record("C", self.STICKER_CHECKS[0], bool(controls) and not bad,
+                    ("; ".join(parts) or "no control region") + f" (allowed {CONTROL_CHANGED_MAX:.0%} changed, "
+                    f"mean diff {CONTROL_MEAN_DIFF_MAX:.0f})" + (f"; FAILED: {', '.join(bad)}" if bad else ""))
+
+        # 2-5. Presence: on screen in its window, the same as the baseline outside it.
+        def presence(region_name, minimum):
+            region = regions.get(region_name)
+            if not region:
+                return False, f"the app logged no region '{region_name}'"
+            on_times = [t for t in times if on_at(region, t)]
+            off_times = [t for t in times if not on_at(region, t)]
+            ok = bool(on_times)
+            for t in on_times:
+                m = metric(region_name, t)
+                ok = ok and bool(m) and m.get("changed", 0) >= minimum
+            for t in off_times:
+                m = metric(region_name, t)
+                ok = ok and bool(m) and m.get("changed", 1) <= STICKER_ABSENT_MAX
+            detail = (f"on {region['on'][0]:.2f}-{region['on'][1]:.2f} s: " if region.get("on") else "") + "; ".join(
+                [show(region_name, t) + " (want >= {:.0%})".format(minimum) for t in on_times]
+                + [show(region_name, t) + " (want <= {:.0%}, not on screen)".format(STICKER_ABSENT_MAX) for t in off_times])
+            return ok, detail
+
+        ok, detail = presence("text", TEXT_PRESENT_MIN)
+        self.record("C", self.STICKER_CHECKS[1], ok, detail)
+
+        flag = stickers.get("flag", {})
+        flag_region = regions.get("flag", {})
+        ok, detail = presence("flag", STICKER_PRESENT_MIN.get(flag_region.get("over"), 0.30))
+        self.record("C", self.STICKER_CHECKS[2], ok,
+                    f"{flag.get('id', 'no C STICKER line')} via {flag.get('via', '?')}, over the "
+                    f"{flag_region.get('over', '?')}; {detail}")
+
+        # Flag colours: the top box blue, the bottom box yellow, while it is on screen.
+        top, bottom = regions.get("flag-top"), regions.get("flag-bottom")
+        if flag.get("id", FLAG_ID) != FLAG_ID or not top or not bottom:
+            self.record("C", self.STICKER_CHECKS[3], False,
+                        f"cannot check: flag {flag.get('id', '?')}, regions top={bool(top)} bottom={bool(bottom)}")
+        else:
+            ok, parts = True, []
+            on_times = [t for t in times if on_at(top, t)]
+            for t in on_times:
+                mt, mb = metric("flag-top", t), metric("flag-bottom", t)
+                if not mt or not mb or "main" not in mt or "main" not in mb:
+                    ok = False
+                    parts.append(f"{t:g} s: not measured")
+                    continue
+                r, g, b = mt["main"]
+                blue = b >= 120 and b - r >= 70 and b - g >= 30
+                r2, g2, b2 = mb["main"]
+                yellow = r2 >= 160 and g2 >= 130 and r2 - b2 >= 90 and g2 - b2 >= 70
+                ok = ok and blue and yellow
+                parts.append(f"{t:g} s: top rgb({r:.0f},{g:.0f},{b:.0f}) {'blue' if blue else 'NOT blue'}, "
+                             f"bottom rgb({r2:.0f},{g2:.0f},{b2:.0f}) {'yellow' if yellow else 'NOT yellow'}")
+            self.record("C", self.STICKER_CHECKS[3], ok and bool(on_times), "; ".join(parts) or "no sample time in the flag's window")
+
+        shape = stickers.get("shape", {})
+        shape_region = regions.get("shape", {})
+        shape_min = STICKER_PRESENT_MIN.get(shape_region.get("over"), 0.30)
+        ok, detail = presence("shape", shape_min)
+        self.record("C", self.STICKER_CHECKS[4], ok,
+                    f"{shape.get('id', 'no C STICKER line')} via {shape.get('via', '?')}, over the "
+                    f"{shape_region.get('over', '?')}; {detail}")
+
+        # 6. Opacity: the white shape must be partly see-through. The share is
+        # how far the shape moves the baseline pixels toward white.
+        shape_on = [t for t in times if shape_region and on_at(shape_region, t)]
+        opacity = float(shape_region.get("opacity", "1") or 1)
+        if not shape_region or opacity >= 0.99:
+            self.record("C", self.STICKER_CHECKS[5], False, "no shape region with an opacity below 1")
+        else:
+            over = shape_region.get("over")
+            under_max = OPACITY_UNDER_MAX if over == "background" else OPACITY_PHOTO_UNDER_MAX
+            ok, parts = bool(shape_on), []
+            for t in shape_on:
+                m = metric("shape", t)
+                if not m or "main" not in m or "base" not in m:
+                    ok = False
+                    parts.append(f"{t:g} s: not measured")
+                    continue
+                value, under = luma(m["main"]), luma(m["base"])
+                share = (value - under) / (1 - under) if under < 1 else 0.0
+                ok = ok and under <= under_max and OPACITY_LUMA_BAND[0] <= share <= OPACITY_LUMA_BAND[1]
+                parts.append(f"{t:g} s: luma {value:.2f} over {under:.2f} (baseline, want <= {under_max:.2f}) "
+                             f"= {share:.2f} of the way to white")
+            self.record("C", self.STICKER_CHECKS[5], ok,
+                        f"opacity {opacity:g}, over the {over}: " + ("; ".join(parts) or "no sample time in the shape's window")
+                        + f" (want {OPACITY_LUMA_BAND[0]:.2f}-{OPACITY_LUMA_BAND[1]:.2f}: 0.60 with an sRGB blend, "
+                        f"about 0.80 with a linear blend over black; opaque is about 1.0, no shape about 0)")
+
+        # 7. Rotation: the corners of the UNROTATED square stay background.
+        corners = sorted(n for n in regions if n.startswith("shape-corner-"))
+        if not corners:
+            self.record("C", self.STICKER_CHECKS[6], False, "the app logged no shape-corner regions")
+        else:
+            ok, parts = bool(shape_on), []
+            for t in shape_on:
+                m = metric("shape", t)
+                present = bool(m) and m.get("changed", 0) >= shape_min
+                worst = max((metric(n, t) or {}).get("changed", 1.0) for n in corners)
+                ok = ok and present and worst <= ROTATION_CORNER_MAX
+                parts.append(f"{t:g} s: shape {'present' if present else 'MISSING'}, corners of the unrotated "
+                             f"square at most {worst:.0%} changed")
+            self.record("C", self.STICKER_CHECKS[6], ok,
+                        f"rotate {shape_region.get('rotate', '?')}: " + ("; ".join(parts) or "no sample time in the shape's window")
+                        + f" (want the shape present and the corners <= {ROTATION_CORNER_MAX:.0%})")
 
     def judge_d(self):
         """Stickers (every tab, every image), one sticker, one bundled sound."""
@@ -965,7 +1303,7 @@ class EditorTest:
         """The export with video and sound: a video track, a sound track that
         is not silent, the picture, and the timeline's length."""
         name = "export has the video, its sound and the timeline length"
-        info, error = self.export_movie(3, "export-sweep.mp4")
+        info, error = self.export_movie(3, EXPORT_COPY_NAMES["sweep"], tag="sweep")
         if error:
             self.record("E", name, False, error)
             return
@@ -978,7 +1316,7 @@ class EditorTest:
         frame = info.get("frame") or {}
         colours = frame.get("colours", {})
         found = [c for c in ("red", "green", "blue", "yellow") if colours.get(c, 0) >= 0.005]
-        end, line = self.timeline_end(3)
+        end, line = self.timeline_end(3, "sweep")
         problems = []
         if "error" in info:
             problems.append(info["error"])

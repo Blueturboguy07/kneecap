@@ -238,7 +238,7 @@ interface NativeBridgePluginSpec {
 	 * `saveToPhotos` answers `reason` only when `saved` is false; `shareFile`
 	 * resolves with an acknowledgement nothing here reads. */
 	saveToPhotos(params: { uri: string }): Promise<{ saved: boolean; reason?: string }>;
-	shareFile(params: { uri: string }): Promise<unknown>;
+	shareFile(params: { uri: string; fileName?: string }): Promise<unknown>;
 	addListener(
 		eventName: "proxyProgress",
 		listenerFunc: (data: RawProxyProgress) => void,
@@ -680,9 +680,11 @@ export function createCapacitorBridge({
 			}
 		},
 
-		async shareFile({ uri }: { uri: string }): Promise<void> {
+		async shareFile({ uri, fileName }: { uri: string; fileName?: string }): Promise<void> {
 			try {
-				await plugin.shareFile({ uri: nativeFilePathFromUri(uri) });
+				await plugin.shareFile(
+					fileName ? { uri: nativeFilePathFromUri(uri), fileName } : { uri: nativeFilePathFromUri(uri) },
+				);
 			} catch (err) {
 				throw toNativeBridgeError({ err, method: "shareFile" });
 			}

@@ -541,3 +541,33 @@ body {
 	overflow-wrap: anywhere;
 	color: var(--cc-text-secondary, #8b8a90);
 }
+
+/* 1.0.7: blind test round 3 */
+/* Item 2: Settings > Licenses did not scroll. In the Licenses screen the list
+   (.kc-settings__group, overflow: hidden) is a direct flex item of the scroll
+   box. A flex item with overflow: hidden has a minimum height of 0, so the list
+   shrank to the screen height and cut off its rows; the scroll box then had
+   nothing to scroll. Now no child of the scroll box shrinks: the box gets taller
+   content than the screen, and it scrolls (also with momentum on iOS). */
+.kc-settings__body {
+	flex: 1 1 auto;
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior-y: contain;
+	touch-action: pan-y;
+}
+.kc-settings__body > * {
+	flex-shrink: 0;
+}
+
+/* Item 10: the short screen between the editor and Home while the app makes the
+   project thumbnail or deletes an empty project (closeEditorProject in
+   close-project.ts). The same frame as Home, with the quiet loading ring. It
+   has no .kc-home class: Home shows only when the close work is done. */
+.kc-closing {
+	height: 100vh;
+	height: 100dvh;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	background: var(--cc-bg, #0b0b0b);
+}

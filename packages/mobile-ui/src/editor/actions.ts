@@ -1019,14 +1019,21 @@ export async function insertLocalSound({
 
 // -------------------------------- Stickers ----------------------------------
 
+/** Inserts a sticker at the playhead. `name` is the name the Stickers panel
+ *  shows ("Albania", "Star"); the timeline clip shows it. Without a name,
+ *  editor-core makes one from the sticker id (for a flag, the country code
+ *  "AL": blind test round 3, item 4). */
 export function insertStickerElement({
 	editor,
 	stickerId,
+	name,
 }: {
 	editor: EditorCore;
 	stickerId: string;
+	name?: string;
 }): ElementRef | null {
-	const create = buildStickerElement({ stickerId, startTime: editor.playback.getCurrentTime() });
+	const displayName = name?.trim() ? name.trim() : undefined;
+	const create = buildStickerElement({ stickerId, name: displayName, startTime: editor.playback.getCurrentTime() });
 	const command = new InsertElementCommand({ element: create, placement: { mode: "auto", trackType: "graphic" } });
 	editor.command.execute({ command });
 	const trackId = command.getTrackId();

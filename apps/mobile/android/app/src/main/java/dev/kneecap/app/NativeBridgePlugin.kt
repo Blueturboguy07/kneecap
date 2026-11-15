@@ -717,11 +717,15 @@ class NativeBridgePlugin : Plugin() {
 		Thread {
 			try {
 				val shareDir = File(context.cacheDir, "shared-exports").apply { mkdirs() }
-				shareDir.listFiles()?.filter { it.name != file.name }?.forEach { it.delete() }
-				val copy = File(shareDir, file.name)
-				if (!copy.isFile || copy.length() != file.length()) {
-					file.copyTo(copy, overwrite = true)
-				}
+				// 1.0.7: the share sheet shows "publik kneecap <project
+				// name>.mp4" (the export sheet's `fileName`), not the
+				// export's raw id. Always a fresh copy: two exports of one
+				// project have the same name.
+				val shareName = dev.kneecap.app.export.ShareFileName.safe(call.getString("fileName"), file.extension)
+					?: file.name
+				shareDir.listFiles()?.forEach { it.delete() }
+				val copy = File(shareDir, shareName)
+				file.copyTo(copy, overwrite = true)
 				val shareUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", copy)
 				val send = Intent(Intent.ACTION_SEND).apply {
 					type = videoMimeType(file)

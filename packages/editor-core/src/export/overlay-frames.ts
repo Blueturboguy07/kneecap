@@ -28,12 +28,19 @@
  * new PNG is emitted only when that hash changes, so a static title over
  * a 60s clip costs exactly one image.
  *
- * SCOPE: text and captions — the two overlay kinds the preview draws
- * through a 2D context, and the two the founder reported drifting. PiP
- * (video/image) overlays keep coming from the decoder, placed natively by
- * the same `SourcePlacement` math as the main track; stickers/graphics are
- * GPU-composited image sources with no 2D draw path (and are not exported
- * today at all — a separate, disclosed gap).
+ * SCOPE: text, captions, stickers and graphics. PiP (video/image) overlays
+ * keep coming from the decoder, placed natively by the same
+ * `SourcePlacement` math as the main track.
+ *
+ * STICKERS AND GRAPHICS (1.0.7, blind test round 3): until 1.0.7 this pass
+ * drew only text and captions, and the native exporters (iOS and Android)
+ * composite only these frames, so a flag or a shape showed in the preview
+ * but in no frame of the exported video. They are now drawn here with the
+ * preview's own placement (`computeVisualTransform` +
+ * `drawTransformedCanvas` from `compositor/frame-descriptor.ts`) and
+ * opacity, in track order with the text and captions. Not applied here
+ * (the preview applies them on the GPU): effects, masks and a blend mode
+ * other than normal on a sticker or graphic.
  */
 import type { SceneTracks } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
@@ -48,6 +55,17 @@ import {
 	CaptionNode,
 	renderCaptionToContext,
 } from "@/services/renderer/nodes/caption-node";
+import { StickerNode } from "@/services/renderer/nodes/sticker-node";
+import {
+	GraphicNode,
+	type ResolvedGraphicNodeState,
+} from "@/services/renderer/nodes/graphic-node";
+import type { ResolvedVisualSourceNodeState } from "@/services/renderer/nodes/visual-node";
+import {
+	computeVisualTransform,
+	drawTransformedCanvas,
+} from "@/services/renderer/compositor/frame-descriptor";
+import { DEFAULT_GRAPHIC_SOURCE_SIZE } from "@/graphics";
 
 export interface OverlayFrame {
 	/** Inclusive start / exclusive end on the OUTPUT timeline, in ticks. */
@@ -90,7 +108,12 @@ function createCanvas({
 function collectOverlayNodes(root: AnyBaseNode): AnyBaseNode[] {
 	const out: AnyBaseNode[] = [];
 	const walk = (node: AnyBaseNode) => {
-		if (node instanceof TextNode || node instanceof CaptionNode) {
+		if (
+			node instanceof TextNode ||
+			node instanceof CaptionNode ||
+			node instanceof StickerNode ||
+			node instanceof GraphicNode
+		) {
 			out.push(node);
 		}
 		for (const child of node.children) walk(child);
@@ -99,12 +122,41 @@ function collectOverlayNodes(root: AnyBaseNode): AnyBaseNode[] {
 	return out;
 }
 
+/** The image, its size and its resolved state for a sticker or a graphic,
+ *  the same way `frame-descriptor.ts`'s `collectVisualSourceNode` reads
+ *  them. Null when there is nothing to draw. */
+function visualSourceOf(node: StickerNode | GraphicNode): {
+	source: CanvasImageSource;
+	sourceWidth: number;
+	sourceHeight: number;
+	resolved: ResolvedVisualSourceNodeState | ResolvedGraphicNodeState;
+} | null {
+	if (node instanceof GraphicNode) {
+		if (!node.resolved) return null;
+		return {
+			source: node.getSource({ resolvedParams: node.resolved.resolvedParams }),
+			sourceWidth: DEFAULT_GRAPHIC_SOURCE_SIZE,
+			sourceHeight: DEFAULT_GRAPHIC_SOURCE_SIZE,
+			resolved: node.resolved,
+		};
+	}
+	if (!node.resolved) return null;
+	return {
+		source: node.resolved.source,
+		sourceWidth: node.resolved.sourceWidth,
+		sourceHeight: node.resolved.sourceHeight,
+		resolved: node.resolved,
+	};
+}
+
 function drawOverlayNode({
 	node,
 	ctx,
+	renderer,
 }: {
 	node: AnyBaseNode;
 	ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+	renderer: CanvasRenderer;
 }): void {
 	// `node.resolved` being null means "not visible at this time" — every
 	// resolver returns null outside its element's window.
@@ -119,19 +171,60 @@ function drawOverlayNode({
 	} else if (node instanceof CaptionNode) {
 		// renderCaptionToContext applies its own globalAlpha already.
 		renderCaptionToContext({ node, ctx });
+	} else if (node instanceof StickerNode || node instanceof GraphicNode) {
+		// The preview's placement: contain-fit the source in the canvas, then
+		// the element's scale, position and rotation (and flips for a
+		// negative scale). The opacity is the compositor's, applied here.
+		const visual = visualSourceOf(node);
+		if (
+			visual &&
+			Number.isFinite(visual.sourceWidth) &&
+			Number.isFinite(visual.sourceHeight) &&
+			visual.sourceWidth > 0 &&
+			visual.sourceHeight > 0
+		) {
+			ctx.globalAlpha = Math.min(1, Math.max(0, visual.resolved.opacity));
+			drawTransformedCanvas({
+				ctx,
+				source: visual.source,
+				transform: computeVisualTransform({
+					renderer,
+					resolved: visual.resolved,
+					sourceWidth: visual.sourceWidth,
+					sourceHeight: visual.sourceHeight,
+				}),
+			});
+		}
 	}
 	ctx.restore();
 }
 
 /** The preview's own texture-cache key: params + resolved fully determine
- *  the raster (frame-descriptor.ts says so in as many words). */
+ *  the raster (frame-descriptor.ts says so in as many words). A sticker or a
+ *  graphic hashes only what changes its pixels: its resolved state also has
+ *  `localTime` (new on every frame) and the image object, so hashing all of
+ *  it would emit one PNG per frame for a sticker that does not move. */
 function overlayHash(nodes: AnyBaseNode[]): string {
 	if (nodes.length === 0) return "";
 	return JSON.stringify(
-		nodes.map((node) => ({
-			p: (node as { params?: unknown }).params,
-			r: node.resolved,
-		})),
+		nodes.map((node) => {
+			if (node instanceof StickerNode || node instanceof GraphicNode) {
+				const visual = visualSourceOf(node);
+				return {
+					k: node instanceof StickerNode ? "sticker" : "graphic",
+					id: node instanceof StickerNode ? node.params.stickerId : node.params.definitionId,
+					rp: node instanceof GraphicNode ? node.resolved?.resolvedParams : undefined,
+					t: visual?.resolved.transform,
+					o: visual?.resolved.opacity,
+					w: visual?.sourceWidth,
+					h: visual?.sourceHeight,
+				};
+			}
+			return {
+				p: (node as { params?: unknown }).params,
+				r: node.resolved,
+			};
+		}),
 	);
 }
 
@@ -195,12 +288,19 @@ export async function renderOverlayFrames({
 	});
 	// OVERLAY TRACKS ONLY. Resolving the full scene would resolve VideoNodes
 	// too — i.e. decode a video frame per sample, thousands of times, for
-	// pixels this pass never draws. Stripping the main track and any
-	// non-text/caption overlay leaves a tree whose resolve is pure math.
+	// pixels this pass never draws. Stripping the main track and the
+	// video/effect overlay tracks leaves text, captions, stickers and
+	// graphics: pure math, plus one cached image load per sticker (the same
+	// cache the preview uses). A sticker image that cannot load makes the
+	// resolve throw, so the export sheet can say the export failed instead
+	// of making a video without the sticker.
 	const overlayOnlyTracks: SceneTracks = {
 		main: { ...tracks.main, elements: [] },
 		overlay: tracks.overlay.filter(
-			(track) => track.type === "text" || track.type === "caption",
+			(track) =>
+				track.type === "text" ||
+				track.type === "caption" ||
+				track.type === "graphic",
 		),
 		audio: [],
 	};
@@ -241,7 +341,7 @@ export async function renderOverlayFrames({
 			let pngBase64 = "";
 			if (hash !== "") {
 				surface.ctx.clearRect(0, 0, canvasSize.width, canvasSize.height);
-				for (const node of nodes) drawOverlayNode({ node, ctx: surface.ctx });
+				for (const node of nodes) drawOverlayNode({ node, ctx: surface.ctx, renderer });
 				pngBase64 = await toPngBase64(surface.canvas);
 			}
 			openFrame = { startTicks: timeTicks, hash, pngBase64 };

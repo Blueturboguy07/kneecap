@@ -19,6 +19,7 @@ import "@kneecap/mobile-ui/tokens.css";
 import "@kneecap/mobile-ui/components.css";
 import "./app-root.css";
 import { Component, StrictMode, useEffect, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
 	EditorCore,
@@ -31,13 +32,16 @@ import { getNativeBridge } from "@kneecap/native-bridge";
 import { loadFontAtlas, loadFonts } from "@kneecap/editor-core/fonts/local-fonts";
 import { useEditor } from "@kneecap/editor-core/react";
 import { EditorShell, ensurePreviewGpu } from "@kneecap/mobile-ui";
+import { closeEditorProject, projectHasElements, waitForCloseWork } from "./close-project";
 import { CrashBoundary } from "./crash-screen";
 import { SettingsScreen } from "./settings-screen";
 
 const NOOP_BOOTSTRAP = async () => {};
 
 
-type Screen = { name: "home" } | { name: "editor" } | { name: "settings" };
+/** "closing": the editor is off the screen and closeEditorProject (close-project.ts)
+ *  runs; Home shows when it ends. */
+type Screen = { name: "home" } | { name: "editor" } | { name: "closing" } | { name: "settings" };
 
 /** Catches an error in the editor screen, logs it, and calls `onError` so
  *  the app goes back to the project list instead of the crash screen. */
@@ -61,27 +65,33 @@ class EditorErrorGuard extends Component<
 	}
 }
 
-/** Deletes the project that "New project" made when the editor failed and
- *  the project is still empty, so no empty card stays on the home grid. */
-async function discardEmptyNewProject({ id }: { id: string | null }): Promise<void> {
-	if (!id) return;
-	const editor = EditorCore.getInstance();
-	try {
-		if (editor.project.getActiveOrNull()?.metadata.id !== id) return;
-		const isEmpty =
-			editor.timeline.getTotalDuration() === 0 && editor.media.getAssets().length === 0;
-		if (isEmpty) await editor.project.deleteProjects({ ids: [id] });
-	} catch (error) {
-		console.error("Failed to remove the empty new project:", error);
-	}
-}
-
 function App() {
 	const [screen, setScreen] = useState<Screen>({ name: "home" });
 	/** Shown on the home screen after the editor failed. */
 	const [editorError, setEditorError] = useState<string | null>(null);
-	/** The project that "New project" made for this editor visit. */
-	const newProjectIdRef = useRef<string | null>(null);
+	/** True from the first close tap until Home shows: a second tap does nothing. */
+	const closingRef = useRef(false);
+	/** The open project had an element (or its state was not known) when the editor
+	 *  opened. Such a project is never deleted on close (item 10: only a project that
+	 *  never got content is deleted). */
+	const hadContentAtOpenRef = useRef(true);
+
+	/**
+	 * Blind test round 3, item 10: every way out of the editor runs closeEditorProject
+	 * (close-project.ts). A project that never got content (empty when the editor opened
+	 * and empty now) is deleted; any other project gets its thumbnail and is saved. The editor is off the screen first (so
+	 * nothing in it reads the deleted project), and Home shows only when the work ends (so
+	 * the home grid never loads an empty card or a card without its new thumbnail).
+	 */
+	const leaveEditor = ({ afterError }: { afterError: boolean }) => {
+		if (closingRef.current) return;
+		closingRef.current = true;
+		const hadContentAtOpen = hadContentAtOpenRef.current;
+		void closeEditorProject({ editor: EditorCore.getInstance(), afterError, hadContentAtOpen }).finally(() => {
+			closingRef.current = false;
+			setScreen({ name: "home" });
+		});
+	};
 
 	if (screen.name === "editor") {
 		return (
@@ -90,30 +100,33 @@ function App() {
 					// EditorErrorGuard already logged the error. The home screen shows
 					// plain words only: no error text, stack or file path (blind test 1.0.4).
 					void error;
-					const newProjectId = newProjectIdRef.current;
-					newProjectIdRef.current = null;
-					// Delete first, so the home grid never loads the empty card.
-					void discardEmptyNewProject({ id: newProjectId }).finally(() => {
-						setEditorError(
-							"The editor had a problem and closed. Try again. If it happens again, open Settings > Help and support.",
-						);
-						setScreen({ name: "home" });
-					});
+					setEditorError(
+						"The editor had a problem and closed. Try again. If it happens again, open Settings > Help and support.",
+					);
+					// The guard shows nothing now, so the editor is already off the screen.
+					setScreen({ name: "closing" });
+					leaveEditor({ afterError: true });
 				}}
 			>
 				<EditorShell
 					bootstrap={NOOP_BOOTSTRAP}
 					onBack={() => {
-						newProjectIdRef.current = null;
-						// Fire-and-forget save: ProjectManager.saveCurrentProject persists
-						// the active project; the home screen re-runs loadAllProjects on
-						// mount, so the refreshed metadata (name/duration/updatedAt) shows
-						// up without waiting here.
-						void EditorCore.getInstance().project.saveCurrentProject();
-						setScreen({ name: "home" });
+						if (closingRef.current) return;
+						// Take the editor off the screen now (flushSync), before the close
+						// work changes or deletes the project.
+						flushSync(() => setScreen({ name: "closing" }));
+						leaveEditor({ afterError: false });
 					}}
 				/>
 			</EditorErrorGuard>
+		);
+	}
+
+	if (screen.name === "closing") {
+		return (
+			<div className="kc-closing" data-kneecap-theme="kneecap-mobile">
+				<div className="kc-home__loading" role="progressbar" aria-label="Closing the project" />
+			</div>
 		);
 	}
 
@@ -124,8 +137,9 @@ function App() {
 	return (
 		<HomeScreen
 			initialError={editorError}
-			onOpenEditor={({ newProjectId }) => {
-				newProjectIdRef.current = newProjectId;
+			onOpenEditor={() => {
+				// The project is loaded now (HomeScreen's run awaits the task first).
+				hadContentAtOpenRef.current = projectHasElements({ editor: EditorCore.getInstance() }) !== false;
 				setEditorError(null);
 				setScreen({ name: "editor" });
 			}}
@@ -140,7 +154,7 @@ function HomeScreen({
 	onOpenSettings,
 }: {
 	initialError: string | null;
-	onOpenEditor: (opened: { newProjectId: string | null }) => void;
+	onOpenEditor: () => void;
 	onOpenSettings: () => void;
 }) {
 	const editor = useEditor();
@@ -172,20 +186,16 @@ function HomeScreen({
 	 *  whether the editor is entered afterwards: creating/loading a project
 	 *  does, deleting one must NOT (the row-era code routed Delete through
 	 *  the same helper and landed in the editor with no active project). */
-	const run = async (
-		task: () => Promise<unknown>,
-		{ open, isNewProject = false }: { open: boolean; isNewProject?: boolean },
-	) => {
+	const run = async (task: () => Promise<unknown>, { open }: { open: boolean }) => {
 		if (busy) return;
 		setBusy(true);
 		setError(null);
 		try {
+			// A thumbnail of the last close that took longer than its time limit must
+			// land on its own project, not on the one this task opens.
+			await waitForCloseWork();
 			await task();
-			if (open) {
-				onOpenEditor({
-					newProjectId: isNewProject ? (editor.project.getActiveOrNull()?.metadata.id ?? null) : null,
-				});
-			}
+			if (open) onOpenEditor();
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Something went wrong");
 		} finally {
@@ -211,7 +221,7 @@ function HomeScreen({
 						onClick={() =>
 							void run(
 								() => editor.project.createNewProject({ name: nextProjectName(projects.map((p) => p.name)) }),
-								{ open: true, isNewProject: true },
+								{ open: true },
 							)
 						}
 					>
@@ -275,12 +285,22 @@ function ProjectCard({
 	onOpen: () => void;
 	onDelete: () => void;
 }) {
+	// Blind test round 3, item 10: a thumbnail that does not load shows the neutral
+	// placeholder below, not an empty box.
+	const [failedThumbnail, setFailedThumbnail] = useState<string | null>(null);
+	const showThumbnail = Boolean(thumbnail) && failedThumbnail !== thumbnail;
 	return (
 		<li className="kc-home__card">
 			<button type="button" className="kc-home__card-open" disabled={disabled} onClick={onOpen}>
 				<span className="kc-home__thumb-frame">
-					{thumbnail ? (
-						<img src={thumbnail} alt="" className="kc-home__thumb" draggable={false} />
+					{showThumbnail ? (
+						<img
+							src={thumbnail}
+							alt=""
+							className="kc-home__thumb"
+							draggable={false}
+							onError={() => setFailedThumbnail(thumbnail ?? null)}
+						/>
 					) : (
 						<span className="kc-home__thumb kc-home__thumb--empty" aria-hidden="true">
 							<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.6">

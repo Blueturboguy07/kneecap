@@ -30,6 +30,7 @@ import {
 	useCurrentTimeSeconds,
 	useIsPlaying,
 	useProjectDurationSeconds,
+	useProjectSettings,
 	useSceneTransitions,
 } from "../../editor/use-live-editor";
 import { bootstrapDemoProject } from "../../editor/demo-project";
@@ -345,6 +346,11 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	const currentTimeSeconds = useCurrentTimeSeconds();
 	const durationSeconds = useProjectDurationSeconds();
 	const isPlaying = useIsPlaying();
+	// Blind test round 3, item 3: a selector subscription to the project settings. The
+	// shell re-renders when the export sheet (setProjectResolution), the Aspect ratio
+	// sheet or the Background sheet changes them, so the top-bar chip, the preview size
+	// and the active ratio and colour always show the current settings.
+	const projectSettings = useProjectSettings();
 
 	if (!ready) {
 		return (
@@ -355,7 +361,8 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	}
 
 	const project = editor.project.getActive();
-	const background = project.settings.background;
+	const settings = projectSettings ?? project.settings;
+	const background = settings.background;
 	const backgroundColor = background.type === "color" ? background.color : "#000000";
 	const visualElement: VisualElement | null =
 		selectedElement && isVisualElement(selectedElement) ? selectedElement : null;
@@ -379,19 +386,25 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	})();
 
 	const closeSheet = () => setActiveSheet(null);
+	/** The clip-tools bar (SubToolbar) shows while a clip is selected. Blind test round 3,
+	 *  item 8: `cc-editor-shell--clip-tools` makes the bar take its height from the
+	 *  preview, not from the timeline (components.css), so the timeline keeps its height
+	 *  and no track goes under the bar. */
+	const showClipTools = Boolean(selectedRef && selectedElement);
 
 	return (
 		<div
 			className={cn(
 				"cc-editor-shell",
 				isPreviewFullscreen && "cc-editor-shell--preview-fullscreen",
+				showClipTools && "cc-editor-shell--clip-tools",
 				className,
 			)}
 			data-kneecap-theme="kneecap-mobile"
 		>
 			<TopBar
 				onClose={onBack}
-				resolutionLabel={resolutionLabelFor(project.settings.canvasSize)}
+				resolutionLabel={resolutionLabelFor(settings.canvasSize)}
 				onOpenExportSettings={() => setActiveSheet("export")}
 				onExport={() => setActiveSheet("export")}
 			/>
@@ -401,8 +414,8 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 			    on the PlaybackBar button ONLY (supersedes the 2026-08-20
 			    tap-to-toggle round). */}
 			<PreviewStage
-				canvasWidth={project.settings.canvasSize.width}
-				canvasHeight={project.settings.canvasSize.height}
+				canvasWidth={settings.canvasSize.width}
+				canvasHeight={settings.canvasSize.height}
 				backgroundColor={backgroundColor}
 			>
 				{/* Real frame rendering (CanvasRenderer -> wgpu compositor) —
@@ -516,7 +529,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 				<ProgressOverlay percent={deadSpaceProgress.percent} label="Listening for dead space…" />
 			)}
 
-			{selectedRef && selectedElement && (
+			{showClipTools && selectedRef && selectedElement && (
 				<SubToolbar
 					items={buildContextualItems({
 						element: selectedElement,
@@ -668,8 +681,8 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 					<div className="cc-ratio-grid">
 						{RATIO_PRESETS.map((preset) => {
 							const active =
-								project.settings.canvasSize.width === preset.width &&
-								project.settings.canvasSize.height === preset.height;
+								settings.canvasSize.width === preset.width &&
+								settings.canvasSize.height === preset.height;
 							return (
 								<button
 									key={preset.label}

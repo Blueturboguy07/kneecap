@@ -13,6 +13,8 @@ import {
 } from "@kneecap/editor-core/export/overlay-frames";
 import {
 	buildNativeEdlAssetResolver, setProjectFps, setProjectResolution, toEdlMediaAssets } from "../../editor/actions";
+import { shareFileName } from "../../editor/share-file-name";
+import type { SceneTracks } from "@kneecap/editor-core/timeline";
 import type { FrameRate } from "opencut-wasm";
 
 interface ExportSheetProps {
@@ -63,6 +65,18 @@ const EXPORT_STAGE_WORDS: Record<ExportProgress["stage"], string> = {
 	done: "done",
 	error: "stopped",
 };
+
+/** True when a visible graphic track has a visible sticker or graphic
+ *  element (1.0.7). Only the preview-drawn overlay frames carry them into
+ *  the video. */
+function hasVisibleStickersOrGraphics(tracks: SceneTracks): boolean {
+	return tracks.overlay.some(
+		(track) =>
+			track.type === "graphic" &&
+			!track.hidden &&
+			track.elements.some((element) => !element.hidden),
+	);
+}
 
 /** The Photos save after "done" (1.0.5, blind test round 2): "saving" while
  *  the permission prompt and the save run, then the real result. */
@@ -250,7 +264,13 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 		setActionNote(null);
 		try {
 			const bridge = await getNativeBridge();
-			await bridge.shareFile({ uri });
+			// 1.0.7 (blind test round 3): the share sheet showed the export's
+			// raw id. It now shows "publik kneecap <project name>.mp4".
+			const fileName = shareFileName({
+				projectName: editor.project.getActive().metadata.name,
+				extension: format,
+			});
+			await bridge.shareFile({ uri, fileName });
 		} catch (error) {
 			console.error("share failed:", error instanceof Error ? error.message : error);
 			setActionNote("Could not open Share.");
@@ -303,7 +323,24 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 						setProgress({ stage: "preparing", fraction: fraction * 0.2 }),
 				});
 			} catch (error) {
+				// The native text path can still draw text and captions, but
+				// nothing native draws a sticker or a graphic (1.0.7, blind test
+				// round 3). With one on the timeline, a video without it would
+				// be wrong, so the export stops with the plain message.
+				if (hasVisibleStickersOrGraphics(editor.scenes.getActiveScene().tracks)) {
+					failExport(error);
+					return;
+				}
 				console.warn("overlay prerender failed — native text path:", error);
+			}
+			// No frame at all (no 2D canvas in this web view) with a sticker on
+			// the timeline: the same rule.
+			if (
+				overlayFrames.length === 0 &&
+				hasVisibleStickersOrGraphics(editor.scenes.getActiveScene().tracks)
+			) {
+				failExport("the stickers could not be drawn for the export");
+				return;
 			}
 			const generator = bridge.exportProject({ edl, overlayFrames });
 			activeExportRef.current = generator;

@@ -51,6 +51,10 @@ async function loadAllCategories(): Promise<ItemsByCategory> {
  * every category once, then shows only the ones with items). The flag
  * images are in apps/mobile/public/flags, so they are in the app
  * (apps/mobile/test/round-2-assets.test.ts).
+ *
+ * Blind test round 3: the tile labels have a dark strip
+ * (`cc-thumbgrid--stickers`, item 9), and a new clip gets the tile's name
+ * (item 4).
  */
 export function StickersPanel({ editor, onClose, onInserted }: StickersPanelProps) {
 	const [itemsByCategory, setItemsByCategory] = useState<ItemsByCategory | null>(null);
@@ -88,9 +92,13 @@ export function StickersPanel({ editor, onClose, onInserted }: StickersPanelProp
 			{itemsByCategory !== null && items.length === 0 && <p className="cc-panel-note">No stickers.</p>}
 			{items.length > 0 && (
 				<ThumbnailGrid
+					className="cc-thumbgrid--stickers"
 					items={items.map((item) => ({ id: item.id, imageSrc: item.previewUrl, label: item.name }))}
 					onSelect={(stickerId) => {
-						const ref = insertStickerElement({ editor, stickerId });
+						// Blind test round 3, item 4: the clip gets the name the tile shows
+						// ("Albania", "Star"), not a name from the sticker id ("AL").
+						const name = items.find((item) => item.id === stickerId)?.name;
+						const ref = insertStickerElement({ editor, stickerId, name });
 						if (ref) onInserted(ref);
 					}}
 				/>

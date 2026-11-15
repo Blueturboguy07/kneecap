@@ -198,8 +198,14 @@ extension NativeBridgePlugin {
 
     /// Opens the system share sheet for one finished export. Resolves once
     /// the sheet is on screen (not when the person closes it).
+    ///
+    /// 1.0.7 (blind test round 3): the share sheet showed the export's raw
+    /// id as the file name. With `fileName` ("publik kneecap <project
+    /// name>.mp4" from the export sheet), the sheet shares a link (or a
+    /// copy) of the export with that name, in tmp/share.
     @objc func shareFile(_ call: CAPPluginCall) {
-        guard let fileURL = exportedFileURL(call, method: "shareFile") else { return }
+        guard let exportURL = exportedFileURL(call, method: "shareFile") else { return }
+        let fileURL = Self.namedShareCopy(of: exportURL, fileName: call.getString("fileName"))
         DispatchQueue.main.async { [weak self] in
             guard var presenter = self?.bridge?.viewController else {
                 call.reject("no view controller available to present Share from", "IO_ERROR")
@@ -223,6 +229,47 @@ extension NativeBridgePlugin {
             presenter.present(sheet, animated: true) {
                 call.resolve(["shown": true])
             }
+        }
+    }
+
+    /// A safe file name: letters and digits of any language, spaces, "-",
+    /// "_" and "( )"; other characters become spaces; at most 80
+    /// characters; the export's extension. Nil when nothing is left.
+    static func safeShareFileName(_ requested: String?, fileExtension: String) -> String? {
+        guard var name = requested?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return nil }
+        let ext = fileExtension.isEmpty ? "mp4" : fileExtension
+        if name.lowercased().hasSuffix("." + ext.lowercased()) {
+            name = String(name.dropLast(ext.count + 1))
+        }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: " -_()"))
+        let cleaned = String(String.UnicodeScalarView(name.unicodeScalars.map { allowed.contains($0) ? $0 : " " }))
+            .split(separator: " ", omittingEmptySubsequences: true)
+            .joined(separator: " ")
+        let short = String(cleaned.prefix(80)).trimmingCharacters(in: .whitespaces)
+        return short.isEmpty ? nil : "\(short).\(ext)"
+    }
+
+    /// The URL to share: a hard link (or a copy) of `exportURL` named
+    /// `fileName` in tmp/share, or `exportURL` itself when there is no
+    /// usable name or the link and the copy both fail. Older entries in
+    /// tmp/share are removed first.
+    static func namedShareCopy(of exportURL: URL, fileName: String?) -> URL {
+        guard let name = safeShareFileName(fileName, fileExtension: exportURL.pathExtension) else { return exportURL }
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("share", isDirectory: true)
+        try? fm.removeItem(at: dir)
+        do {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            let target = dir.appendingPathComponent(name, isDirectory: false)
+            do {
+                try fm.linkItem(at: exportURL, to: target)
+            } catch {
+                try fm.copyItem(at: exportURL, to: target)
+            }
+            return target
+        } catch {
+            print("[kneecap-export] share name \(name) not used: \(error.localizedDescription)")
+            return exportURL
         }
     }
 

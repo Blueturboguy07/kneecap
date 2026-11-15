@@ -1719,3 +1719,21 @@
 	min-width: var(--cc-touch-target-ios);
 	box-sizing: border-box;
 }
+
+/* 1.0.7: blind test round 3 */
+/* Item 8: with a clip selected, the clip-tools bar (SubToolbar) took part of its height
+   from the timeline, and the audio track went under the bar. The free height goes 3/5
+   to the preview (flex-grow 1.5) and 2/5 to the timeline (flex-grow 1), so the 48 px bar
+   took 2/5 x 48 = 19.2 px from the timeline. A timeline flex-basis of 2/3 of the bar
+   height (32 px) gives the timeline 32 - 2/5 x 32 = 19.2 px back. The timeline keeps the
+   height it has without the bar, the preview gets 48 px smaller, and the timeline still
+   ends above the bar (round-3-ui.test.ts checks this math). */
+.cc-editor-shell--clip-tools .cc-editor-shell__timeline {
+	flex-basis: calc(var(--cc-subtoolbar-height) * 2 / 3);
+}
+
+/* Item 9: Stickers > Shapes: the white tile labels were on white shapes. A dark label
+   strip makes each label readable on any tile image; the images do not change. */
+.cc-thumbgrid--stickers .cc-thumb__label {
+	background: rgb(0 0 0 / 72%);
+}
