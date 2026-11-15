@@ -25,7 +25,6 @@ import {
 } from "@kneecap/editor-core/commands";
 import {
 	buildTextElement,
-	buildLibraryAudioElement,
 	buildStickerElement,
 	buildGraphicElement,
 	findTrackInSceneTracks,
@@ -45,6 +44,7 @@ import {
 import { registerDefaultGraphics } from "@kneecap/editor-core/graphics";
 import { buildElementFromMedia } from "@kneecap/editor-core/timeline";
 import { rewriteCaptionWords } from "./caption-text";
+import { newStickerScale, stickerSourceSize } from "./preview-geometry";
 import {
 	adjacentClipKeyframeTime,
 	applyClipKeyframeEasing,
@@ -69,6 +69,7 @@ import {
 	ZERO_MEDIA_TIME,
 	type MediaTime,
 	type NativeImportProgress,
+	type NativeMediaSource,
 } from "@kneecap/editor-core";
 import type { EdlAssetResolver } from "@kneecap/editor-core/edl";
 import {
@@ -198,7 +199,7 @@ export function duplicateSelected({ editor, refs }: { editor: EditorCore; refs: 
  * (trimStart/trimEnd move with the edge, so a split clip's cut-off material
  * can be pulled back out; extension stops at the real source extent).
  *
- * The MAIN track is magnetic, CapCut-style: the trimmed clip's neighbors
+ * The MAIN track is magnetic: the trimmed clip's neighbors
  * never bound the drag — instead every element at-or-after the clip's end
  * RIPPLES by the applied delta so the track stays butted. A left-edge trim
  * additionally pins the clip's startTime (the in-point changes, the clip
@@ -425,7 +426,7 @@ function computeTrimPatches({
  *
  * Free-position tracks (audio/overlay/text) slide the clip inside the gap
  * between its neighbors. The MAIN track is magnetic: the drop position only
- * decides the clip's ORDER (sorted by midpoint, CapCut reorder semantics),
+ * decides the clip's ORDER (sorted by midpoint, mobile-editor reorder semantics),
  * then the whole track re-lays out butted from 0 — which also heals any
  * gaps left by earlier deletes.
  */
@@ -543,7 +544,7 @@ function commitRebuttedMain({
 }
 
 /**
- * Hold-to-reorder commit (CapCut's long-press mode: clips collapse to
+ * Hold-to-reorder commit (long-press mode: clips collapse to
  * uniform tiles, the held one lifts, drop decides its slot). The view
  * hands over the final tile order; this re-butts the main track to it in
  * ONE undoable command. Bails on a stale order (an id missing or extra —
@@ -707,7 +708,7 @@ export function toggleReversed({ editor, ref }: { editor: EditorCore; ref: Eleme
 
 /** Ensures exactly one instance of `effectType` exists on the element,
  *  returning its effect id. Filters and Adjust are both modeled as a
- *  single instance per element (matches CapCut: picking a new filter
+ *  single instance per element (the common mobile-editor convention: picking a new filter
  *  preset replaces the current one rather than stacking). */
 export function ensureSingleEffect({
 	editor,
@@ -813,7 +814,7 @@ export function insertTextElement({
 const IMAGE_DEFAULT_DURATION_SEC = 3;
 
 /**
- * The timeline's "+" add-clip button (capture-verified CapCut chrome,
+ * The timeline's "+" add-clip button (capture-verified chrome,
  * 2026-08-18): native picker -> proxy -> asset registration via the real M4
  * import pipeline, then each imported asset is placed on the main track at
  * the playhead through the same InsertElementCommand path every other
@@ -965,21 +966,50 @@ export async function importAndPlaceAudio({
 
 // --------------------------------- Audio ------------------------------------
 
-export function insertLocalSound({
+/**
+ * A bundled sound (the Audio panel's list, editor-core `sounds/local-sounds.ts`):
+ * the app's own file `public/<bundledPath>`. Blind test round 2: it goes
+ * through the SAME import as "Import audio from Files" — native copies it
+ * into media custody (pickMedia source "bundled") and the asset gets a
+ * sandbox path — so the native preview mix and both native exports read it.
+ * The old `data:` URI clip had no media asset: the preview skipped it, the
+ * iOS export dropped it and the Android export failed on it.
+ */
+export async function insertLocalSound({
 	editor,
-	sourceUrl,
+	bundledPath,
 	name,
 	durationSeconds,
 }: {
 	editor: EditorCore;
-	sourceUrl: string;
+	bundledPath: string;
 	name: string;
 	durationSeconds: number;
-}): ElementRef | null {
-	const create = buildLibraryAudioElement({
-		sourceUrl,
+}): Promise<ElementRef | null> {
+	const bridge = await getNativeBridge();
+	const source: NativeMediaSource = {
+		pickMedia: ({ onProgress }) =>
+			bridge.pickMedia({ kinds: ["audio"], allowMultiple: false, source: "bundled", bundledPath, onProgress }),
+		generateProxy: () => {
+			throw new Error("a bundled sound is audio: it needs no proxy");
+		},
+		toPlaybackUri: (nativeUri) => bridge.toPlaybackUri(nativeUri),
+		getMediaRoot: () => bridge.getMediaRoot(),
+	};
+	const { imported } = await importMediaFromNative({
+		editor,
+		projectId: editor.project.getActive().metadata.id,
+		source,
+		kinds: ["audio"],
+		allowMultiple: false,
+	});
+	const [asset] = imported;
+	if (!asset) return null;
+	const create = buildElementFromMedia({
+		mediaId: asset.id,
+		mediaType: "audio",
 		name,
-		duration: mediaTimeFromSeconds({ seconds: durationSeconds }),
+		duration: mediaTimeFromSeconds({ seconds: asset.duration || durationSeconds }),
 		startTime: editor.playback.getCurrentTime(),
 	});
 	const command = new InsertElementCommand({ element: create, placement: { mode: "auto", trackType: "audio" } });
@@ -990,14 +1020,39 @@ export function insertLocalSound({
 
 // -------------------------------- Stickers ----------------------------------
 
+/** Inserts a sticker at the playhead. `name` is the name the Stickers panel
+ *  shows ("Albania", "Star"); the timeline clip shows it. Without a name,
+ *  editor-core makes one from the sticker id (for a flag, the country code
+ *  "AL": blind test round 3, item 4).
+ *
+ *  Blind test round 4, item 3a: the sticker comes in at the centre of the frame, about
+ *  30% of the frame width (it came in at the full contain-fit size and hid the photo and
+ *  the text). The scale comes from the source size and the contain-fit
+ *  (`newStickerScale`). A bundled flag (640 x 480) or shape (512 x 512) also stores that
+ *  size as its intrinsic size, so the renderer, the hit test and the handles use the same
+ *  size even when the image reports no natural size; another sticker uses a square. */
 export function insertStickerElement({
 	editor,
 	stickerId,
+	name,
 }: {
 	editor: EditorCore;
 	stickerId: string;
+	name?: string;
 }): ElementRef | null {
-	const create = buildStickerElement({ stickerId, startTime: editor.playback.getCurrentTime() });
+	const displayName = name?.trim() ? name.trim() : undefined;
+	const source = stickerSourceSize({ stickerId });
+	const { width: canvasWidth, height: canvasHeight } = editor.project.getActive().settings.canvasSize;
+	const scale = newStickerScale({ canvasWidth, canvasHeight, sourceWidth: source.width, sourceHeight: source.height });
+	const intrinsic = source.known ? { intrinsicWidth: source.width, intrinsicHeight: source.height } : {};
+	const create = buildStickerElement({ stickerId, name: displayName, startTime: editor.playback.getCurrentTime(), ...intrinsic });
+	create.params = {
+		...create.params,
+		"transform.positionX": 0,
+		"transform.positionY": 0,
+		"transform.scaleX": scale,
+		"transform.scaleY": scale,
+	};
 	const command = new InsertElementCommand({ element: create, placement: { mode: "auto", trackType: "graphic" } });
 	editor.command.execute({ command });
 	const trackId = command.getTrackId();
@@ -1095,6 +1150,53 @@ export function setProjectResolution({
 	editor.command.execute({
 		command: new UpdateProjectSettingsCommand({ canvasSize, canvasSizeMode: "preset" }),
 	});
+}
+
+/**
+ * The export sheet's resolution (1.0.8, blind test round 4, HIGH 1): the
+ * SHORT side of the exported video ("720p" = 720). It does NOT change the
+ * canvas. The canvas is the layout space of every position (canvas pixels
+ * from the centre) and of the preview; when the export sheet changed it,
+ * every sticker and text moved 1.5x farther from the centre at 720p. The
+ * export draws the same layout at this size with one scale factor
+ * (getExportSize / getExportScale in @kneecap/editor-core/edl).
+ */
+export function setExportResolution({ editor, shortSide }: { editor: EditorCore; shortSide: number }): void {
+	editor.command.execute({ command: new UpdateProjectSettingsCommand({ exportShortSide: shortSide }) });
+}
+
+/**
+ * The Aspect ratio sheet (1.0.8): the canvas gets the new aspect at its
+ * CURRENT short side, so the layout scale (canvas pixels per unit of the
+ * short side) does not change. A 1080-class canvas gets the same sizes as
+ * before (9:16 = 1080x1920, 16:9 = 1920x1080). Only a canvas of another
+ * class (an old project whose canvas a pre-1.0.8 export sheet set to 720p,
+ * for example) now keeps its class, instead of a jump to 1080 that moved
+ * every element relative to the frame.
+ */
+export function setProjectAspectRatio({
+	editor,
+	ratio,
+}: {
+	editor: EditorCore;
+	ratio: { width: number; height: number };
+}): void {
+	const { width, height } = editor.project.getActive().settings.canvasSize;
+	setProjectResolution({ editor, canvasSize: canvasSizeForAspect({ shortSide: Math.min(width, height), ratio }) });
+}
+
+/** The canvas of an aspect ratio at a given short side (even pixels). */
+export function canvasSizeForAspect({
+	shortSide,
+	ratio,
+}: {
+	shortSide: number;
+	ratio: { width: number; height: number };
+}): TCanvasSize {
+	const even = (v: number) => Math.max(2, Math.round(v / 2) * 2);
+	return ratio.width >= ratio.height
+		? { width: even((shortSide * ratio.width) / ratio.height), height: shortSide }
+		: { width: shortSide, height: even((shortSide * ratio.height) / ratio.width) };
 }
 
 export function setProjectFps({ editor, fps }: { editor: EditorCore; fps: FrameRate }): void {
@@ -1278,14 +1380,14 @@ export async function cutDeadSpace({
 }
 
 // -------------------------------- keyframes ---------------------------------
-// Round 47 (founder: "i want to add keyframes"). The CapCut-mobile diamond
+// Round 47 (founder: "i want to add keyframes"). The mobile keyframe diamond
 // over the engine's per-property keyframe commands — see editor/keyframes.ts
 // for the group model. Every mutation below is one undo step: the engine
 // batches a multi-path upsert/removal into a single BatchCommand, and easing
 // goes through one UpdateElementsCommand.
 
 /** Half a frame: "the playhead is on this keyframe" tolerance. A scrubbed
- *  playhead lands on arbitrary ticks; the frame is the unit CapCut counts
+ *  playhead lands on arbitrary ticks; the frame is the unit mobile editors count
  *  in, and every keyframe this UI writes sits on the frame grid. */
 function keyframeToleranceTicks({ editor }: { editor: EditorCore }): number {
 	return frameTicksFor({ fps: editor.project.getActive().settings.fps }) / 2;
@@ -1422,7 +1524,7 @@ export function setClipKeyframeEasing({
 }
 
 /** Panel sliders for a group property (opacity today): once the clip has
- *  keyframes, a change writes a keyframe at the playhead — CapCut's
+ *  keyframes, a change writes a keyframe at the playhead — the
  *  auto-add — instead of the base param the animation would override
  *  anyway. Un-keyed clips take the plain param write. Each slider tick is
  *  one command either way, same as `setElementParam` already is. */

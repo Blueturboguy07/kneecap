@@ -1,7 +1,7 @@
 import type { CcIconProps } from "./types";
 
 /**
- * KeyframeDiamondIcon — custom-drawn, NOT traced from CapCut.
+ * KeyframeDiamondIcon — custom-drawn from scratch, not traced from another app.
  *
  * Functional brief (corpus 04 §2 / §4.1): a diamond marker placed above the
  * timeline at a clip's playhead position once an animatable property has a
@@ -10,12 +10,12 @@ import type { CcIconProps } from "./types";
  * kit — not a copy of any specific editor's asset.
  *
  * Empty vs filled state: plan M6a flags "keyframe diamond empty/filled
- * states" as [NEEDS-CAPTURE] — CapCut's own exact rendering for
+ * states" as [NEEDS-CAPTURE] — the reference editor's exact rendering for
  * has-keyframe-here vs. no-keyframe-here was not resolvable from the
  * available screenshots. This component ships both states (`filled` prop)
  * as a reasonable placeholder convention common to timeline editors
  * generally (outline = no keyframe at this time, filled = keyframe here),
- * pending the founder capture session confirming CapCut's actual pair.
+ * pending the founder capture session confirming the reference editor's actual pair.
  */
 export function KeyframeDiamondIcon({
 	size = 24,

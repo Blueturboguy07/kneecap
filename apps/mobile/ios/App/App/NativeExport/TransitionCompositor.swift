@@ -176,7 +176,7 @@ public struct OverlayBillboard {
 	}
 }
 
-/// The full CapCut "Adjust" slider set (round 22 — founder: "adjustment to
+/// The full "Adjust" slider set (round 22 — founder: "adjustment to
 /// video menu does not work in preview or in export"), values as authored
 /// in the EDL effect params (-100...100, sharpen/vignette 0...100). Applied
 /// as a CoreImage chain in the compositor; mapping constants chosen to
@@ -204,7 +204,7 @@ public struct AdjustSettings {
 		brightness == 0 && contrast == 0 && saturation == 0 && temperature == 0 && tint == 0 && sharpen == 0 && vignette == 0
 	}
 
-	/// CoreImage chain — same ordering as CapCut's visual result: color
+	/// CoreImage chain — same ordering as the reference editor's visual result: color
 	/// controls, then white balance, then sharpen, then vignette.
 	func apply(to input: CIImage, renderSize: CGSize) -> CIImage {
 		var image = input

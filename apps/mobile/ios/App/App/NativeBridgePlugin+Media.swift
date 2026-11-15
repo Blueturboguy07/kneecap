@@ -17,6 +17,13 @@ extension NativeBridgePlugin {
     // MARK: - pickMedia
 
     @objc func pickMedia(_ call: CAPPluginCall) {
+        // Blind test round 2: a bundled sound (the Audio panel's list) is a
+        // file of the app's web folder. It goes into the same media custody
+        // as a Files pick, so the preview mix and the export read it.
+        if call.getString("source") == "bundled" {
+            importBundledAudio(call: call)
+            return
+        }
         let kinds = call.getArray("kinds", String.self) ?? ["video"]
         let allowMultiple = call.getBool("allowMultiple") ?? false
 
@@ -500,6 +507,30 @@ extension NativeBridgePlugin {
             presenter.present(picker, animated: true)
         }
     }
+
+    /// `pickMedia({source: "bundled", bundledPath: "sounds/<name>.wav"})`:
+    /// copies `public/<bundledPath>` (the web bundle inside App.app) into
+    /// media custody and resolves it as a one-handle pick. No picker opens.
+    func importBundledAudio(call: CAPPluginCall) {
+        guard let path = call.getString("bundledPath"),
+              path.range(of: "^sounds/[a-z0-9-]+\\.(wav|m4a)$", options: .regularExpression) != nil,
+              let publicURL = Bundle.main.url(forResource: "public", withExtension: nil) else {
+            call.reject("pickMedia source=bundled needs bundledPath sounds/<name>.wav", "IO_ERROR")
+            return
+        }
+        let sourceURL = publicURL.appendingPathComponent(path)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            call.reject("no bundled file public/\(path)", "IO_ERROR")
+            return
+        }
+        Task {
+            if let handle = await AudioDocumentPickerCoordinator.importAudio(from: sourceURL) {
+                call.resolve(["handles": [handle]])
+            } else {
+                call.reject("could not copy public/\(path) into media custody", "IO_ERROR")
+            }
+        }
+    }
 }
 
 final class AudioDocumentPickerCoordinator: NSObject, UIDocumentPickerDelegate {
@@ -522,45 +553,54 @@ final class AudioDocumentPickerCoordinator: NSObject, UIDocumentPickerDelegate {
         Task {
             var handles: [[String: Any]] = []
             for url in urls {
-                let assetId = UUID().uuidString
-                let ext = url.pathExtension.isEmpty ? "m4a" : url.pathExtension
-                let custodyURL: URL
-                do {
-                    custodyURL = try MediaSandbox.copyIntoMediaCustody(
-                        sourceURL: url,
-                        assetId: assetId,
-                        fileExtension: ext
-                    )
-                } catch {
-                    print("[kneecap-audio-import] copy failed for \(url.lastPathComponent): \(error)")
-                    continue
+                if let handle = await AudioDocumentPickerCoordinator.importAudio(from: url) {
+                    handles.append(handle)
                 }
-                let attrs = try? FileManager.default.attributesOfItem(atPath: custodyURL.path)
-                let sizeBytes = (attrs?[.size] as? Int) ?? 0
-                var durationMicros: Int64 = 0
-                if let probed = try? await MediaProbe.probe(url: custodyURL) {
-                    durationMicros = probed.durationMicros
-                } else {
-                    let seconds = (try? await AVURLAsset(url: custodyURL).load(.duration).seconds) ?? 0
-                    durationMicros = Int64(seconds * 1_000_000)
-                }
-                handles.append([
-                    "id": assetId,
-                    "uri": custodyURL.path,
-                    "kind": "audio",
-                    "fileName": custodyURL.lastPathComponent,
-                    "sizeBytes": sizeBytes,
-                    "durationMicros": durationMicros,
-                    "width": 0,
-                    "height": 0,
-                    "rotationDegrees": 0,
-                    "hasAudio": true,
-                    "codec": ext,
-                    "frameRate": NSNull(),
-                ])
             }
             call.resolve(["handles": handles])
             onFinished()
         }
+    }
+
+    /// Copies one audio file into media custody and probes it: the handle a
+    /// pick resolves with. nil when the copy fails. Used by the Files picker
+    /// and by the bundled sounds (`importBundledAudio`).
+    static func importAudio(from url: URL) async -> [String: Any]? {
+        let assetId = UUID().uuidString
+        let ext = url.pathExtension.isEmpty ? "m4a" : url.pathExtension
+        let custodyURL: URL
+        do {
+            custodyURL = try MediaSandbox.copyIntoMediaCustody(
+                sourceURL: url,
+                assetId: assetId,
+                fileExtension: ext
+            )
+        } catch {
+            print("[kneecap-audio-import] copy failed for \(url.lastPathComponent): \(error)")
+            return nil
+        }
+        let attrs = try? FileManager.default.attributesOfItem(atPath: custodyURL.path)
+        let sizeBytes = (attrs?[.size] as? Int) ?? 0
+        var durationMicros: Int64 = 0
+        if let probed = try? await MediaProbe.probe(url: custodyURL) {
+            durationMicros = probed.durationMicros
+        } else {
+            let seconds = (try? await AVURLAsset(url: custodyURL).load(.duration).seconds) ?? 0
+            durationMicros = Int64(seconds * 1_000_000)
+        }
+        return [
+            "id": assetId,
+            "uri": custodyURL.path,
+            "kind": "audio",
+            "fileName": custodyURL.lastPathComponent,
+            "sizeBytes": sizeBytes,
+            "durationMicros": durationMicros,
+            "width": 0,
+            "height": 0,
+            "rotationDegrees": 0,
+            "hasAudio": true,
+            "codec": ext,
+            "frameRate": NSNull(),
+        ]
     }
 }

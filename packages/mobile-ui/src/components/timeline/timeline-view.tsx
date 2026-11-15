@@ -6,6 +6,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	type CSSProperties,
 } from "react";
 import type { TimelineProjectVM } from "../../timeline/types";
 import {
@@ -19,6 +20,8 @@ import { usePinchZoom } from "../../timeline/use-pinch-zoom";
 import { useElementSize } from "../../timeline/use-element-size";
 import { buildSnapTargets, resolveSnap } from "../../timeline/snapping";
 import { hapticTick } from "../../timeline/haptics";
+import { scrollTopToShowRow } from "../../timeline/row-scroll";
+import { isPastTapSlop } from "../../timeline/tap-slop";
 import { TimelineRuler } from "./timeline-ruler";
 import { TimelinePlayhead } from "./timeline-playhead";
 import {
@@ -49,7 +52,7 @@ export interface Transition {
 }
 
 /**
- * The CapCut-mobile timeline surface (plan M7). Architecture notes live in
+ * The kneecap mobile timeline surface (plan M7). Architecture notes live in
  * components.css's "Timeline (M7)" header — the short version: ONE
  * scrollable element is both the time axis and the track stack;
  * `scrollLeft` is kept synced to `currentTimeSec` so the fixed, centered
@@ -74,8 +77,8 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	 *  what makes tapping a clip here select the same element the Edit
 	 *  panel/preview/other panels already read from `useSelectedElement()`. */
 	onSelectClip?: (params: { clipId: string; trackId: string }) => void;
-	/** CapCut-parity chrome (founder capture 2026-08-18,
-	 *  docs/capcut-reference/capture-editor-toolbar-start.png). All optional
+	/** Timeline chrome (reference capture 2026-08-18, not kept in the
+	 *  repo). All optional
 	 *  so the M7 dev harness renders the bare surface unchanged. */
 	/** "00:00 / 00:34" readout pinned top-left over the ruler. */
 	currentTimeLabel?: string;
@@ -94,7 +97,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	onQuickAddAudio?: () => void;
 	onQuickAddText?: () => void;
 	/** Helper chips left of the main track's first clip (Mute clip audio /
-	 *  AI clipper / Cover in CapCut). */
+	 *  AI clipper / Cover in the reference editor). */
 	leadingChips?: React.ReactNode;
 	/** ENGINE-BACKED selection (round 18): when provided (the live shell),
 	 *  the strip highlight follows it — a clip grabbed directly on the
@@ -152,7 +155,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 		trackId: string;
 		startSec: number;
 	}) => void;
-	/** CapCut hold-to-reorder commit: long-press lifts a MAIN-track clip,
+	/** Hold-to-reorder commit: long-press lifts a MAIN-track clip,
 	 *  every clip collapses to a uniform tile, the drop slot decides the
 	 *  new order. Fired once per finished reorder drag with the full tile
 	 *  order; the shell re-butts the track to it in one undoable command. */
@@ -220,6 +223,8 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	>(null);
 
 	const isProgrammaticScrollRef = useRef(false);
+	/** Round 4, item 4: a touch on the empty timeline that may still be a tap (deselect). */
+	const clearTapRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
 	const pixelsPerSecond = pixelsPerSecondForZoom({ zoom });
 
 	/**
@@ -262,7 +267,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	}, [pixelsPerSecond, viewportWidthPx]);
 
 	// Playback-follow: while the engine clock is running, the strip tracks it
-	// (CapCut's fixed-center-playhead model — the STRIP moves, the playhead
+	// (fixed-center-playhead model — the STRIP moves, the playhead
 	// doesn't). This is the reverse binding of scrub (scroll -> time); it was
 	// never wired in the touch rebuild, so the timecode ticked while the
 	// timeline sat frozen (founder's iPhone, 2026-08-19). Engine-driven sets
@@ -275,6 +280,31 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 		setCurrentTimeSec(playbackTimeSec);
 		syncScrollToTime(playbackTimeSec);
 	}, [isPlaying, playbackTimeSec, syncScrollToTime]);
+
+	// Blind test round 3, item 8: a selected clip's whole track row comes into view. The
+	// audio track at the bottom was cut by the bottom edge of the timeline, just above the
+	// clip-tools bar. Only scrollTop moves (scrollLeft is the playhead time), and the
+	// programmatic flag keeps this scroll from becoming a seek in handleScroll. A no-op
+	// returns null first, so the flag is never left armed.
+	useEffect(() => {
+		const node = scrollRef.current;
+		if (!node || !selectedClipId) return;
+		const row = node
+			.querySelector<HTMLElement>(".cc-timeline__clip--selected")
+			?.closest<HTMLElement>(".cc-timeline__track-row");
+		if (!row) return;
+		const target = scrollTopToShowRow({
+			scrollTop: node.scrollTop,
+			viewHeight: node.clientHeight,
+			contentHeight: node.scrollHeight,
+			rowTop: row.offsetTop,
+			rowBottom: row.offsetTop + row.offsetHeight,
+			topInset: node.querySelector<HTMLElement>(".cc-timeline__ruler")?.offsetHeight ?? 0,
+		});
+		if (target === null) return;
+		isProgrammaticScrollRef.current = true;
+		node.scrollTop = target;
+	}, [selectedClipId, scrollRef]);
 
 	useImperativeHandle(
 		ref,
@@ -294,6 +324,8 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 			isProgrammaticScrollRef.current = false;
 			return;
 		}
+		// Round 4, item 4: a touch that scrolls the timeline is not a tap (no deselect).
+		clearTapRef.current = null;
 		const node = scrollRef.current;
 		if (!node) return;
 		const timeSec = clampTime({
@@ -383,7 +415,7 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 			);
 			setSnapIndicatorSec(target ? target.timeSec : null);
 			// Live scrub: the shell seeks the PREVIEW to the frame under the
-			// dragged edge (CapCut behavior — you see what you're cutting to).
+			// dragged edge (common mobile-editor behavior — you see what you're cutting to).
 			onTrimScrub?.(params);
 		},
 		[snapTargets, onTrimScrub],
@@ -645,10 +677,20 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 	const totalContentHeightPx =
 		24 /* ruler, --cc-ruler-height */ + project.tracks.length * 48; /* --cc-track-height */
 
+	// Blind test round 4, item 4: the number of track rows (and the "+ Add audio" strip)
+	// goes to CSS. components.css computes --cc-timeline-stack-height from it (time row +
+	// ruler + rows), and with the clip-tools bar the timeline is at least that tall, so no
+	// row is cut at the bar.
+	const stackStyle = {
+		height: "100%",
+		"--cc-timeline-track-count": project.tracks.length,
+		"--cc-timeline-extra-height": showAddAudio && onAddAudio ? "var(--cc-timeline-add-audio-height)" : "0px",
+	} as CSSProperties;
+
 	return (
 		<div
 			className={`cc-timeline${reorderSession ? " cc-timeline--reordering" : ""}`}
-			style={{ height: "100%" }}
+			style={stackStyle}
 		>
 			<div
 				ref={scrollRef}
@@ -670,9 +712,33 @@ export const TimelineView = forwardRef<TimelineViewHandle, {
 						paddingRight: edgePaddingPx,
 						minHeight: totalContentHeightPx,
 					}}
-					onPointerDown={() => {
+					// Blind test round 4, item 4: a TAP on the empty timeline clears the selection;
+					// a drag (a scroll up or down to a track row, or a scrub) keeps it. Before, the
+					// touch-down cleared it, so with a clip selected the rows could not be scrolled
+					// into view: the selection, and the clip-tools bar, went away first. Clips,
+					// handles and buttons stop their pointer-down, so they never start a tap here
+					// (the capture handler clears an old tap first).
+					onPointerDownCapture={() => {
+						clearTapRef.current = null;
+					}}
+					onPointerDown={(event) => {
+						clearTapRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+					}}
+					onPointerMove={(event) => {
+						const tap = clearTapRef.current;
+						if (tap && tap.pointerId === event.pointerId && isPastTapSlop({ tap, event })) {
+							clearTapRef.current = null;
+						}
+					}}
+					onPointerUp={(event) => {
+						const tap = clearTapRef.current;
+						clearTapRef.current = null;
+						if (!tap || tap.pointerId !== event.pointerId || isPastTapSlop({ tap, event })) return;
 						setSelectedClipId(null);
 						onClearSelection?.();
+					}}
+					onPointerCancel={() => {
+						clearTapRef.current = null;
 					}}
 				>
 					<TimelineRuler durationSec={project.durationSec} pixelsPerSecond={pixelsPerSecond} />

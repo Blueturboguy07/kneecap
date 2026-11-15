@@ -9,7 +9,7 @@ interface defined and stubbed."
 - **Capacitor 8 native shell**, iOS + Android, wired to `@kneecap/native-bridge`.
 - `src/` is the **M3 shell harness** — a small vanilla TS+DOM page that
   proves the shell loads with zero network requests and that the
-  `NativeBridge` seam round-trips. **It is not the CapCut UI** (that's
+  `NativeBridge` seam round-trips. **It is not the editor UI** (that's
   M6-M8, and doesn't exist yet), and it is **not** the real M2-item-6 Vite
   SPA bundle of the editor engine either (that item was still open when M3
   landed — see the M3 handoff). The harness deliberately does not import
@@ -46,7 +46,10 @@ interface defined and stubbed."
 
 ```sh
 # from apps/mobile/
-bun run build            # Vite -> www/ (the locally-bundled static app)
+bun run build            # Vite -> www/ (the locally-bundled static app). No developer tools.
+bun run build:debug-tools  # the same, plus #/diagnostics, #/autotest, spike.html and the spike clips
+PUBLIK_GATE_MODE=optional bun run build   # the gate mode (see "Sign in with publik")
+bash scripts/check-web-bundle.sh www required   # the store check CI runs on every bundle
 bunx cap sync ios        # copies www/ into ios/App/App/public
 bunx cap sync android    # copies www/ into android/app/src/main/assets/public
 
@@ -71,6 +74,180 @@ APK was not installed/launched on-device. Neither the iOS "Get Started" tap
 nor the Android `NativeBridgePlugin.getDeviceInfo()` JS↔native round trip on
 a live app has been exercised interactively yet — see the M3 handoff for the
 full list of what is and isn't verified.
+
+## Sign in with publik
+
+`src/main.ts` calls `runPublik()` in `src/publik/gate-ui.ts`, which runs
+`startPublik()` in `src/publik/publik.ts`. The phone side is
+`@kneecap/native-bridge/publik-host` plus `PublikGatePlugin` (iOS
+`ios/App/App/PublikGatePlugin.swift`, Android
+`android/.../PublikGatePlugin.kt`).
+
+**Gate mode: ONE build setting, `PUBLIK_GATE_MODE`** (read by
+`vite.config.ts` at `bun run build`; any other value fails the build):
+
+| Value | What the person sees |
+|---|---|
+| `required` (default) | **Sign in with publik** is the first screen of a new install, before the native first-run screen. There is no way past it. Usage counting starts after the sign-in. |
+| `optional` | The editor opens with no wall. **Sign in with publik** is a row in Settings. Usage counting starts only after a sign-in. A phone that never signed in sends nothing to publik. |
+
+CI builds both (`ios-sim-app` / `android-debug-apk` = required,
+`ios-sim-app-optional` / `android-debug-apk-optional` = optional).
+`release.yml` reads the repo variable `PUBLIK_GATE_MODE` (default required).
+
+Start order, both modes: the WebView loads, the gate runs (required mode
+only), then `showFirstRun()` asks the native side to show the first-run
+screen (`FirstRunView.swift` / `FirstRunActivity.java`, once per install),
+then the editor opens. The editor waits at most 1.5 s for `showFirstRun()`
+(`src/main.ts`), so a first-run screen that does not answer cannot block it.
+When the gate passes while the sign-in page is still open, `closeBrowser()`
+brings the app back in front (iOS: dismiss; Android: MainActivity with
+`CLEAR_TOP | SINGLE_TOP`).
+
+- **Sign in with publik** opens the sign-in page in the in-app browser
+  (SFSafariViewController / a Custom Tab): the server's `claim_url` with
+  `in_app=1` added (the other query items stay). publik then shows its bare
+  page `/in-app/claim/<code>`. The in-app browser opens only publik's in-app
+  pages, which have no site menu, footer, prices or plan links. The app
+  checks the wallet every 3 seconds for up to 10 minutes while it is in
+  front, and again at once when it comes back to the front. In required mode there is no other way past
+  the screen.
+- **Settings** (the "Settings" button on the home screen,
+  `src/app/settings-screen.tsx`):
+  - **Sign in with publik** (optional mode, signed out).
+  - **Sign out** ("Signing out…"): keeps the key in memory, deletes the key
+    file first, stops usage counting, then asks publik to revoke the key
+    (`POST /api/v1/installs/revoke`; best effort, at most 3 s). It finishes
+    without a network. In required mode the gate shows again.
+  - **Delete account**: the same order for the publik data on this phone
+    (the key and the install ID; the usage opt-out stays), then opens
+    `https://publikhq.com/in-app/delete-account` in the in-app browser,
+    where the person confirms.
+  - **Count app use**: the usage-counting switch (`consent.json`). It is
+    off and locked when `DO_NOT_TRACK` or `PUBLIK_TELEMETRY=0` is set.
+  - **Help and support**: opens `https://publikhq.com/in-app/support` in
+    the in-app browser.
+  - **Privacy policy**: opens `https://publikhq.com/in-app/privacy` in the
+    in-app browser (App Store guideline 5.1.1(i)).
+  - **Licenses** (`src/app/licenses-screen.tsx`): the third-party software
+    in the app and its license texts, from
+    `public/licenses/third-party-licenses.json`. After a dependency change,
+    run `python3 apps/mobile/scripts/generate-licenses.py` (it reads the
+    installed `node_modules`) and commit the JSON. soundtouchjs is LGPL-2.1:
+    its entry has the full text and the source link.
+- `USES_AI = false`: kneecap calls no model, so there is no plan screen and
+  no own-key choice.
+- Offline: the first sign-in needs the network. After that, a phone that
+  signed in opens the app when publik does not answer
+  (`OFFLINE_AFTER_SIGN_IN`). If publik later says the phone is signed out,
+  the gate shows again.
+- "Not reachable" also means an answer that is not publik's: a body that is
+  not JSON (a captive portal or a proxy page), 408, 429, 5xx, a 2xx that is
+  not a wallet, and a 401 without publik's JSON error. Only publik's own
+  JSON 401 or 403 from GET /wallet deletes the key; then the gate gets at
+  most 2 new keys and shows publik's message with Retry. POST /installs
+  answering 403 `install_revoked` gets ONE new install with a new random
+  UUID (a saved install id is reused only with its saved key). Sign out and
+  Delete account during a wallet check: the check reads the key again after
+  each wait and writes nothing when it is gone. A failed file write shows the not-reachable
+  screen with Retry; `claimed_at` writes are best effort.
+- Usage counting: `app_opened` after a sign-in, then `active_session` every
+  30 minutes while the app is in front, with the install key. The timer
+  stops in the background and starts again in front (no new `app_opened`).
+  `DO_NOT_TRACK=1`, `PUBLIK_TELEMETRY=0` or `consent.json` with
+  `"usage": false` (the Settings switch) turns it off.
+- The app token (`pat_`) comes from `PUBLIK_APP_TOKEN` at `bun run build`
+  (`vite.config.ts`); CI passes the repo secret of that name. A store build
+  (`bun run build`, not `build:debug-tools`) without a `pat_` token fails;
+  `PUBLIK_ALLOW_NO_TOKEN=1` allows it (CI sets it only for a fork's pull
+  request, which gets no secrets). `scripts/check-web-bundle.sh` also fails
+  when no `pat_` token is in `www/assets` (it never prints the value), and
+  `release.yml` fails first when the secret is empty.
+- Store builds (App Store and releases): `APP_STORE_BUILD=1`. The build
+  fails unless the gate is required, `PUBLIK_TEST_HOOKS`,
+  `KNEECAP_DEBUG_TOOLS` and `PUBLIK_ALLOW_NO_TOKEN` are off, it runs in
+  GitHub Actions and no `.env` file sets `PUBLIK_APP_TOKEN` (the token comes
+  only from the CI secret). The bundle then has the marker
+  `publik-build:store`; `check-web-bundle.sh www required store`, the iOS
+  "Debug-only items" phase (`xcodebuild ... APP_STORE_BUILD=1`) and the
+  Android release check (`APP_STORE_BUILD=1 ./gradlew assembleRelease`)
+  refuse a store build without it. `scripts/test-store-build-guards.sh`
+  proves the failures in CI.
+- Name: the App Store and in-app name is "publik kneecap"; the home-screen
+  label and the home header stay "kneecap" (the long name would be cut off).
+- No purchase link: `USES_AI = false`, so the plan screen ("Get a plan")
+  never shows, and the sign-in button opens only publik's claim page.
+
+Launch settings (iOS: environment or `-NAME value` launch arguments;
+Android: intent extras). The app reads only these. They are test hooks:
+
+- Android reads them only in a debuggable build (`FLAG_DEBUGGABLE`, the CI
+  debug APK). A release build ignores them. `FirstRunActivity` passes on
+  only these 5 names, and only in a debuggable build. `MainActivity` is not
+  exported in `src/main` (only `src/debug` exports it, for the spike deep
+  link).
+- iOS reads `PUBLIK_API_BASE_URL` only in a Debug build or a build with the
+  Swift condition `PUBLIK_TEST_HOOKS`. Only those builds get
+  `NSAllowsLocalNetworking` (the "Debug-only items" build phase); a Release
+  build with it fails.
+- The web side (`testBaseUrl()` in `publik.ts`) accepts a
+  `PUBLIK_API_BASE_URL` only on this computer or the local network
+  (localhost, 127.x, ::1, 10.0.2.2, `*.local`), unless the bundle was built
+  with `PUBLIK_TEST_HOOKS=1`. Never ship a `PUBLIK_TEST_HOOKS` build.
+
+```sh
+# Self-test of the built app: prints one line, then exits.
+SIMCTL_CHILD_PUBLIK_SELF_TEST=1 xcrun simctl launch --console-pty booted dev.kneecap.app
+adb shell am start -n dev.kneecap.app/.FirstRunActivity --es PUBLIK_SELF_TEST 1 && adb logcat -s publik
+# -> publik self-test: ok kneecap 1.0.1
+
+# Test hook: send every publik call to another server.
+SIMCTL_CHILD_PUBLIK_API_BASE_URL=http://127.0.0.1:8787/api/v1 xcrun simctl launch booted dev.kneecap.app
+adb shell am start -n dev.kneecap.app/.FirstRunActivity --es PUBLIK_API_BASE_URL http://10.0.2.2:8787/api/v1
+```
+
+Unit tests: `bun test apps/mobile/test` (from the repo root). They cover both
+gate modes, the Settings actions, answers that are not publik's, a key file
+that cannot be saved, and the usage timer in the background.
+
+## Store build items
+
+- **Privacy manifest**: `ios/App/App/PrivacyInfo.xcprivacy`. No tracking.
+  Collected data: Device ID, Product Interaction, User ID, Email Address and
+  Name (all from Sign in with publik and usage counting). Required-reason
+  APIs: UserDefaults (CA92.1) and file timestamps (C617.1). The comment in
+  the file says where each one is used. Keep the App Store Connect privacy
+  answers the same as this file.
+- **Developer tools are in debug builds only**: web (`KNEECAP_DEBUG_TOOLS`,
+  `vite.config.ts`), iOS (`#if DEBUG`, plus the "Debug-only items" build
+  phase, which adds the `kneecap-spike://` scheme and
+  `NSAllowsLocalNetworking` in Debug and fails a Release build that has a
+  developer tool or `NSAllowsLocalNetworking`), Android (`src/debug`: the
+  spike clips, `SpikeDiagnosticsPlugin.java`, the deep link; the
+  `checkReleaseWebBundle` Gradle task fails a release build when
+  `spike.html` or the debug chunks are in `assets/public`).
+- **Gate-mode marker**: `src/main.ts` puts `publik-gate-mode:<mode>` in the
+  bundle. `scripts/check-web-bundle.sh www <required|optional>` fails when
+  the marker is missing or is the other mode, so CI proves each build's
+  mode. A missing or unknown mode argument is an error.
+- **Fonts**: the font picker's list (`public/fonts/font-atlas.json` and its
+  preview images) has no font named after another company's app
+  (guidelines 4.1 and 5.2). Only Inter and Albert Sans ship as font files.
+- **Licenses**: Settings > Licenses (see above).
+- **No camera or microphone permission**: the app never asks for them.
+  Android's `NativeBridgePlugin.kt` has a camera-capture path that no screen
+  calls; add `CAMERA` back to the manifest before a screen uses it.
+- **iPhone only** (`TARGETED_DEVICE_FAMILY = 1`), `arm64` in
+  `UIRequiredDeviceCapabilities`, `ITSAppUsesNonExemptEncryption = false`
+  (the app has no encryption of its own; HTTPS is exempt).
+- **App icon and splash**: one source file, `brand/icon.svg` (a solid
+  `<rect id="background">` and the mark in `<g id="mark">`). To change the
+  icon, edit or replace that file, then run
+  `python3 scripts/generate-brand-assets.py` (needs `rsvg-convert` and
+  Pillow) and commit the PNGs it writes. The iOS App Store icon has no alpha
+  channel.
+- CI checks all of these: `scripts/check-web-bundle.sh`,
+  `scripts/check-ios-app.sh`, `scripts/check-android-apk.sh`.
 
 ## NativeBridge: what's real vs. stubbed (M3 + M4)
 
@@ -113,8 +290,8 @@ Capacitor/UIKit-free — Foundation/AVFoundation/CoreImage only).
 
 - **`apps/mobile/ios/verify-media-pipeline/`** compiles those SAME
   `NativeMedia/*.swift` files into a standalone macOS command-line
-  executable and runs them against a real bundled fixture
-  (`App/App/Fixtures/kneecap-test-clip.mp4` — a 960x540/4s/H.264+AAC clip
+  executable and runs them against a real fixture from the source tree
+  (`App/App/Fixtures/kneecap-test-clip.mp4`, not copied into the app — a 960x540/4s/H.264+AAC clip
   generated with `ffmpeg`'s `testsrc2` filter, not a shipped copyrighted
   asset). This is real, not a mock: probe (dims/duration/codec/fps),
   downscale-transcode (960x540 → 480x270), and thumbnail generation (6
@@ -355,7 +532,7 @@ Android side:
   listener-cleanup path.
 - `src/main.ts` — an "Import media" card drives the real
   `pickMedia -> generateProxy -> generateThumbnails` sequence from a
-  button tap (still harness UI, not the M6-M8 CapCut timeline's own
+  button tap (still harness UI, not the M6-M8 timeline's own
   import flow, but the same `NativeBridge` calls that flow will make).
 
 **What is verified vs. not, honestly:** the Kotlin plugin genuinely

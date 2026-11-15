@@ -13,10 +13,14 @@ import SwiftUI
 /// `PHPhotoLibrary.requestAuthorization` from this screen would force a
 /// broad-grant prompt the chosen import path was designed to avoid entirely.
 /// This is a primer (explains what's ahead and that everything stays local),
-/// not a permission gate. Info.plist still carries `NSCameraUsageDescription`
-/// / `NSMicrophoneUsageDescription` / `NSPhotoLibraryAddUsageDescription` for
-/// the M4/M8/M9 features that DO need them — declaring those keys is inert
-/// until the corresponding API is actually called.
+/// not a permission gate. Info.plist carries only the usage strings for APIs
+/// the app really calls: `NSPhotoLibraryAddUsageDescription` (export to
+/// Photos) and `NSSpeechRecognitionUsageDescription` (on-device captions).
+/// No code uses the camera or the microphone, so their strings are gone
+/// (App Store guideline 5.1.1(iii)).
+///
+/// Shown by `PublikGatePlugin.showFirstRun`, which the web app calls after
+/// "Sign in with publik": the gate is the first screen of a new install.
 struct FirstRunView: View {
     let onFinish: () -> Void
 
@@ -28,7 +32,7 @@ struct FirstRunView: View {
             VStack(spacing: 24) {
                 Spacer()
 
-                Text("kneecap")
+                Text("publik kneecap")
                     .font(.system(size: 34, weight: .bold))
                     .foregroundColor(.white)
 
@@ -39,7 +43,7 @@ struct FirstRunView: View {
                     )
                     permissionRow(
                         title: "Offline by design",
-                        detail: "Editing, effects, and export all run locally — kneecap never uploads your media."
+                        detail: "Editing, effects, and export all run locally — publik kneecap never uploads your media."
                     )
                 }
                 .padding(20)
@@ -56,9 +60,8 @@ struct FirstRunView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
                         // Fixer pass: was 0x4E4AFF, a pre-B1 blue-violet
-                        // trade-dress accent written at M3, before the
-                        // ratified B1 hard directive ("full pixel fidelity
-                        // to CapCut mobile, cyan #00CAE0 in"). First-run
+                        // accent written at M3, before the ratified B1
+                        // directive (the cyan #00CAE0 accent). First-run
                         // chrome isn't in B1's splash/name/icon exception
                         // list, and packages/mobile-ui/src/tokens.css's
                         // --cc-accent has used #00CAE0 since M6 — this

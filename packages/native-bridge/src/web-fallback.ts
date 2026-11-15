@@ -24,6 +24,7 @@ import type {
 	PickMediaOptions,
 	ProxyProgress,
 	ProxySpec,
+	SaveToPhotosResult,
 	ThumbnailStrip,
 	ThumbnailStripSpec,
 	TranscribeOptions,
@@ -114,6 +115,17 @@ async function probeFile({
 	return { ...base, ...meta };
 }
 
+/** `pickMedia({source: "bundled"})`: the app's own file (a bundled sound),
+ * fetched same-origin and probed like a picked one. DOM-only. */
+async function fetchBundledFile(path: string): Promise<File> {
+	const res = await fetch(`/${path}`);
+	if (!res.ok) {
+		throw new NativeBridgeError({ code: "IO_ERROR", message: `no bundled file /${path} (HTTP ${res.status})` });
+	}
+	const blob = await res.blob();
+	return new File([blob], path.split("/").pop() ?? path, { type: blob.type || "audio/wav" });
+}
+
 /** Triggers a hidden `<input type="file">` and resolves with the user's
  * selection, or `[]` on cancel. DOM-only. */
 function openFilePicker({
@@ -175,7 +187,10 @@ export function createWebFallbackBridge(): NativeBridge {
 		audioLevel: async () => 0,
 
 		async pickMedia(opts) {
-			const files = await openFilePicker(opts);
+			const files =
+				opts.source === "bundled" && opts.bundledPath
+					? [await fetchBundledFile(opts.bundledPath)]
+					: await openFilePicker(opts);
 			const handles: MediaHandle[] = [];
 			for (const file of files) {
 				handles.push(
@@ -209,6 +224,22 @@ export function createWebFallbackBridge(): NativeBridge {
 				code: "UNSUPPORTED",
 				message:
 					"Hardware export requires a native shell (plan M9: AVFoundation / Media3). Not available in the web-fallback bridge.",
+			});
+		},
+
+		// The export result block (1.0.5). A browser has no Photos library
+		// and no system share sheet; `exportProject` above never reaches
+		// "done" here anyway, but these still fail cleanly: a plain
+		// "failed" answer for the save (its contract never rejects) and a
+		// typed UNSUPPORTED error for Share.
+		async saveToPhotos(_params: { uri: string }): Promise<SaveToPhotosResult> {
+			return { saved: false, reason: "failed" };
+		},
+
+		async shareFile(_params: { uri: string }): Promise<void> {
+			throw new NativeBridgeError({
+				code: "UNSUPPORTED",
+				message: "Sharing a file requires a native shell (UIActivityViewController / ACTION_SEND). Not available in the web-fallback bridge.",
 			});
 		},
 

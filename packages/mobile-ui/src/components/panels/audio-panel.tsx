@@ -16,8 +16,11 @@ interface AudioPanelProps {
 /**
  * M8 Audio panel — plan M8 item 3: "The Freesound proxy... is cut... Ship
  * a small bundled local sound set instead." Lists `getLocalSounds()`
- * (real, zero-network, procedurally-synthesized WAV data URIs — see
- * `sounds/local-sounds.ts`). Per-clip volume/speed/reverse for an inserted
+ * (real, zero-network, procedurally-synthesized WAV sounds — see
+ * `sounds/local-sounds.ts`). Blind test round 2: each sound is a file of the
+ * app (`public/sounds/<id>.wav`) and goes through the SAME native import as
+ * "Import audio from Files", so the preview and the export play it.
+ * Per-clip volume/speed/reverse for an inserted
  * sound are the SAME retimable controls the Edit panel exposes once the
  * clip is selected — not duplicated here.
  */
@@ -51,21 +54,30 @@ export function AudioPanel({ editor, onClose, onInserted }: AudioPanelProps) {
 				<span>{importing ? "Importing…" : "Import audio from Files"}</span>
 			</button>
 			{importError && <p className="cc-panel-note">{importError}</p>}
-			<p className="cc-panel-note">Bundled local sounds — no network, no CapCut library clone.</p>
+			<p className="cc-panel-note">Bundled local sounds — they work offline.</p>
 			<div className="cc-panel-actions">
 				{sounds.map((sound) => (
 					<button
 						key={sound.id}
 						type="button"
 						className="cc-panel-actions__btn"
+						disabled={importing}
 						onClick={() => {
-							const ref = insertLocalSound({
+							setImporting(true);
+							setImportError(null);
+							insertLocalSound({
 								editor,
-								sourceUrl: sound.sourceUrl,
+								bundledPath: sound.bundledPath,
 								name: sound.name,
 								durationSeconds: sound.durationSeconds,
-							});
-							if (ref) onInserted(ref);
+							})
+								.then((ref) => {
+									if (ref) onInserted(ref);
+								})
+								.catch((error: unknown) =>
+									setImportError(error instanceof Error ? error.message : String(error)),
+								)
+								.finally(() => setImporting(false));
 						}}
 					>
 						<Music size={20} strokeWidth={CC_ICON_STROKE} />

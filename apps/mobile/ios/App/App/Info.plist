@@ -6,8 +6,10 @@
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
+	<!-- The home-screen label stays short ("publik kneecap" would be cut off under the icon).
+	     The App Store and in-app name is "publik kneecap" (founder decision, Nov 14 2026). -->
 	<key>CFBundleDisplayName</key>
-        <string>kneecap</string>
+	<string>kneecap</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +17,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<string>publik kneecap</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -25,29 +27,17 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>kneecap saves exported videos back to your library when you tap Export.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>kneecap uses the camera to record clips directly into your project.</string>
+	<string>publik kneecap saves exported videos back to your library when you tap Export.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>kneecap transcribes your clips' audio on this device to generate captions. Audio never leaves your phone.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>kneecap uses the microphone to record voiceovers and camera audio.</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>dev.kneecap.app.spike</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<!-- kneecap M1 spike — throwaway deep link that navigates the
-				     already-loaded WKWebView to spike.html (the hidden
-				     diagnostics screen). See SceneDelegate.swift and
-				     docs/SPIKE-GUIDE.md. Not a product feature; safe/expected
-				     to delete once M1 is read. -->
-				<string>kneecap-spike</string>
-			</array>
-		</dict>
-	</array>
+	<string>publik kneecap makes captions from the speech in your clips. Speech recognition runs on this phone.</string>
+	<!-- No camera or microphone strings: no code uses them (App Store
+	     guideline 5.1.1(iii)). No URL types: the M1 spike's kneecap-spike://
+	     scheme is a developer tool, added to Debug builds only by the
+	     "Debug-only items" build phase (project.pbxproj). -->
+	<!-- Export compliance: the only encryption is HTTPS through the OS
+	     (URLSession / WKWebView), which is exempt. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -73,7 +63,7 @@
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
@@ -95,5 +85,8 @@
 		<string>fonts/AlbertSans-Regular.ttf</string>
 		<string>fonts/AlbertSans-Bold.ttf</string>
 	</array>
+	<!-- No NSAppTransportSecurity here: a Debug or PUBLIK_TEST_HOOKS build
+	     gets NSAllowsLocalNetworking from the "Debug-only items" build phase
+	     (for a fake publik on this computer); a store build has none. -->
 </dict>
 </plist>

@@ -3,8 +3,10 @@ import type { CapacitorConfig } from "@capacitor/cli";
 /**
  * kneecap M3 — Capacitor 8 shell config.
  *
- * appId/appName are the "original name" plan §8.2 requires (never CapCut-
- * adjacent). `webDir: "www"` is the LOCALLY BUNDLED static build the app
+ * appId is the original name plan §8.2 requires (it names no other app);
+ * appName is the App Store and in-app name "publik kneecap" (founder
+ * decision, Nov 14 2026; the home-screen label stays "kneecap", see
+ * Info.plist and strings.xml). `webDir: "www"` is the LOCALLY BUNDLED static build the app
  * ships — plan M3 item 2: "No remote loading of the editor bundle: Apple
  * 2.5.2 forbids downloading code that changes app functionality." `www/` is
  * produced by `bun run build` (Vite) from `src/`; nothing in this config
@@ -23,11 +25,18 @@ import type { CapacitorConfig } from "@capacitor/cli";
  * already satisfies Apple 2.5.6 (WKWebView, not the deprecated UIWebView) and
  * already avoids file:// by construction — there is no bundled iOS analogue
  * to appassets.androidplatform.net to opt into.
+ *
+ * `backgroundColor` is black on both platforms: the web view is black from
+ * its first frame, like the launch screen and every app screen (blind test
+ * 1.0.4: a cold launch showed a white web view for seconds before the bundle
+ * painted). KneecapBridgeViewController (SceneDelegate.swift) also makes the
+ * iOS web view non-opaque, so nothing white shows through.
  */
 const config: CapacitorConfig = {
 	appId: "dev.kneecap.app",
-	appName: "kneecap",
+	appName: "publik kneecap",
 	webDir: "www",
+	backgroundColor: "#000000",
 	android: {
 		allowMixedContent: false,
 	},

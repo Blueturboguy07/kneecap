@@ -1,4 +1,4 @@
-import { Copy, RotateCcw, Scissors, ScissorsLineDashed, Trash2 } from "lucide-react";
+import { Copy, Scissors, ScissorsLineDashed, Trash2 } from "lucide-react";
 import { CC_ICON_STROKE } from "../../tokens";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
@@ -18,20 +18,24 @@ interface EditPanelProps {
 	onDuplicate: () => void;
 	/** Absent for element types that can't carry audio — the row is then
 	 *  hidden rather than shown-and-disabled, matching how this panel already
-	 *  treats speed/volume/reverse on a text or sticker selection. */
+	 *  treats speed/volume on a text or sticker selection. */
 	onCutDeadSpace?: () => void;
 	onSetSpeed: (args: { rate: number; maintainPitch: boolean }) => void;
 	onSetVolume: (db: number) => void;
-	onToggleReverse: () => void;
+	/** Writes the element's `muted` param. Preview audio (AudioManager) and
+	 *  both native exporters (EDL `clip.muted`) leave a muted clip out. */
+	onSetMuted: (muted: boolean) => void;
 }
 
 /**
- * M8 Edit panel — task scope: "contextual: split/speed/volume/delete/
- * duplicate/reverse." Speed/volume/reverse only apply to retimable
- * elements (video/audio, per `RETIMABLE_ELEMENT_TYPES` in the engine) —
- * for a text/sticker/graphic selection those three controls are hidden
- * rather than shown-and-disabled, since there is no engine-side field for
- * them to write to on those types.
+ * M8 Edit panel: split, duplicate, delete, cut gaps, speed, volume and mute.
+ * Speed, volume and mute only apply to retimable elements (video/audio, per
+ * `RETIMABLE_ELEMENT_TYPES` in the engine) — for a text/sticker/graphic
+ * selection those controls are hidden rather than shown-and-disabled,
+ * since there is no engine-side field for them to write to on those types.
+ *
+ * No Reverse switch (App Store rule 2.1, completeness): preview and export
+ * do not play a clip backwards, so the switch did nothing.
  */
 export function EditPanel({
 	element,
@@ -42,14 +46,14 @@ export function EditPanel({
 	onCutDeadSpace,
 	onSetSpeed,
 	onSetVolume,
-	onToggleReverse,
+	onSetMuted,
 }: EditPanelProps) {
 	const isRetimable = RETIMABLE_TYPES.has(element.type);
 	const retime = "retime" in element ? element.retime : undefined;
 	const rate = retime?.rate ?? DEFAULT_RETIME_RATE;
 	const maintainPitch = retime?.maintainPitch ?? false;
 	const volumeDb = typeof element.params.volume === "number" ? element.params.volume : 0;
-	const reversed = Boolean(element.params.reversed);
+	const muted = element.params.muted === true;
 
 	return (
 		<PanelSheet onScrimClick={onClose} header={<SheetHeader onClose={onClose} />}>
@@ -90,7 +94,7 @@ export function EditPanel({
 						active={maintainPitch}
 						onToggle={() => onSetSpeed({ rate, maintainPitch: !maintainPitch })}
 					/>
-					{/* CapCut-parity volume: a LINEAR percent slider 0–1000
+					{/* Volume: a LINEAR percent slider 0–1000
 					    (100 = original, 1000 = 10×) — the raw dB slider
 					    crammed the whole audible boost into its top edge and
 					    read as "won't go loud enough" (founder, 2026-08-22).
@@ -115,17 +119,7 @@ export function EditPanel({
 							)
 						}
 					/>
-					<ToggleRow
-						label="Reverse"
-						active={reversed}
-						onToggle={onToggleReverse}
-					/>
-					{reversed && (
-						<p className="cc-panel-note">
-							<RotateCcw size={12} strokeWidth={CC_ICON_STROKE} aria-hidden="true" /> Reverse state is saved with the
-							clip, but preview/export playback direction isn&apos;t implemented yet — see the M8 handoff.
-						</p>
-					)}
+					<ToggleRow label="Mute" active={muted} onToggle={() => onSetMuted(!muted)} />
 				</>
 			)}
 		</PanelSheet>

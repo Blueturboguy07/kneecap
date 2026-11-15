@@ -204,8 +204,8 @@ const textElementParams: ElementParamDefinition[] = [
 		key: "fontFamily",
 		label: "Font Family",
 		type: "font",
-		// Albert Sans (round 31): CapCut's own default face — their web
-		// editor literally ships AlbertSansLatin.woff2 as "Default", and
+		// Albert Sans (round 31): the reference editor's own default face — its
+		// web editor literally ships AlbertSansLatin.woff2 as "Default", and
 		// the community's "Proxima Nova" identification matches (Albert
 		// Sans is the OFL near-equivalent). Bundled locally, see
 		// fonts/local-fonts.ts.
@@ -235,8 +235,8 @@ const textElementParams: ElementParamDefinition[] = [
 	{
 		// PERCENT OF FONT SIZE (round 33) — the unit CoreText's
 		// kCTStrokeWidth uses, so preview (`lineWidth = strokeWidth/100 ×
-		// scaledFontSize`) and export agree at any canvas size. 20 ≈
-		// CapCut's own default-when-enabled; 2 is the thin default this
+		// scaledFontSize`) and export agree at any canvas size. 20 ≈ the
+		// reference editor's default-when-enabled; 2 is the thin default this
 		// app's Border toggle applies (see DEFAULT_TEXT_BORDER_WIDTH).
 		key: "strokeWidth",
 		label: "Border",

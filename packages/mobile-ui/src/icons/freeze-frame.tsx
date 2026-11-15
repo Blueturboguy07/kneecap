@@ -1,11 +1,11 @@
 import type { CcIconProps } from "./types";
 
 /**
- * FreezeFrameIcon — custom-drawn, NOT traced from CapCut.
+ * FreezeFrameIcon — custom-drawn from scratch, not traced from another app.
  *
  * Functional brief (corpus 04 §3.1, App Store copy: "Highlight the best
  * moments with the freeze feature"): hold a single frame in place. Drawn
- * as the same outline video-frame shell measured across CapCut's real
+ * as the same outline video-frame shell measured across the reference editor's real
  * toolbar icons (corpus 06 §4), with a filled snowflake/asterisk burst as
  * the "frozen" micro-glyph — the generic freeze/frost motif, not any
  * specific app's icon.

@@ -21,7 +21,7 @@
  *     crossfade via AVMutableVideoComposition opacity ramps + a text overlay
  *     via AVVideoCompositionCoreAnimationTool, exported with
  *     AVAssetExportSession.
- *   - Android uses 2 clips bundled at `android/app/src/main/assets/spike/`
+ *   - Android uses 2 clips bundled at `android/app/src/debug/assets/spike/`
  *     (trivial and safe to bundle — no project-file surgery needed, unlike
  *     iOS) and Media3 Transformer. Whether the installed Media3 version
  *     supports true cross-fade compositing between two `EditedMediaItem`

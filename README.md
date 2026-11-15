@@ -1,15 +1,13 @@
 # kneecap
 
-A local-first, fully offline mobile video editor, built for CapCut-mobile
-feature and visual parity.
+A local-first, fully offline mobile video editor with a touch-first
+mobile editing experience.
 
-**kneecap is an independent, community fork.** It is **not affiliated
-with, endorsed by, or sponsored by** OpenCut, OpenCut-app, CapCut,
-ByteDance, or TikTok Pte. Ltd. "CapCut" is referenced in this repo's
-planning docs only as a functional/visual parity target for the editor
-we're building — no CapCut trademarks, marks, or copyrighted assets are
-bundled, redistributed, or reproduced here. See `docs/DECISIONS.md` for
-the full attribution and naming posture.
+**kneecap is an independent project.** It is **not affiliated with,
+endorsed by, or sponsored by** any other app maker, including OpenCut-app.
+No third-party trademarks, marks, or copyrighted assets of any other app
+are bundled, redistributed, or reproduced here. See `docs/DECISIONS.md`
+for the full attribution and naming posture.
 
 ## Based on OpenCut-app/opencut-classic (MIT)
 
@@ -32,7 +30,7 @@ the separate, actively-developed `OpenCut-app/OpenCut` rewrite.
 
 kneecap strips the inherited engine down to its headless editing core —
 timeline, ripple/placement, effects, storage — and is being rebuilt as a
-touch-first, CapCut-mobile-shaped editor for iOS and Android, running
+touch-first mobile editor for iOS and Android, running
 fully on-device:
 
 - **Zero cloud dependency.** No account, no server, no paid API of any

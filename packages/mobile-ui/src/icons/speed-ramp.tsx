@@ -1,7 +1,7 @@
 import type { CcIconProps } from "./types";
 
 /**
- * SpeedRampIcon — custom-drawn, NOT traced from CapCut.
+ * SpeedRampIcon — custom-drawn from scratch, not traced from another app.
  *
  * Functional brief (corpus 04 §4.1): speed's "Curve" mode — a velocity
  * ramp with manually-added points on the curve ("Add Point" for custom

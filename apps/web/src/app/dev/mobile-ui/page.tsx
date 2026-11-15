@@ -133,7 +133,7 @@ export default function MobileUiHarnessPage() {
 			{/* Phone frame — the harness itself is NOT part of the component kit,
 			    just a fixed 390x844 CSS box to verify no horizontal overflow. */}
 			<div
-				data-kneecap-theme="capcut-mobile"
+				data-kneecap-theme="kneecap-mobile"
 				style={{
 					width: 390,
 					height: 844,
@@ -281,7 +281,7 @@ export default function MobileUiHarnessPage() {
 			{/* Static QA strip: tab bar + all 6 custom icons at a glance, outside
 			    the phone frame so they're visible regardless of sheet state above. */}
 			<div
-				data-kneecap-theme="capcut-mobile"
+				data-kneecap-theme="kneecap-mobile"
 				style={{
 					width: 390,
 					background: "var(--cc-bg-panel)",
@@ -304,7 +304,7 @@ export default function MobileUiHarnessPage() {
 				</div>
 				<div>
 					<p style={{ fontSize: 11, color: "var(--cc-text-secondary)", marginBottom: 6 }}>
-						6 custom-drawn icons (plan M6c) — never traced from CapCut
+						6 custom-drawn icons (plan M6c) — drawn from scratch, not traced from another app
 					</p>
 					<div style={{ display: "flex", gap: 16, color: "var(--cc-text-primary)" }}>
 						<KeyframeDiamondIcon />

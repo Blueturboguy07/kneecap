@@ -7,7 +7,7 @@
  * sine-wave tone, encoded as a 16-bit PCM WAV and embedded as a `data:`
  * URI at module load — genuinely zero network, works fully offline, and
  * needs no binary asset files checked into the repo. This is NOT a clone of
- * any CapCut sound (CapCut's actual bundled library is not reproducible
+ * any other app's sound (another app's bundled library is not reproducible
  * from public research) — it is placeholder-quality local content that
  * proves the real mechanism: `AudioElement` with `sourceType: "library"`
  * and a `sourceUrl` that resolves without ever touching the network.
@@ -16,6 +16,14 @@
  * "small CC0/OFL starter pack") is a content task, not an architecture
  * change — `LocalSound.sourceUrl` can point at a bundled static asset path
  * exactly as easily as a data URI.
+ *
+ * Blind test round 2: a `data:` URI clip has no media asset, so the native
+ * preview mix skipped it and both native exports could not use it. The
+ * mobile app therefore ships the same bytes as files,
+ * `apps/mobile/public/<bundledPath>` (made by
+ * apps/mobile/scripts/generate-bundled-sounds.ts), and the Audio panel
+ * imports that file into media custody like a picked one
+ * (mobile-ui `insertLocalSound`, pickMedia source "bundled").
  */
 
 const SAMPLE_RATE = 8000;
@@ -98,6 +106,8 @@ export interface LocalSound {
 	category: string;
 	durationSeconds: number;
 	sourceUrl: string;
+	/** The same sound as a file of the mobile app's web folder. */
+	bundledPath: string;
 }
 
 const TONE_SPECS: Array<{
@@ -123,6 +133,7 @@ export function getLocalSounds(): LocalSound[] {
 		name: spec.name,
 		category: spec.category,
 		durationSeconds: spec.durationSeconds,
+		bundledPath: `sounds/${spec.id}.wav`,
 		sourceUrl: synthesizeToneWavDataUri({
 			frequencyHz: spec.frequencyHz,
 			durationSeconds: spec.durationSeconds,

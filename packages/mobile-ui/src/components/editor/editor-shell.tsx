@@ -3,6 +3,7 @@ import { TICKS_PER_SECOND, type EditorCore, type NativeImportProgress } from "@k
 import { cn } from "../../lib/cn";
 import { isVisualElement, type ElementRef, type TimelineElement, type VisualElement } from "@kneecap/editor-core/timeline";
 import { mediaTime, mediaTimeToSeconds, type MediaTime } from "@kneecap/editor-core/wasm";
+import { getExportSize } from "@kneecap/editor-core/edl";
 import { TopBar } from "./top-bar";
 import { PlaybackBar } from "./playback-bar";
 import { PreviewStage } from "./preview-stage";
@@ -30,6 +31,7 @@ import {
 	useCurrentTimeSeconds,
 	useIsPlaying,
 	useProjectDurationSeconds,
+	useProjectSettings,
 	useSceneTransitions,
 } from "../../editor/use-live-editor";
 import { bootstrapDemoProject } from "../../editor/demo-project";
@@ -40,7 +42,6 @@ import {
 	duplicateSelected,
 	setRetime,
 	setElementParam,
-	toggleReversed,
 	selectElement,
 	insertTextElement,
 	importAndPlaceOverlay,
@@ -48,7 +49,7 @@ import {
 	togglePlayback,
 	seekToSeconds,
 	importAndPlaceMedia,
-	setProjectResolution,
+	setProjectAspectRatio,
 	setProjectBackground,
 	commitElementTrim,
 	scrubElementTrim,
@@ -62,8 +63,7 @@ import {
 	setClipKeyframeEasing,
 	type DeadSpaceCutOutcome,
 } from "../../editor/actions";
-import { Scissors, ScissorsLineDashed, Trash2, CopyPlus, SlidersHorizontal, Spline, Type, VolumeX, WandSparkles, ImagePlus } from "lucide-react";
-import { CC_ICON_STROKE } from "../../tokens";
+import { Scissors, ScissorsLineDashed, Trash2, CopyPlus, SlidersHorizontal, Spline, Type } from "lucide-react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { ProgressOverlay } from "../progress-overlay";
@@ -91,7 +91,7 @@ interface EditorShellProps {
 	bootstrap?: () => Promise<unknown>;
 }
 
-/** Selected-clip actions, CapCut-style: the frequent verbs live DIRECTLY
+/** Selected-clip actions, mobile-editor style: the frequent verbs live DIRECTLY
  *  on the contextual row — Delete especially must never be two taps deep
  *  behind a sheet (founder feedback 2026-08-19: "delete not popping up is
  *  the most critical thing"). "Edit" still opens the full sheet for the
@@ -142,7 +142,7 @@ function describeDeadSpaceCut({ outcome }: { outcome: DeadSpaceCutOutcome }): st
  *  that opens the panel with their content field. */
 const EDIT_TEXT_ITEM: ToolbarItemDef = { id: "edit-text", label: "Edit text", icon: Type };
 
-/** Round 47: CapCut's "Graph" verb — keyframe easing presets — appears on
+/** Round 47: the "Graph" verb — keyframe easing presets — appears on
  *  the contextual row once the selected clip has a keyframe. */
 const GRAPH_ITEM: ToolbarItemDef = { id: "graph", label: "Graph", icon: Spline };
 
@@ -177,7 +177,7 @@ function formatTimecode(seconds: number): string {
 	return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
-/** CapCut's top-bar pill reads "AI UHD" when AI-upscaled export is armed;
+/** The reference editor's top-bar pill reads "AI UHD" when AI-upscaled export is armed;
  *  kneecap has no upscaler, so the pill honestly shows the project's real
  *  export resolution class and opens the export sheet where it's changed. */
 function resolutionLabelFor({ width, height }: { width: number; height: number }): string {
@@ -233,7 +233,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	 * but a <video>, so on iOS — half this app's target — the real API
 	 * cannot expand a composited canvas at all. A layout state works
 	 * identically on both platforms, keeps the playback bar reachable so
-	 * there is always a way back out, and is what CapCut itself does.
+	 * there is always a way back out, and is what the reference editor does.
 	 */
 	const [isPreviewFullscreen, setIsPreviewFullscreen] = useState(false);
 	/** Transient error strip for chrome-level actions that have no panel of
@@ -347,17 +347,23 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	const currentTimeSeconds = useCurrentTimeSeconds();
 	const durationSeconds = useProjectDurationSeconds();
 	const isPlaying = useIsPlaying();
+	// Blind test round 3, item 3: a selector subscription to the project settings. The
+	// shell re-renders when the export sheet (setExportResolution), the Aspect ratio
+	// sheet or the Background sheet changes them, so the top-bar chip, the preview size
+	// and the active ratio and colour always show the current settings.
+	const projectSettings = useProjectSettings();
 
 	if (!ready) {
 		return (
-			<div className={cn("cc-editor-shell", className)} data-kneecap-theme="capcut-mobile">
-				<p className="cc-panel-note">Loading demo project…</p>
+			<div className={cn("cc-editor-shell", className)} data-kneecap-theme="kneecap-mobile">
+				<p className="cc-panel-note">Loading the project…</p>
 			</div>
 		);
 	}
 
 	const project = editor.project.getActive();
-	const background = project.settings.background;
+	const settings = projectSettings ?? project.settings;
+	const background = settings.background;
 	const backgroundColor = background.type === "color" ? background.color : "#000000";
 	const visualElement: VisualElement | null =
 		selectedElement && isVisualElement(selectedElement) ? selectedElement : null;
@@ -381,19 +387,26 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 	})();
 
 	const closeSheet = () => setActiveSheet(null);
+	/** The clip-tools bar (SubToolbar) shows while a clip is selected. Blind test round 3,
+	 *  item 8: `cc-editor-shell--clip-tools` makes the bar take its height from the
+	 *  preview, not from the timeline (components.css), so the timeline keeps its height
+	 *  and no track goes under the bar. */
+	const showClipTools = Boolean(selectedRef && selectedElement);
 
 	return (
 		<div
 			className={cn(
 				"cc-editor-shell",
 				isPreviewFullscreen && "cc-editor-shell--preview-fullscreen",
+				showClipTools && "cc-editor-shell--clip-tools",
 				className,
 			)}
-			data-kneecap-theme="capcut-mobile"
+			data-kneecap-theme="kneecap-mobile"
 		>
 			<TopBar
 				onClose={onBack}
-				resolutionLabel={resolutionLabelFor(project.settings.canvasSize)}
+				// 1.0.8: the export size (the export sheet sets it); the canvas is the layout.
+				resolutionLabel={resolutionLabelFor(getExportSize({ settings }))}
 				onOpenExportSettings={() => setActiveSheet("export")}
 				onExport={() => setActiveSheet("export")}
 			/>
@@ -403,8 +416,8 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 			    on the PlaybackBar button ONLY (supersedes the 2026-08-20
 			    tap-to-toggle round). */}
 			<PreviewStage
-				canvasWidth={project.settings.canvasSize.width}
-				canvasHeight={project.settings.canvasSize.height}
+				canvasWidth={settings.canvasSize.width}
+				canvasHeight={settings.canvasSize.height}
 				backgroundColor={backgroundColor}
 			>
 				{/* Real frame rendering (CanvasRenderer -> wgpu compositor) —
@@ -427,6 +440,8 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 
 			{timelineProject && (
 				<div className="cc-editor-shell__timeline">
+					{/* No helper chips left of the main track (App Store rule 2.1, completeness): the
+					    "Mute clip audio", "AI clipper" and "Cover" chips did nothing, so they are gone. */}
 					<TimelineView
 						project={timelineProject}
 						onTimeChange={({ timeSec }) => seekToSeconds({ editor, seconds: timeSec })}
@@ -488,31 +503,6 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 						onAddAudio={() => setActiveSheet("audio")}
 						onQuickAddAudio={() => setActiveSheet("audio")}
 						onQuickAddText={() => setActiveSheet("text")}
-						leadingChips={
-							<>
-								{/* CapCut's main-track helper chips (capture 2026-08-18).
-								    Mute-clip-audio and AI-clipper/Cover need per-clip audio
-								    state and features outside v1 — parity chrome, tracked in
-								    docs/STATUS.md, inert rather than fake-wired. */}
-								<span className="cc-timeline__helper-chip" aria-hidden="true">
-									<VolumeX size={18} strokeWidth={CC_ICON_STROKE} />
-									<span>
-										Mute clip
-										<br />
-										audio
-									</span>
-								</span>
-								<span className="cc-timeline__helper-chip cc-timeline__helper-chip--card" aria-hidden="true">
-									<span className="cc-timeline__helper-badge">New</span>
-									<WandSparkles size={18} strokeWidth={CC_ICON_STROKE} />
-									<span>AI clipper</span>
-								</span>
-								<span className="cc-timeline__helper-chip cc-timeline__helper-chip--card" aria-hidden="true">
-									<ImagePlus size={18} strokeWidth={CC_ICON_STROKE} />
-									<span>Cover</span>
-								</span>
-							</>
-						}
 					/>
 				</div>
 			)}
@@ -541,7 +531,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 				<ProgressOverlay percent={deadSpaceProgress.percent} label="Listening for dead space…" />
 			)}
 
-			{selectedRef && selectedElement && (
+			{showClipTools && selectedRef && selectedElement && (
 				<SubToolbar
 					items={buildContextualItems({
 						element: selectedElement,
@@ -602,7 +592,7 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 					}
 					onSetSpeed={({ rate, maintainPitch }) => setRetime({ editor, ref: selectedRef, rate, maintainPitch })}
 					onSetVolume={(db) => setElementParam({ editor, ref: selectedRef, key: "volume", value: db })}
-					onToggleReverse={() => toggleReversed({ editor, ref: selectedRef })}
+					onSetMuted={(muted) => setElementParam({ editor, ref: selectedRef, key: "muted", value: muted })}
 				/>
 			)}
 
@@ -692,15 +682,17 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 					<p className="cc-sheet-title">Aspect ratio</p>
 					<div className="cc-ratio-grid">
 						{RATIO_PRESETS.map((preset) => {
+							// 1.0.8: the canvas keeps its short side (setProjectAspectRatio),
+							// so a preset is active when the ASPECT matches.
 							const active =
-								project.settings.canvasSize.width === preset.width &&
-								project.settings.canvasSize.height === preset.height;
+								settings.canvasSize.width * preset.height === settings.canvasSize.height * preset.width ||
+								(settings.canvasSize.width === preset.width && settings.canvasSize.height === preset.height);
 							return (
 								<button
 									key={preset.label}
 									type="button"
 									className={cn("cc-ratio-grid__item", active && "cc-ratio-grid__item--active")}
-									onClick={() => setProjectResolution({ editor, canvasSize: { width: preset.width, height: preset.height } })}
+									onClick={() => setProjectAspectRatio({ editor, ratio: { width: preset.width, height: preset.height } })}
 								>
 									<span
 										className="cc-ratio-grid__shape"
@@ -732,17 +724,6 @@ export function EditorShell({ className, onBack, bootstrap }: EditorShellProps) 
 							/>
 						))}
 					</div>
-				</PanelSheet>
-			)}
-
-			{(activeSheet === "transcript" || activeSheet === "template") && (
-				<PanelSheet onScrimClick={closeSheet} header={<SheetHeader onClose={closeSheet} />}>
-					<p className="cc-sheet-title">{activeSheet === "transcript" ? "Transcript" : "Template"}</p>
-					<p className="cc-panel-note">
-						{activeSheet === "transcript"
-							? "Transcript editing isn't in kneecap yet — use Captions for on-device auto-captions."
-							: "Templates aren't in kneecap yet."}
-					</p>
 				</PanelSheet>
 			)}
 

@@ -6,7 +6,7 @@
  * the clip's own `colorHue` + the slot's time) so the filmstrip still reads
  * as "many distinct frames" for layout/virtualization/interaction testing
  * without pretending to be real video content. NOT a claim that this is
- * what CapCut's or this app's real filmstrip will look like — see
+ * what any app's real filmstrip will look like — see
  * timeline/types.ts's `TimelineClipVM.thumbnails` doc comment.
  */
 export function FilmstripThumbnail({
@@ -21,10 +21,11 @@ export function FilmstripThumbnail({
 	slotSec: number;
 }) {
 	if (realUri) {
+		// Quoted, so a URI with spaces or brackets still works.
 		return (
 			<div
 				className="cc-timeline__clip-thumbnail"
-				style={{ width: widthPx, backgroundImage: `url(${realUri})` }}
+				style={{ width: widthPx, backgroundImage: `url(${JSON.stringify(realUri)})` }}
 			/>
 		);
 	}

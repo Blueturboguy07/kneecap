@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { WandSparkles } from "lucide-react";
+import { Captions } from "lucide-react";
 import { PanelSheet } from "../panel-sheet";
 import { SheetHeader } from "../sheet-header";
 import { ChipRow } from "../chip-row";
-import { SegmentedControl } from "../segmented-control";
 import type { EditorCore } from "@kneecap/editor-core";
 import type { ElementRef } from "@kneecap/editor-core/timeline";
 import { CAPTION_STYLE_PRESETS, DEFAULT_CAPTION_STYLE_PRESET_ID } from "@kneecap/editor-core/captions";
@@ -28,12 +27,6 @@ interface CaptionsPanelProps {
 	onClose: () => void;
 	onInserted: (ref: ElementRef) => void;
 }
-
-const LANGUAGES = [
-	{ id: "auto", label: "Auto-detect" },
-	{ id: "en", label: "English" },
-	{ id: "es", label: "Spanish" },
-];
 
 const STYLES = CAPTION_STYLE_PRESETS.map((preset) => ({ id: preset.id, label: preset.name }));
 
@@ -61,7 +54,6 @@ type GenerateState = "idle" | "generating" | "done" | "error";
  * disclosed below, not hidden.
  */
 export function CaptionsPanel({ editor, onClose, onInserted, selectedCaption }: CaptionsPanelProps) {
-	const [language, setLanguage] = useState("auto");
 	const [stylePreset, setStylePreset] = useState(DEFAULT_CAPTION_STYLE_PRESET_ID);
 	const [state, setState] = useState<GenerateState>("idle");
 	// Local draft for the caption-text field: committing rewrites words and
@@ -93,9 +85,10 @@ export function CaptionsPanel({ editor, onClose, onInserted, selectedCaption }: 
 
 	return (
 		<PanelSheet onScrimClick={onClose} header={<SheetHeader onClose={onClose} />}>
+			{/* Blind test round 3, item 7: plain words (no "zero network, zero cloud" or
+			    "trims respected"). The app has no AI feature, so no wand or sparkle icon. */}
 			<p className="cc-panel-note">
-				Generate transcribes audio from your whole timeline on this device (zero
-				network, zero cloud) — every clip and voiceover, with trims respected.
+				Captions come from the speech in your clips. Speech recognition runs on this phone.
 			</p>
 			{selectedCaption && (
 				<div className="cc-param-row">
@@ -133,7 +126,7 @@ export function CaptionsPanel({ editor, onClose, onInserted, selectedCaption }: 
 				disabled={state === "generating"}
 				onClick={handleGenerate}
 			>
-				<WandSparkles className="cc-panel-cta__icon" size={18} aria-hidden="true" />
+				<Captions className="cc-panel-cta__icon" size={18} aria-hidden="true" />
 				<span>
 					{state === "generating"
 						? "Generating…"
@@ -143,12 +136,8 @@ export function CaptionsPanel({ editor, onClose, onInserted, selectedCaption }: 
 				</span>
 			</button>
 			{state === "error" && errorMessage && <p className="cc-panel-note">{errorMessage}</p>}
-			<div className="cc-param-row">
-				<div className="cc-param-row__head">
-					<span className="cc-param-row__label">Language</span>
-				</div>
-				<SegmentedControl aria-label="Caption language" segments={LANGUAGES} activeId={language} onSelect={setLanguage} />
-			</div>
+			{/* No Language choice (App Store rule 2.1, completeness): the choice never reached the
+			    transcriber, so it did nothing. */}
 			<ChipRow
 				chips={STYLES}
 				activeIds={[stylePreset]}

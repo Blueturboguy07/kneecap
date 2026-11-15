@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # kneecap M1 spike — regenerates the small test-fixture videos this harness
 # ships with. Committed as binaries (apps/mobile/spike-assets/,
-# apps/mobile/android/app/src/main/assets/spike/) so the harness has zero
+# apps/mobile/android/app/src/debug/assets/spike/) so the harness has zero
 # build-time ffmpeg dependency; re-run this only if you need to change them.
 #
 # Requires ffmpeg with libx264 (not required to have libfreetype/drawtext —
@@ -55,7 +55,7 @@ ffmpeg -y -f lavfi -i "testsrc2=size=1920x1080:rate=30:duration=12" \
 # file-reference list for a throwaway spike fixture. Android's asset system
 # needs no project-file changes to add a file to `assets/` — bundling is the
 # lower-risk choice on that platform, hence the asymmetry.
-ANDROID_ASSETS_DIR="$MOBILE_DIR/android/app/src/main/assets/spike"
+ANDROID_ASSETS_DIR="$MOBILE_DIR/android/app/src/debug/assets/spike"
 mkdir -p "$ANDROID_ASSETS_DIR"
 
 ffmpeg -y -f lavfi -i "color=c=red:size=1280x720:rate=30:duration=3" \

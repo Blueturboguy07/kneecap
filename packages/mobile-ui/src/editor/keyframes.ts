@@ -1,9 +1,9 @@
 /**
- * Clip keyframes — the CapCut-mobile keyframe model over the engine's
+ * Clip keyframes — the kneecap mobile keyframe model over the engine's
  * per-property animation channels (round 47, founder: "i want to add
  * keyframes").
  *
- * WHAT CAPCUT MOBILE DOES (research corpus 05 §4 + 2026 tutorials, the
+ * WHAT THE REFERENCE MOBILE EDITOR DOES (research corpus 05 §4 + 2026 tutorials, the
  * founder capture for the exact chrome is still [NEEDS-CAPTURE]): select a
  * clip, a diamond appears above the timeline; tap it and a keyframe drops at
  * the playhead holding the clip's CURRENT position / scale / rotation /
@@ -15,7 +15,7 @@
  *
  * THE MODEL THIS FILE ENCODES: one "clip keyframe" = ONE time at which EVERY
  * path in `CLIP_KEYFRAME_PATHS` has a key. The engine keys each property
- * independently (the web editor exposes a diamond per property), but CapCut
+ * independently (the web editor exposes a diamond per property), but the reference editor
  * shows one diamond per time, so every add / auto-add writes the whole
  * group at once. Keeping the group complete is what makes "is the playhead
  * on a keyframe", "delete this keyframe" and "jump to the next keyframe"
@@ -53,11 +53,11 @@ import { resolveAnimationTarget } from "@kneecap/editor-core/timeline/animation-
 import { mediaTime, roundFrameTicks, TICKS_PER_SECOND, type MediaTime } from "@kneecap/editor-core/wasm";
 import type { FrameRate } from "opencut-wasm";
 
-/** The property group one CapCut-style diamond stands for: the full 2D
+/** The property group one mobile-style diamond stands for: the full 2D
  *  transform plus opacity. `transform.rotate` is included even though the
  *  mobile preview has no rotate gesture yet, so a keyframe always carries
  *  the complete group and the native exporters never see a half-keyed
- *  clip. (Volume is keyframable in the engine too, but CapCut keys it from
+ *  clip. (Volume is keyframable in the engine too, but the reference editor keys it from
  *  the audio panel, not the clip diamond — out of scope for this group.) */
 export const CLIP_KEYFRAME_PATHS = [
 	"transform.positionX",
@@ -164,7 +164,7 @@ export function snapLocalTimeToFrame({
 
 /** The keyframe the playhead is "on": an exact hit, else the nearest one
  *  within `toleranceTicks` (half a frame in practice — a scrubbed playhead
- *  rarely lands on the exact tick, and CapCut treats the frame as the unit). */
+ *  rarely lands on the exact tick, and the reference editor treats the frame as the unit). */
 export function findClipKeyframeAtTime({
 	times,
 	time,
@@ -333,7 +333,7 @@ export function upsertClipAnimationValues({
 
 // ----------------------------------------------------------------- easing --
 
-/** CapCut mobile's easing presets (its "Graph" on desktop exposes handles;
+/** The reference mobile editor's easing presets (its "Graph" on desktop exposes handles;
  *  mobile offers presets only — corpus + 2026 tutorials). Curves are the CSS
  *  standard `ease-in` / `ease-out` / `ease-in-out` control points, which is
  *  what every editor that ships named presets uses. `hold` is a step (the
@@ -493,7 +493,7 @@ export function applyClipKeyframeEasing({
 
 /** The keyframe whose outgoing segment the playhead is inside of (or sitting
  *  on): the last keyframe at or before the playhead that has a successor.
- *  This is what the Graph sheet edits — CapCut's "tap the keyframe timeline
+ *  This is what the Graph sheet edits — the reference editor's "tap the keyframe timeline
  *  after setting multiple keyframes and tap Easing". */
 export function segmentKeyframeTimeAt({
 	times,

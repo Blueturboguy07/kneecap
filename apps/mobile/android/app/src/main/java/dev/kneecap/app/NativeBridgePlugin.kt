@@ -3,9 +3,16 @@ package dev.kneecap.app
 import android.Manifest
 import android.app.Activity
 import android.app.ActivityManager
+import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import androidx.activity.result.ActivityResult
 import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
@@ -30,6 +37,7 @@ import dev.kneecap.app.media.ProxyTranscoder
 import dev.kneecap.app.media.ThumbnailStripGenerator
 import dev.kneecap.app.stt.WhisperTranscriber
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 
 /**
@@ -161,6 +169,14 @@ class NativeBridgePlugin : Plugin() {
 		val allowMultiple = call.getBoolean("allowMultiple", false) ?: false
 		val source = call.getString("source", "library")
 
+		// Blind test round 2: a bundled sound (the Audio panel's list) is a
+		// file of the app's web assets. It goes into the same media custody
+		// as a picked file, so the preview and the export read it.
+		if (source == "bundled") {
+			importBundledAsync(call)
+			return
+		}
+
 		if (source == "camera") {
 			val kind = if (kinds.contains("video")) "video" else "image"
 			if (getPermissionState("camera") != PermissionState.GRANTED) {
@@ -270,6 +286,35 @@ class NativeBridgePlugin : Plugin() {
 			val result = JSObject()
 			result.put("handles", handles)
 			call.resolve(result)
+		}.start()
+	}
+
+	/** `pickMedia({source: "bundled", bundledPath: "sounds/<name>.wav"})`:
+	 * copies `public/<bundledPath>` (the web bundle in the APK assets) into
+	 * media custody and resolves it as a one-handle pick. No picker opens. */
+	private fun importBundledAsync(call: PluginCall) {
+		val path = call.getString("bundledPath")
+		if (path == null || !Regex("^sounds/[a-z0-9-]+\\.(wav|m4a)$").matches(path)) {
+			call.reject("pickMedia source=bundled needs bundledPath sounds/<name>.wav", "IO_ERROR")
+			return
+		}
+		Thread {
+			try {
+				val imported = MediaImporter.importAsset(context, "public/$path")
+				try {
+					val probed = MediaProbe.probe(imported.file, imported.mimeType)
+					val handles = JSArray()
+					handles.put(mediaHandleToJson(imported, probed))
+					val result = JSObject()
+					result.put("handles", handles)
+					call.resolve(result)
+				} catch (e: Exception) {
+					MediaImporter.delete(imported.file)
+					throw e
+				}
+			} catch (e: Exception) {
+				call.reject(e.message ?: "bundled media import failed", "IO_ERROR")
+			}
 		}.start()
 	}
 
@@ -602,6 +647,151 @@ class NativeBridgePlugin : Plugin() {
 			}
 		}
 		return payload
+	}
+
+	// -- the export result block (1.0.5) -----------------------------------
+	//
+	// Blind test round 2: the export sheet now shows the real end of an
+	// export. After "done" it calls `saveToPhotos` and shows "Saving to
+	// Photos…" until it answers, then "Saved to Photos" with Share, or
+	// "Could not save to Photos." with Share. Same wire contract as iOS
+	// (NativeBridgePlugin+Export.swift): `{uri}` is the finished export's
+	// raw path (or its `file://` URI). 1.0.6: no "open Photos" method, the
+	// same as iOS (no public iOS API opens the Photos app).
+
+	/** Adds the finished export to the Gallery (MediaStore, Movies/publik
+	 *  kneecap). minSdk is 29, so with scoped storage an app inserts its own
+	 *  media with no permission at all — there is no "denied" answer on
+	 *  Android, only `{saved: true}` or `{saved: false, reason: "failed"}`.
+	 *  Resolves when the copy is complete. */
+	@PluginMethod
+	fun saveToPhotos(call: PluginCall) {
+		val file = exportedFile(call, "saveToPhotos") ?: return
+		Thread {
+			val result = JSObject()
+			try {
+				insertIntoGallery(file)
+				result.put("saved", true)
+			} catch (e: Exception) {
+				android.util.Log.w("kneecap-export", "save to Gallery failed", e)
+				result.put("saved", false)
+				result.put("reason", "failed")
+			}
+			call.resolve(result)
+		}.start()
+	}
+
+	private fun insertIntoGallery(file: File): Uri {
+		val resolver = context.contentResolver
+		val pending = ContentValues().apply {
+			put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+			put(MediaStore.MediaColumns.MIME_TYPE, videoMimeType(file))
+			put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/publik kneecap")
+			put(MediaStore.MediaColumns.IS_PENDING, 1)
+		}
+		val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+		val item = resolver.insert(collection, pending)
+			?: throw IOException("MediaStore did not create the video entry")
+		try {
+			val output = resolver.openOutputStream(item)
+				?: throw IOException("MediaStore gave no output stream")
+			output.use { out -> file.inputStream().use { input -> input.copyTo(out) } }
+			val published = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+			resolver.update(item, published, null, null)
+			return item
+		} catch (e: Exception) {
+			// No half-written entry left in the Gallery.
+			resolver.delete(item, null, null)
+			throw e
+		}
+	}
+
+	/** Opens the system share sheet (ACTION_SEND) for the finished export.
+	 *  FileProvider serves only the dirs in res/xml/file_paths.xml (the cache
+	 *  dir, not no_backup/exports), so the share goes through a copy in
+	 *  cache/shared-exports; copies of older exports are deleted first.
+	 *  Resolves once the chooser has started. */
+	@PluginMethod
+	fun shareFile(call: PluginCall) {
+		val file = exportedFile(call, "shareFile") ?: return
+		Thread {
+			try {
+				val shareDir = File(context.cacheDir, "shared-exports").apply { mkdirs() }
+				// 1.0.7: the share sheet shows "publik kneecap <project
+				// name>.mp4" (the export sheet's `fileName`), not the
+				// export's raw id. Always a fresh copy: two exports of one
+				// project have the same name.
+				val shareName = dev.kneecap.app.export.ShareFileName.safe(call.getString("fileName"), file.extension)
+					?: file.name
+				shareDir.listFiles()?.forEach { it.delete() }
+				val copy = File(shareDir, shareName)
+				file.copyTo(copy, overwrite = true)
+				val shareUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", copy)
+				val send = Intent(Intent.ACTION_SEND).apply {
+					type = videoMimeType(file)
+					putExtra(Intent.EXTRA_STREAM, shareUri)
+					clipData = ClipData.newRawUri("", shareUri)
+					addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+				}
+				startExternalActivity(call, Intent.createChooser(send, null), "no app can share this video")
+			} catch (e: Exception) {
+				call.reject("shareFile failed: ${e.message}", "IO_ERROR")
+			}
+		}.start()
+	}
+
+	/** Starts `intent` on the UI thread and resolves the call, or rejects it
+	 *  with UNSUPPORTED when no app handles the intent. */
+	private fun startExternalActivity(call: PluginCall, intent: Intent, noAppMessage: String) {
+		val host = activity
+		if (host == null) {
+			call.reject("no activity to start from", "IO_ERROR")
+			return
+		}
+		host.runOnUiThread {
+			try {
+				host.startActivity(intent)
+				val ack = JSObject()
+				ack.put("shown", true)
+				call.resolve(ack)
+			} catch (e: ActivityNotFoundException) {
+				call.reject(noAppMessage, "UNSUPPORTED")
+			}
+		}
+	}
+
+	private fun videoMimeType(file: File): String =
+		if (file.extension.equals("webm", ignoreCase = true)) "video/webm" else "video/mp4"
+
+	/** The finished export a result-block call names, or null after
+	 *  rejecting the call. Takes a raw path or a `file://` URI, and ONLY a
+	 *  file in no_backup/exports (where `exportProject` writes): these calls
+	 *  exist for the video the export sheet just made, not for any path the
+	 *  web view sends. */
+	private fun exportedFile(call: PluginCall, method: String): File? {
+		val raw = call.getString("uri")
+		if (raw.isNullOrEmpty()) {
+			call.reject("$method requires uri", "IO_ERROR")
+			return null
+		}
+		val (file, exportsDir) = try {
+			Pair(
+				fileFromNativeUri(raw)?.canonicalFile,
+				File(context.noBackupFilesDir, "exports").canonicalFile,
+			)
+		} catch (e: IOException) {
+			call.reject("$method: ${e.message}", "IO_ERROR")
+			return null
+		}
+		if (file == null || file.parentFile != exportsDir) {
+			call.reject("$method only takes a finished export", "UNSUPPORTED")
+			return null
+		}
+		if (!file.isFile) {
+			call.reject("$method: the exported video is no longer on this device", "IO_ERROR")
+			return null
+		}
+		return file
 	}
 
 	// -- transcribe (M10) ---------------------------------------------------

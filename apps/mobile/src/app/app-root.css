@@ -14,13 +14,14 @@ body,
 	   the WebView page-scroll or rubber-band (on device, any layout
 	   overflow otherwise becomes a scrollable page — 2026-08-19). Screens
 	   that need scrolling own it internally (.kc-home__grid,
-	   .kc-crash__detail). */
+	   .kc-crash). */
 	overflow: hidden;
 	overscroll-behavior: none;
 }
 #app {
 	height: 100dvh;
 }
+html,
 body {
 	background: #000;
 	color: #f5f5f5;
@@ -48,13 +49,36 @@ body {
 	margin: 0;
 }
 
-.kc-crash__detail {
-	white-space: pre-wrap;
-	word-break: break-word;
-	font: 11px/1.5 ui-monospace, monospace;
+/* The crash screen (crash-screen.tsx) shows a plain message only: never the
+   error text, a stack trace or a file path. */
+.kc-crash__message {
 	margin: 0;
-	max-height: 60dvh;
-	overflow-y: auto;
+	font-size: 15px;
+	line-height: 1.4;
+	color: #f5f5f5;
+}
+
+.kc-crash__actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+}
+
+.kc-crash__button {
+	min-height: 44px;
+	min-width: 44px;
+	box-sizing: border-box;
+}
+
+.kc-crash__button--secondary {
+	font-family: inherit;
+	background: var(--cc-surface-raised, #262626);
+	color: #f5f5f5;
+	border: none;
+	border-radius: 8px;
+	padding: 10px 16px;
+	font-size: 14px;
+	font-weight: 600;
 }
 
 .kc-home {
@@ -91,6 +115,8 @@ body {
 
 .kc-home__new {
 	font-family: inherit;
+	min-height: 44px;
+	box-sizing: border-box;
 	background: var(--cc-accent, #00cae0);
 	color: #000;
 	border: none;
@@ -116,6 +142,51 @@ body {
 	text-align: center;
 	margin-top: 40vh;
 	transform: translateY(-50%);
+}
+
+/* The quiet loading state while the project list loads (blind test round 2, item 7:
+   "No projects yet" showed for about 2 s before the projects). No text: a small ring in
+   the free space, which shows only when the load takes longer than 0.4 s. */
+.kc-home__loading {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.kc-home__loading::before {
+	content: "";
+	width: 24px;
+	height: 24px;
+	box-sizing: border-box;
+	border-radius: 50%;
+	border: 2px solid rgb(255 255 255 / 15%);
+	border-top-color: var(--cc-text-secondary, #8b8a90);
+	animation:
+		kc-home-loading-in 0.2s ease 0.4s both,
+		kc-home-loading-spin 0.9s linear infinite;
+}
+
+@keyframes kc-home-loading-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes kc-home-loading-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.kc-home__loading::before {
+		animation: kc-home-loading-in 0.2s ease 0.4s both;
+	}
 }
 
 /* Two-up thumbnail grid (2026-09-07). The screen is fixed-height; a long
@@ -165,7 +236,7 @@ body {
 
 /* 3:4 thumbnail frame. Project thumbnails render at canvas size — mostly
    9:16 on mobile — so `cover` trims a sliver top/bottom rather than
-   letterboxing; a landscape project gets centre-cropped, like CapCut. */
+   letterboxing; a landscape project gets centre-cropped. */
 .kc-home__thumb-frame {
 	position: relative;
 	display: block;
@@ -194,7 +265,7 @@ body {
 	background: var(--cc-surface-raised, #262626);
 }
 
-/* CapCut's duration pill: bottom-left of the thumbnail. */
+/* The duration pill: bottom-left of the thumbnail. */
 .kc-home__duration {
 	position: absolute;
 	left: 8px;
@@ -232,17 +303,18 @@ body {
 }
 
 /* "⋯" chip over the thumbnail's top-right corner — the delete affordance
-   (sibling of the open button, see ProjectCard). 32px hit target on a
-   28px visual. */
+   (sibling of the open button, see ProjectCard). A 44px hit target (Apple
+   HIG minimum) around the same 32px dark circle, drawn by ::before. */
 .kc-home__more {
 	position: absolute;
-	top: 6px;
-	right: 6px;
-	width: 32px;
-	height: 32px;
+	top: 0;
+	right: 0;
+	width: 44px;
+	height: 44px;
+	isolation: isolate;
 	border: none;
 	border-radius: var(--cc-radius-pill, 999px);
-	background: rgb(0 0 0 / 55%);
+	background: none;
 	color: #fff;
 	font-size: 18px;
 	font-weight: 700;
@@ -255,6 +327,15 @@ body {
 	-webkit-tap-highlight-color: transparent;
 }
 
+.kc-home__more::before {
+	content: "";
+	position: absolute;
+	inset: 6px;
+	z-index: -1;
+	border-radius: var(--cc-radius-pill, 999px);
+	background: rgb(0 0 0 / 55%);
+}
+
 .kc-home__more:disabled {
 	opacity: 0.5;
 }
@@ -265,3 +346,228 @@ body {
 	gap: 8px;
 }
 
+
+/* Home > Settings button (sign-in, account, usage counting). The same size
+   as "+ New project", on the raised surface instead of the accent. */
+.kc-home__settings {
+	font-family: inherit;
+	min-height: 44px;
+	box-sizing: border-box;
+	background: var(--cc-surface-raised, #262626);
+	color: var(--cc-text-primary, #f5f5f5);
+	border: none;
+	border-radius: 8px;
+	padding: 10px 16px;
+	font-size: 14px;
+	font-weight: 600;
+}
+
+.kc-home__settings:disabled {
+	opacity: 0.5;
+}
+
+/* Settings screen (settings-screen.tsx): the home screen's frame and tokens,
+   grouped rows in the iOS settings pattern. */
+.kc-settings {
+	height: 100vh;
+	height: 100dvh;
+	box-sizing: border-box;
+	overflow: hidden;
+	background: var(--cc-bg, #0b0b0b);
+	color: var(--cc-text-primary, #f5f5f5);
+	display: flex;
+	flex-direction: column;
+	padding: calc(env(safe-area-inset-top, 0px) + 16px)
+		calc(env(safe-area-inset-right, 0px) + 16px)
+		calc(env(safe-area-inset-bottom, 0px) + 16px)
+		calc(env(safe-area-inset-left, 0px) + 16px);
+	gap: 16px;
+	font-family: var(--cc-font-family, system-ui, sans-serif);
+}
+
+.kc-settings__header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.kc-settings__header h1 {
+	font-size: 20px;
+	font-weight: 700;
+	margin: 0;
+}
+
+.kc-settings__back {
+	font-family: inherit;
+	width: 44px;
+	height: 44px;
+	border: none;
+	border-radius: var(--cc-radius-pill, 999px);
+	background: var(--cc-surface-raised, #262626);
+	color: inherit;
+	font-size: 24px;
+	line-height: 1;
+	padding: 0 0 3px;
+	touch-action: manipulation;
+}
+
+.kc-settings__body {
+	overflow-y: auto;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+}
+
+.kc-settings__section h2 {
+	font-size: 13px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--cc-text-secondary, #8b8a90);
+	margin: 0 0 8px 4px;
+}
+
+.kc-settings__group {
+	display: flex;
+	flex-direction: column;
+	border-radius: var(--cc-radius-card, 12px);
+	overflow: hidden;
+	background: var(--cc-surface, #1a1a1a);
+}
+
+.kc-settings__row {
+	font-family: inherit;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	min-height: 48px;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 12px 16px;
+	border: none;
+	background: none;
+	color: inherit;
+	font-size: 16px;
+	text-align: left;
+	touch-action: manipulation;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.kc-settings__row + .kc-settings__row {
+	border-top: 1px solid rgb(255 255 255 / 8%);
+}
+
+.kc-settings__row:disabled {
+	opacity: 0.5;
+}
+
+.kc-settings__row--primary {
+	font-weight: 600;
+}
+
+.kc-settings__row--danger {
+	color: var(--cc-danger, #ff5c5c);
+}
+
+.kc-settings__row--text {
+	color: var(--cc-text-secondary, #8b8a90);
+}
+
+.kc-settings__row--switch input {
+	width: 22px;
+	height: 22px;
+	accent-color: var(--cc-accent, #00cae0);
+}
+
+.kc-settings__note {
+	min-height: 1em;
+	font-size: 13px;
+	margin: 8px 4px 0;
+}
+
+.kc-settings__hint {
+	font-size: 13px;
+	line-height: 1.4;
+	color: var(--cc-text-secondary, #8b8a90);
+	margin: 8px 4px 0;
+}
+
+/* Settings > Licenses (licenses-screen.tsx). */
+.kc-licenses__item + .kc-licenses__item {
+	border-top: 1px solid rgb(255 255 255 / 8%);
+}
+
+.kc-licenses__item > summary {
+	list-style: none;
+	cursor: pointer;
+}
+
+.kc-licenses__item > summary::-webkit-details-marker {
+	display: none;
+}
+
+.kc-licenses__kind {
+	flex-shrink: 0;
+	font-size: 13px;
+	color: var(--cc-text-secondary, #8b8a90);
+}
+
+.kc-licenses__body {
+	padding: 0 16px 16px;
+}
+
+.kc-licenses__source {
+	font-family: inherit;
+	display: block;
+	min-height: 44px;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 12px 0;
+	border: none;
+	background: none;
+	color: var(--cc-accent, #00cae0);
+	font-size: 13px;
+	text-align: left;
+	overflow-wrap: anywhere;
+}
+
+.kc-licenses__text {
+	margin: 0;
+	font-size: 11px;
+	line-height: 1.4;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	color: var(--cc-text-secondary, #8b8a90);
+}
+
+/* 1.0.7: blind test round 3 */
+/* Item 2: Settings > Licenses did not scroll. In the Licenses screen the list
+   (.kc-settings__group, overflow: hidden) is a direct flex item of the scroll
+   box. A flex item with overflow: hidden has a minimum height of 0, so the list
+   shrank to the screen height and cut off its rows; the scroll box then had
+   nothing to scroll. Now no child of the scroll box shrinks: the box gets taller
+   content than the screen, and it scrolls (also with momentum on iOS). */
+.kc-settings__body {
+	flex: 1 1 auto;
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior-y: contain;
+	touch-action: pan-y;
+}
+.kc-settings__body > * {
+	flex-shrink: 0;
+}
+
+/* Item 10: the short screen between the editor and Home while the app makes the
+   project thumbnail or deletes an empty project (closeEditorProject in
+   close-project.ts). The same frame as Home, with the quiet loading ring. It
+   has no .kc-home class: Home shows only when the close work is done. */
+.kc-closing {
+	height: 100vh;
+	height: 100dvh;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	background: var(--cc-bg, #0b0b0b);
+}

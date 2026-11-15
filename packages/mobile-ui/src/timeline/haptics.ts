@@ -1,6 +1,6 @@
 /**
  * Haptic tick on snap / long-press-lift (plan M7 item 5, corpus 05 §3b:
- * "CapCut doesn't offer a built-in option to turn off haptic feedback").
+ * the reference editor offers no built-in option to turn off haptic feedback).
  *
  * Same honestly-scoped limitation as apps/web/src/timeline/haptics.ts (M5,
  * commit 50bd2a9f), duplicated rather than imported because this package

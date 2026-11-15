@@ -24,7 +24,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center_horizontal"
-        android:text="kneecap"
+        android:text="publik kneecap"
         android:textColor="@color/kneecapTextPrimary"
         android:textSize="30sp"
         android:textStyle="bold" />
@@ -64,7 +64,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="Editing, effects, and export all run locally — kneecap never uploads your media."
+            android:text="Editing, effects, and export all run locally — publik kneecap never uploads your media."
             android:textColor="@color/kneecapTextSecondary"
             android:textSize="13sp" />
     </LinearLayout>

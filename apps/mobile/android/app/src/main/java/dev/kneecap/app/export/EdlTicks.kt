@@ -1,5 +1,7 @@
 package dev.kneecap.app.export
 
+import dev.kneecap.app.edl.Edl
+
 /**
  * The one function that crosses `EdlMeta.ticksPerSecond`-relative ticks into
  * Media3's microsecond (`Us`) time base. Integer math only — plan §2.2/§2.3
@@ -21,3 +23,26 @@ fun ticksToUs(ticks: Long, ticksPerSecond: Long): Long {
  * `ExportProgress(stage = "error")` rather than exporting a file that
  * doesn't match the preview. */
 class ExportUnsupportedException(message: String) : Exception(message)
+
+/**
+ * Where the exported video ends: the LATEST end of anything on the
+ * timeline — every clip on every track (text, sticker and caption tails
+ * included) and every `overlays[]` entry — and never before
+ * `meta.durationTicks`. Blind test round 2 (1.0.5) found the iOS export
+ * stopping at the last main clip while a title ran on; this is the same
+ * rule made explicit (and unit-tested, `EdlTimelineEndTest`) on Android,
+ * where `EdlToComposition` pads the base sequence with a blank gap up to
+ * it. Zero-length entries add nothing.
+ */
+fun timelineEndTicks(edl: Edl): Long {
+    var end = maxOf(edl.meta.durationTicks, 0L)
+    for (track in edl.tracks) {
+        for (clip in track.clips) {
+            if (clip.durationTicks > 0) end = maxOf(end, clip.startTicks + clip.durationTicks)
+        }
+    }
+    for (overlay in edl.overlays) {
+        if (overlay.durationTicks > 0) end = maxOf(end, overlay.startTicks + overlay.durationTicks)
+    }
+    return end
+}

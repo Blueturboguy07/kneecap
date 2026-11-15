@@ -9,7 +9,8 @@
 		".": "./src/index.ts",
 		"./web-fallback": "./src/web-fallback.ts",
 		"./capacitor": "./src/capacitor-bridge.ts",
-		"./spike-diagnostics": "./src/spike-diagnostics.ts"
+		"./spike-diagnostics": "./src/spike-diagnostics.ts",
+		"./publik-host": "./src/publik-host.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --project tsconfig.json --noEmit",

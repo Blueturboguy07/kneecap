@@ -20,7 +20,7 @@ export interface MovePreview {
 	startSec: number;
 }
 
-/** Hold-to-reorder mode (CapCut long-press): while active, this row drops
+/** Hold-to-reorder mode (long-press): while active, this row drops
  *  the time scale entirely and renders every clip as a uniform tile; the
  *  held tile rides the pointer, the rest shuffle around the insertion
  *  slot. All coordinates are content-space px (same origin as clip lefts). */
@@ -170,7 +170,7 @@ export function TimelineTrackRow({
 				const sourceMinStartSec = clip.startSec - startExtensionSec;
 				const sourceMaxEndSec =
 					clip.startSec + clip.durationSec + endExtensionSec;
-				// Main track is MAGNETIC (CapCut): trims may cross neighbors —
+				// Main track is MAGNETIC: trims may cross neighbors —
 				// the commit ripples every later clip to stay butted — so only
 				// the source extent bounds the drag. Free-position tracks
 				// (audio/overlay/text) still stop at their neighbors, and are
@@ -282,7 +282,7 @@ function ReorderTile({
 		>
 			<FilmstripThumbnail
 				widthPx={REORDER_TILE_PX}
-				realUri={clip.thumbnails?.[0]}
+				realUri={clip.thumbnails?.[0] ?? clip.posterUri}
 				colorHue={clip.colorHue}
 				slotSec={0}
 			/>

@@ -2,7 +2,7 @@
 
 **Audience: the founder, on real hardware.** Plan M1 exists to be cheap to fail, and it can only do that with real device numbers — an agent session cannot produce them (no iPhone, no Android device, and the iOS Simulator numbers below are explicitly *not* a substitute; see "What is and isn't verified" at the bottom). This doc is the exact install → run → read-the-numbers path, plus the kill-threshold table the whole milestone hinges on.
 
-The harness itself is **throwaway** (plan M1: "Build a throwaway harness — not the product"). It ships inside the same `apps/mobile` build as the M3 product placeholder, as a second, unlinked page (`spike.html`) — nothing here is the CapCut UI, and none of this code is meant to survive past M1.
+The harness itself is **throwaway** (plan M1: "Build a throwaway harness — not the product"). It ships inside the same `apps/mobile` debug build as the M3 product placeholder, as a second, unlinked page (`spike.html`) — nothing here is the product UI, and none of this code is meant to survive past M1.
 
 ---
 
@@ -13,8 +13,10 @@ The harness itself is **throwaway** (plan M1: "Build a throwaway harness — not
 ```bash
 cd apps/mobile
 bun run ios:build:sim
-# builds ios/App/App.xcodeproj, Debug, iphonesimulator, CODE_SIGNING_ALLOWED=NO
+# builds www/ with `bun run build:debug-tools`, then ios/App/App.xcodeproj, Debug, iphonesimulator, CODE_SIGNING_ALLOWED=NO
 ```
+
+The spike screen, its test clips and the `kneecap-spike://` link are developer tools: they are only in a **debug** build whose web bundle comes from `bun run build:debug-tools` (`ios:build:sim` and `android:build:debug` do that). A plain `bun run build`, a Release build and the CI artifacts do not have them.
 
 The built app is under Xcode's DerivedData, e.g.:
 `~/Library/Developer/Xcode/DerivedData/App-*/Build/Products/Debug-iphonesimulator/App.app`
@@ -134,7 +136,7 @@ This section exists because a prior project shipped green tests hiding dead feat
 - `apps/mobile/spike.html`, `apps/mobile/src/spike/**` — the harness UI and all 6 test implementations (TypeScript, shared by both platforms).
 - `apps/mobile/scripts/generate-spike-assets.sh` — regenerates the bundled test-fixture videos (ffmpeg; not run at build time).
 - `apps/mobile/public/spike-assets/{proxy,full}.mp4` — test 2's fixtures, served as plain static web assets.
-- `apps/mobile/android/app/src/main/assets/spike/{clip-a,clip-b}.mp4` — test 3's Android fixtures.
+- `apps/mobile/android/app/src/debug/assets/spike/{clip-a,clip-b}.mp4` — test 3's Android fixtures.
 - `packages/native-bridge/src/spike-diagnostics.ts` — the TS-side wrapper for the throwaway `SpikeDiagnostics` native plugin (deliberately separate from the production `NativeBridge` — see that file's header).
 - `apps/mobile/ios/App/App/SpikeDiagnosticsPlugin.swift`, `apps/mobile/android/.../SpikeDiagnosticsPlugin.java` — the native halves.
 - `apps/mobile/src/spike/thresholds.ts` — the kill-threshold table as data (§4 above is generated from the plan the same way this file is).

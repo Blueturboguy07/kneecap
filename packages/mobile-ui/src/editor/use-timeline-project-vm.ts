@@ -56,6 +56,7 @@ import {
 	subscribeWaveforms,
 } from "./waveform-peaks";
 import { getClipKeyframeTimes } from "./keyframes";
+import { friendlyClipNames } from "./clip-names";
 import type {
 	TimelineClipKind,
 	TimelineClipVM,
@@ -106,7 +107,7 @@ function clipKindForElement(element: TimelineElement): TimelineClipKind {
 			// `TimelineClipVM` has no dedicated "graphic" kind.
 			return "sticker";
 		case "caption":
-			// Founder capture 2026-08-18: captions are orange blocks in CapCut,
+			// Reference capture 2026-08-18: captions are orange blocks,
 			// not text-styled clips — dedicated kind + CSS class.
 			return "caption";
 		default:
@@ -182,20 +183,36 @@ function keyframeVMs({ element }: { element: TimelineElement }): TimelineClipVM[
 	}));
 }
 
+/** A photo clip shows the photo itself in every filmstrip slot. */
+function photoPosterUri({
+	element,
+	assetById,
+}: {
+	element: TimelineElement;
+	assetById: Map<string, MediaAsset>;
+}): string | undefined {
+	if (element.type !== "image" || !("mediaId" in element)) return undefined;
+	const asset = assetById.get(element.mediaId);
+	return asset?.thumbnailUrl ?? asset?.url;
+}
+
 function mapTrack({
 	track,
 	isMain,
 	assetById,
+	friendlyNames,
 }: {
 	track: TimelineTrack;
 	isMain: boolean;
 	assetById: Map<string, MediaAsset>;
+	friendlyNames: Map<string, string>;
 }): TimelineTrackVM {
 	const clips: TimelineClipVM[] = track.elements.map((element) => ({
 		id: element.id,
 		trackId: track.id,
 		kind: clipKindForElement(element),
-		name: element.name,
+		name: friendlyNames.get(element.id) ?? element.name,
+		posterUri: photoPosterUri({ element, assetById }),
 		startSec: mediaTimeToSeconds({ time: element.startTime }),
 		durationSec: mediaTimeToSeconds({ time: element.duration }),
 		colorHue: colorHueForId(element.id),
@@ -255,10 +272,11 @@ export function useTimelineProjectVM(): TimelineProjectVM | null {
 		if (!tracks || !fps) return null;
 
 		const assetById = new Map(mediaAssets.map((asset) => [asset.id, asset]));
+		const friendlyNames = friendlyClipNames({ tracks });
 		const trackVMs: TimelineTrackVM[] = [
-			mapTrack({ track: tracks.main, isMain: true, assetById }),
-			...tracks.overlay.map((track) => mapTrack({ track, isMain: false, assetById })),
-			...tracks.audio.map((track) => mapTrack({ track, isMain: false, assetById })),
+			mapTrack({ track: tracks.main, isMain: true, assetById, friendlyNames }),
+			...tracks.overlay.map((track) => mapTrack({ track, isMain: false, assetById, friendlyNames })),
+			...tracks.audio.map((track) => mapTrack({ track, isMain: false, assetById, friendlyNames })),
 		];
 
 		return {

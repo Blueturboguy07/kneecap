@@ -71,7 +71,11 @@ export interface PickMediaOptions {
 	allowMultiple: boolean;
 	/** Honor `capture="camera"` — plan M4 item 3: not honored by Android
 	 * WebView by default, so the host must build the camera Intent itself. */
-	source?: "library" | "camera";
+	source?: "library" | "camera" | "bundled";
+	/** With `source: "bundled"`: a file of the app's own web folder,
+	 *  `sounds/<name>.wav` (the Audio panel's bundled sounds). Native copies
+	 *  it into media custody like a picked file; no picker opens. */
+	bundledPath?: string;
 	/** Fires during the post-pick load/copy of each selected item. */
 	onProgress?: (progress: PickProgress) => void;
 }
@@ -142,6 +146,19 @@ export interface ExportProgress {
 	fraction: number;
 	outputUri?: string;
 	error?: string;
+}
+
+/**
+ * The answer of `NativeBridge.saveToPhotos()` (1.0.5, blind test round 2).
+ * `reason` is present only when `saved` is false: "denied" when Photos
+ * access is off (the person can turn it on in Settings), "failed" for any
+ * other failure (no file, a library error, a platform without Photos).
+ */
+export type SaveToPhotosFailure = "denied" | "failed";
+
+export interface SaveToPhotosResult {
+	saved: boolean;
+	reason?: SaveToPhotosFailure;
 }
 
 /**
@@ -336,6 +353,27 @@ export interface NativeBridge {
 		 *  verify harness) → the native CoreText path still applies. */
 		overlayFrames?: ExportOverlayFrame[];
 	}): AsyncGenerator<ExportProgress>;
+	/**
+	 * The export sheet's result block (1.0.5). `uri` is the `outputUri` of
+	 * the "done" export event, exactly as `exportProject` gave it.
+	 *
+	 * `saveToPhotos` adds that video to the Photos library / Gallery. It asks
+	 * for (add-only) Photos access when it was never asked, and resolves only
+	 * when the save is done. It never rejects: a denial or a failure is
+	 * `{ saved: false, reason }`.
+	 */
+	saveToPhotos(params: { uri: string }): Promise<SaveToPhotosResult>;
+	/** Opens the system share sheet for that video. Rejects with a
+	 *  `NativeBridgeError` when it cannot. */
+	shareFile(params: {
+		uri: string;
+		/** The name the share sheet shows (1.0.7), e.g. "publik kneecap
+		 *  My trip.mp4". Native cleans it again and keeps the export's
+		 *  extension. Omitted: the export's own file name. */
+		fileName?: string;
+	}): Promise<void>;
+	// 1.0.6: no "open the Photos app" method. iOS has no public API for it,
+	// and the private Photos URL scheme breaks App Store guideline 2.5.1.
 	transcribe(params: {
 		handle: MediaHandle;
 		opts: TranscribeOptions;

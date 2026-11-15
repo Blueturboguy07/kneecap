@@ -24,14 +24,15 @@ the plan file open.
    Upstream posture (ii) — independent fork.
 3. **8.3 Visual differentiation: B1 — full pixel fidelity, OVERRIDING
    the B2 recommendation.** Founder's words: the target is that using it
-   "feels like the same experience as using CapCut. Not OpenCut, CapCut."
+   "feels like the same experience as using the reference editor. Not
+   OpenCut, the reference editor."
    The B2 divergence checklist below is **void** except that the
-   original name/icon/splash stand. Exact measured CapCut tokens —
+   original name/icon/splash stand. Exact measured reference-editor tokens —
    including cyan `#00CAE0`, the spacing rhythm, and motion timing — are
    IN. With no store release (see 8.5) the app-review exposure is moot;
    the residual takedown surface is the GitHub repo and publik listing
    (trade-dress complaint / DMCA), accepted by the founder. Mitigation
-   kept: never use CapCut's name or marks in repo description, listing
+   kept: never use the reference editor's name or marks in repo description, listing
    copy, or screenshot framing.
 4. **8.4 Adjust: yes — basic sliders in v1;** HSL and curves deferred.
    The bundled-assets sub-question resolves by default under no-store
@@ -59,12 +60,12 @@ in the plan and is not duplicated here.
 A few decisions above are easy to nod along with and then violate by
 accident in a specific PR. Spelling out the concrete implications:
 
-- **Decision 3 (B1 full pixel fidelity)** means CapCut's exact measured
+- **Decision 3 (B1 full pixel fidelity)** means the reference editor's exact measured
   tokens — including cyan `#00CAE0` — are the correct target for
   `packages/mobile-ui/tokens.css` once M6 lands, **not** a violation of
-  "no CapCut marks." What stays original per the ratification record:
-  the app name ("kneecap"), the app icon, and the splash screen. CapCut's
-  *name* and *logo/wordmark* must still never appear in repo
+  "no third-party marks." What stays original per the ratification record:
+  the app name ("kneecap"), the app icon, and the splash screen. The
+  reference editor's *name* and *logo/wordmark* must still never appear in repo
   description, listing copy, README, or screenshot framing (that's a
   separate constraint from the token/pixel decision, and it did **not**
   get overridden).
@@ -104,3 +105,35 @@ accident in a specific PR. Spelling out the concrete implications:
   had a license/CVE audit yet — `docs/THIRD_PARTY_NOTICES.md`'s "NPM /
   Bun dependencies" section covers the JS/TS tree only. Tracked as a
   follow-up for whoever next touches the Rust workspace.
+
+## App Store release — founder decisions, 2026-11-14
+
+These override §8.5 ("no app-store release") and §8.3 for the App Store build.
+
+1. **Name.** The App Store and in-app name is **"publik kneecap"** (14
+   characters). The slug (`kneecap`), the bundle id (`dev.kneecap.app`) and
+   the URL scheme do not change. The home-screen label stays **"kneecap"**
+   (`CFBundleDisplayName`, Android `title_activity_main`): the long name would
+   be cut off under the icon. The home screen's header also keeps "kneecap":
+   the long name does not fit next to its two buttons without a layout change.
+   The long name is on the first-run screen, in Settings > About, in the
+   Settings and Delete account text, in `CFBundleName` and in the Android
+   app label.
+2. **No restyle.** The look stays. No code comment, string, asset name or UI
+   text names or points to another app or brand. The reference screenshots
+   (`docs/` reference folder) are deleted. CI still fails on the word of the
+   old reference app in any built bundle or app (check-web-bundle.sh,
+   check-ios-app.sh, check-android-apk.sh). The OpenCut MIT notices stay:
+   the license requires them.
+3. **Gate.** The gate is REQUIRED in App Store and release builds
+   (`APP_STORE_BUILD=1` forces `PUBLIK_GATE_MODE=required`). The optional gate
+   is a CI test artifact only (`ios-sim-app-optional`,
+   `android-debug-apk-optional`).
+4. **Countries.** The release is for all countries. Purchase-link rule: a
+   "Get a plan", top-up or price link may show only in the US App Store
+   storefront; every other storefront (or an unknown one) shows no link, no
+   button and no price, only: To get a plan, search for "publik" on Google.
+   kneecap shows no purchase link at all (`USES_AI = false`: no plan screen;
+   the sign-in button opens only publik's claim page), so it needs no
+   storefront check today. Add the check before any purchase link.
+5. **Version 1.0.2** (iOS build 4, Android versionCode 4).

@@ -4,15 +4,17 @@ import { SheetHeader } from "../sheet-header";
 import { SegmentedControl } from "../segmented-control";
 import { ProgressOverlay } from "../progress-overlay";
 import type { EditorCore } from "@kneecap/editor-core";
-import { buildEdl, type Edl } from "@kneecap/editor-core/edl";
+import { buildEdl, getExportSize, type Edl } from "@kneecap/editor-core/edl";
 import type { ExportFormat, ExportQuality } from "@kneecap/editor-core/export";
-import { getNativeBridge, type ExportProgress } from "@kneecap/native-bridge";
+import { getNativeBridge, type ExportProgress, type NativeBridge } from "@kneecap/native-bridge";
 import {
 	renderOverlayFrames,
 	type OverlayFrame,
 } from "@kneecap/editor-core/export/overlay-frames";
 import {
-	buildNativeEdlAssetResolver, setProjectFps, setProjectResolution, toEdlMediaAssets } from "../../editor/actions";
+	buildNativeEdlAssetResolver, setExportResolution, setProjectFps, toEdlMediaAssets } from "../../editor/actions";
+import { shareFileName } from "../../editor/share-file-name";
+import type { SceneTracks } from "@kneecap/editor-core/timeline";
 import type { FrameRate } from "opencut-wasm";
 
 interface ExportSheetProps {
@@ -54,23 +56,49 @@ function isExportQuality(value: string): value is ExportQuality {
 
 type ExportRunState = "idle" | "exporting" | "done" | "error";
 
+/** The export progress label in plain words (blind test round 2): never the raw stage
+ *  name, which is a developer word such as "muxing". */
+const EXPORT_STAGE_WORDS: Record<ExportProgress["stage"], string> = {
+	preparing: "getting ready",
+	encoding: "making the video",
+	muxing: "saving the video",
+	done: "done",
+	error: "stopped",
+};
+
+/** True when a visible graphic track has a visible sticker or graphic
+ *  element (1.0.7). Only the preview-drawn overlay frames carry them into
+ *  the video. */
+function hasVisibleStickersOrGraphics(tracks: SceneTracks): boolean {
+	return tracks.overlay.some(
+		(track) =>
+			track.type === "graphic" &&
+			!track.hidden &&
+			track.elements.some((element) => !element.hidden),
+	);
+}
+
+/** The Photos save after "done" (1.0.5, blind test round 2): "saving" while
+ *  the permission prompt and the save run, then the real result. */
+type PhotosSaveState = "saving" | "saved" | "denied" | "failed";
+
 /**
  * M8 Export sheet — task scope: "resolution/fps/quality." Resolution and
  * fps write straight to REAL `TProjectSettings` via
  * `UpdateProjectSettingsCommand` (the same command the rest of the editor
- * uses) — there is no separate "export resolution" concept in this engine,
- * the canvas size IS the render resolution (see actions.ts's
- * `setProjectResolution` header note). Quality/format are draft
+ * uses). 1.0.8 (blind test round 4, HIGH 1): the resolution is its own
+ * setting, `exportShortSide` (actions.ts `setExportResolution`). It no
+ * longer changes the canvas: positions are canvas pixels, so a smaller
+ * canvas moved every sticker and text away from the centre. The export
+ * draws the canvas layout at `getExportSize` with one scale factor (the EDL
+ * builder and `renderOverlayFrames({ layoutSize })`). Quality/format are draft
  * `ExportOptions` (real types from `@/export`) held as local sheet state,
  * since `ExportOptions` is passed at `editor.project.export()` call time,
  * not persisted project state.
  *
- * The "Preview EDL output" button is a REAL verification step, not
- * decoration: it calls the actual `buildEdl()` (same function the real
- * export below calls) with the CURRENT sheet selections and displays
- * `output.resolution`/`output.fps` back — proving the sheet's controls
- * really do reach the EDL bridge contract, not just the UI. No file is
- * produced by preview; it exists purely to inspect the EDL shape.
+ * The developer button "Preview EDL output" is gone (App Store rule 2.1,
+ * completeness): it only printed the EDL's resolution and fps. The EDL
+ * tests in packages/editor-core cover that check.
  *
  * Structural-gap fixer pass ("Export video"): the actual export handoff.
  * Builds the same real `Edl` via `buildEdl()`, then drives it through
@@ -92,7 +120,7 @@ type ExportRunState = "idle" | "exporting" | "done" | "error";
  * and shown as an honest in-sheet message, not a crash. That IS "the
  * web-fallback path still working in dev": the sheet stays usable, nothing
  * throws past this component, and every OTHER control (resolution/fps/
- * quality/EDL preview) keeps working exactly as before.
+ * quality) keeps working exactly as before.
  */
 export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 	const project = editor.project.getActive();
@@ -102,27 +130,41 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 	// and that untouched default is exactly the grainy-export path
 	// (2026-08-22). Resolution presets mean the canvas's SHORT side (the
 	// "p" convention — a portrait 1080×1920 canvas is 1080p).
-	const canvasShortSide = Math.min(
-		project.settings.canvasSize.width,
-		project.settings.canvasSize.height,
-	);
+	// 1.0.8: the export size (exportShortSide, or the canvas when unset).
+	const exportSize = getExportSize({ settings: project.settings });
+	const exportShortSide = Math.min(exportSize.width, exportSize.height);
 	const [resolutionId, setResolutionId] = useState(() => {
 		const nearest = [...RESOLUTIONS].sort(
 			(a, b) =>
-				Math.abs(a.height - canvasShortSide) - Math.abs(b.height - canvasShortSide),
+				Math.abs(a.height - exportShortSide) - Math.abs(b.height - exportShortSide),
 		)[0];
 		return nearest?.id ?? "1080p";
 	});
 	const [fpsId, setFpsId] = useState("30");
 	const [quality, setQuality] = useState<ExportQuality>("high");
 	const [format] = useState<ExportFormat>("mp4");
-	const [previewResult, setPreviewResult] = useState<{ fps: string; resolution: string } | null>(null);
-	const [previewError, setPreviewError] = useState<string | null>(null);
 
 	const [runState, setRunState] = useState<ExportRunState>("idle");
 	const [progress, setProgress] = useState<{ stage: ExportProgress["stage"]; fraction: number } | null>(null);
-	const [exportError, setExportError] = useState<string | null>(null);
-	const [outputUri, setOutputUri] = useState<string | null>(null);
+	// The result block after "done" (1.0.5): the Photos save state, whether a
+	// video file is there to share, and a plain note when Share could not
+	// open. 1.0.6: no button opens the Photos app. iOS has no public API for
+	// that, and the private URL scheme breaks App Store guideline 2.5.1.
+	const [photosSave, setPhotosSave] = useState<PhotosSaveState>("saving");
+	const [canShare, setCanShare] = useState(false);
+	const [actionNote, setActionNote] = useState<string | null>(null);
+	// The finished video's `outputUri`, only ever handed back to the bridge
+	// (saveToPhotos / shareFile) — never shown. A ref: it drives no render.
+	const exportedUriRef = useRef<string | null>(null);
+	// Each export run gets a number, so a slow Photos answer from an older
+	// run cannot overwrite the result of a newer one.
+	const exportRunRef = useRef(0);
+	// The sheet shows plain words only: no file path and no error text. The
+	// details go to the console.
+	const failExport = (detail: unknown) => {
+		console.error("export failed:", detail instanceof Error ? detail.message : detail);
+		setRunState("error");
+	};
 	// Holds the in-flight generator ONLY so Cancel can `.return()` it — never
 	// read for anything else. A ref, not state: swapping it must not trigger
 	// a re-render.
@@ -141,15 +183,8 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 		// preset.height is the SHORT side ("1080p" on a portrait canvas is
 		// 1080×1920, not 608×1080 — the old height-is-vertical math DOWN-
 		// graded every portrait project the moment the chip was tapped).
-		const { width: cw, height: ch } = project.settings.canvasSize;
-		const aspect = cw / ch;
-		const even = (v: number) => Math.max(2, Math.round(v / 2) * 2);
-		const shortSide = preset.height;
-		const canvasSize =
-			aspect >= 1
-				? { width: even(shortSide * aspect), height: shortSide }
-				: { width: shortSide, height: even(shortSide / aspect) };
-		setProjectResolution({ editor, canvasSize });
+		// 1.0.8: the export size only; the canvas and the preview stay.
+		setExportResolution({ editor, shortSide: preset.height });
 	};
 
 	const applyFps = (id: string) => {
@@ -158,14 +193,14 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 		if (preset) setProjectFps({ editor, fps: preset.fps });
 	};
 
-	/** Shared by both "Preview EDL output" and "Export video" — the real
-	 *  export must build the EDL the exact same way the preview claims to,
-	 *  or the preview would be lying about what gets exported. */
+	/** The EDL for "Export video", from the current sheet selections. */
 	const buildCurrentEdl = (): Edl => {
 		const scene = editor.scenes.getActiveScene();
 		const fpsPreset = FPS_OPTIONS.find((f) => f.id === fpsId)?.fps;
+		// Read the project now: the resolution and fps buttons update it.
+		const current = editor.project.getActive();
 		return buildEdl({
-			project,
+			project: current,
 			scene,
 			// Real live media assets, not a hardcoded `[]` — genuinely empty
 			// today only because no panel in this app can insert a video/image
@@ -184,26 +219,75 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 				bitrate: QUALITY_BITRATE[quality],
 				includeAudio: true,
 				fps: fpsPreset,
+				// 1.0.8: the export size. buildEdl scales the positions from
+				// canvas pixels to these output pixels.
+				resolution: getExportSize({ settings: current.settings }),
 			},
 		});
 	};
 
-	const previewEdl = () => {
-		setPreviewError(null);
+	/**
+	 * After "done": save the video to Photos and show the real result (1.0.5,
+	 * blind test round 2 — "Export complete." in small grey text, with the
+	 * Photos prompt only after it, read as unfinished). The native side asks
+	 * for Photos access here, while the sheet says "Saving to Photos…".
+	 * `saveToPhotos` never rejects; the catch is only a guard.
+	 */
+	const saveExportToPhotos = async ({
+		bridge,
+		uri,
+		run,
+	}: {
+		bridge: NativeBridge;
+		uri: string | undefined;
+		run: number;
+	}) => {
+		exportedUriRef.current = uri ?? null;
+		setCanShare(Boolean(uri));
+		if (!uri) {
+			setPhotosSave("failed");
+			return;
+		}
+		let next: PhotosSaveState = "failed";
 		try {
-			const edl = buildCurrentEdl();
-			setPreviewResult({
-				fps: `${edl.output.fps.numerator}/${edl.output.fps.denominator}`,
-				resolution: `${edl.output.resolution.width}x${edl.output.resolution.height}`,
-			});
+			const result = await bridge.saveToPhotos({ uri });
+			next = result.saved ? "saved" : result.reason === "denied" ? "denied" : "failed";
 		} catch (error) {
-			setPreviewError(error instanceof Error ? error.message : String(error));
+			console.error("save to Photos failed:", error instanceof Error ? error.message : error);
+		}
+		if (exportRunRef.current === run) setPhotosSave(next);
+	};
+
+	const shareVideo = async () => {
+		const uri = exportedUriRef.current;
+		if (!uri) return;
+		setActionNote(null);
+		try {
+			const bridge = await getNativeBridge();
+			// 1.0.7 (blind test round 3): the share sheet showed the export's
+			// raw id. It now shows "publik kneecap <project name>.mp4".
+			const fileName = shareFileName({
+				projectName: editor.project.getActive().metadata.name,
+				extension: format,
+			});
+			await bridge.shareFile({ uri, fileName });
+		} catch (error) {
+			console.error("share failed:", error instanceof Error ? error.message : error);
+			setActionNote("Could not open Share.");
 		}
 	};
 
+	const handleShare = () => {
+		void shareVideo();
+	};
+
 	const startExport = async () => {
-		setExportError(null);
-		setOutputUri(null);
+		const run = exportRunRef.current + 1;
+		exportRunRef.current = run;
+		exportedUriRef.current = null;
+		setCanShare(false);
+		setActionNote(null);
+		setPhotosSave("saving");
 		setProgress({ stage: "preparing", fraction: 0 });
 		setRunState("exporting");
 
@@ -211,8 +295,7 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 		try {
 			edl = buildCurrentEdl();
 		} catch (error) {
-			setRunState("error");
-			setExportError(error instanceof Error ? error.message : String(error));
+			failExport(error);
 			return;
 		}
 
@@ -233,6 +316,9 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 						width: edl.output.resolution.width,
 						height: edl.output.resolution.height,
 					},
+					// 1.0.8: lay out on the project canvas, as the preview does,
+					// and draw scaled to the export size.
+					layoutSize: editor.project.getActive().settings.canvasSize,
 					fps: edl.output.fps,
 					durationTicks: edl.meta.durationTicks,
 					ticksPerSecond: edl.meta.ticksPerSecond,
@@ -240,20 +326,36 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 						setProgress({ stage: "preparing", fraction: fraction * 0.2 }),
 				});
 			} catch (error) {
+				// The native text path can still draw text and captions, but
+				// nothing native draws a sticker or a graphic (1.0.7, blind test
+				// round 3). With one on the timeline, a video without it would
+				// be wrong, so the export stops with the plain message.
+				if (hasVisibleStickersOrGraphics(editor.scenes.getActiveScene().tracks)) {
+					failExport(error);
+					return;
+				}
 				console.warn("overlay prerender failed — native text path:", error);
+			}
+			// No frame at all (no 2D canvas in this web view) with a sticker on
+			// the timeline: the same rule.
+			if (
+				overlayFrames.length === 0 &&
+				hasVisibleStickersOrGraphics(editor.scenes.getActiveScene().tracks)
+			) {
+				failExport("the stickers could not be drawn for the export");
+				return;
 			}
 			const generator = bridge.exportProject({ edl, overlayFrames });
 			activeExportRef.current = generator;
 			for await (const event of generator) {
 				setProgress({ stage: event.stage, fraction: event.fraction });
 				if (event.stage === "error") {
-					setRunState("error");
-					setExportError(event.error ?? "Export failed");
+					failExport(event.error ?? "the exporter sent no error text");
 					break;
 				}
 				if (event.stage === "done") {
 					setRunState("done");
-					setOutputUri(event.outputUri ?? null);
+					void saveExportToPhotos({ bridge, uri: event.outputUri, run });
 					break;
 				}
 			}
@@ -262,10 +364,9 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 			// the web-fallback bridge throws the moment this generator is first
 			// iterated (no native shell present) — same typed-error contract
 			// every other `getNativeBridge()` caller in this package relies on
-			// (see captions-actions.ts), surfaced here as plain sheet text
-			// rather than an uncaught rejection.
-			setRunState("error");
-			setExportError(error instanceof Error ? error.message : String(error));
+			// (see captions-actions.ts), surfaced here as the plain sheet
+			// message rather than an uncaught rejection.
+			failExport(error);
 		} finally {
 			activeExportRef.current = null;
 		}
@@ -312,15 +413,6 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 						}}
 					/>
 				</div>
-				<button type="button" className="cc-export-sheet__action" onClick={previewEdl}>
-					Preview EDL output
-				</button>
-				{previewResult && (
-					<p className="cc-panel-note">
-						EDL output reflects the sheet: resolution {previewResult.resolution}, fps {previewResult.fps}.
-					</p>
-				)}
-				{previewError && <p className="cc-panel-note">EDL preview failed: {previewError}</p>}
 				<button
 					type="button"
 					className="cc-export-sheet__action cc-export-sheet__action--primary"
@@ -329,15 +421,46 @@ export function ExportSheet({ editor, onClose }: ExportSheetProps) {
 				>
 					Export video
 				</button>
-				{runState === "error" && exportError && <p className="cc-panel-note">Export failed: {exportError}</p>}
+				{runState === "error" && <p className="cc-panel-note">Export failed. Try again.</p>}
 				{runState === "done" && (
-					<p className="cc-panel-note">Export complete{outputUri ? ` — ${outputUri}` : "."}</p>
+					<div
+						className="cc-export-result"
+						role="status"
+						aria-live="polite"
+						data-kneecap-export-result={photosSave}
+					>
+						{photosSave === "saving" && <p className="cc-export-result__title">Saving to Photos…</p>}
+						{photosSave === "saved" && <p className="cc-export-result__title">Saved to Photos</p>}
+						{(photosSave === "denied" || photosSave === "failed") && (
+							<p className="cc-export-result__title">Could not save to Photos.</p>
+						)}
+						{photosSave === "denied" && (
+							<p className="cc-export-result__detail">Photos access is off for publik kneecap, and you can turn it on in Settings.</p>
+						)}
+						{photosSave === "failed" && canShare && (
+							<p className="cc-export-result__detail">You can still share the video.</p>
+						)}
+						{photosSave !== "saving" && (
+							<div className="cc-export-result__actions">
+								{canShare && (
+									<button
+										type="button"
+										className="cc-export-sheet__action cc-export-result__action"
+										onClick={handleShare}
+									>
+										Share
+									</button>
+								)}
+							</div>
+						)}
+						{actionNote && <p className="cc-export-result__detail">{actionNote}</p>}
+					</div>
 				)}
 			</PanelSheet>
 			{runState === "exporting" && progress && (
 				<ProgressOverlay
 					percent={progress.fraction * 100}
-					label={`Exporting — ${progress.stage}`}
+					label={`Exporting — ${EXPORT_STAGE_WORDS[progress.stage]}`}
 					onCancel={cancelExport}
 				/>
 			)}

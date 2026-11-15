@@ -113,7 +113,7 @@ final class NativeAudioPreview {
 				engine.connect(player, to: timePitch, format: file.processingFormat)
 				lastNode = timePitch
 			}
-			// Gain staging (round 27, CapCut-parity 0–1000% volume): the old
+			// Gain staging (round 27, 0–1000% volume): the old
 			// `player.volume = min(2, v)` clamp capped boosts at 2×, and
 			// AVAudioPlayerNode.volume is a 0–1 mixer input level anyway —
 			// it can never AMPLIFY. Boost/cut rides an EQ's globalGain in dB

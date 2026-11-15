@@ -28,6 +28,11 @@
  *
  * Deliberately a sibling of `#/diagnostics`: reachable only by hash, inert
  * for real users, and honest about being QA chrome rather than product.
+ *
+ * Editor CI mode (bottom of this file): when the runner also plants
+ * `editor-ci-phase1.flag` or `editor-ci-phase2.flag`, this route mounts the
+ * real app (app/app-root.tsx) and drives it with clicks for the CI editor
+ * test (scripts/ios-sim-editor-test.py, mobile-ci.yml).
  */
 // The SAME stylesheet set app-root.tsx loads — vite splits CSS per entry
 // chunk, so without these the whole route rendered UNSTYLED: every earlier
@@ -44,15 +49,35 @@ import {
 	registerNativeMediaPathResolver,
 	registerNativeAudioRouter,
 	mediaTimeFromSeconds,
+	mediaTimeToSeconds,
 	videoCache,
+	type MediaTime,
 	type NativeMediaHandle,
 	type NativeMediaSource,
 } from "@kneecap/editor-core";
-import { buildElementFromMedia, buildTextElement } from "@kneecap/editor-core/timeline";
-import { InsertElementCommand, UpdateElementsCommand } from "@kneecap/editor-core/commands";
+import {
+	buildElementFromMedia,
+	buildStickerElement,
+	buildTextElement,
+	type ImageElement,
+	type TimelineElement,
+} from "@kneecap/editor-core/timeline";
+import {
+	DeleteElementsCommand,
+	InsertElementCommand,
+	UpdateElementsCommand,
+	UpdateProjectSettingsCommand,
+} from "@kneecap/editor-core/commands";
+import type { ParamValues } from "@kneecap/editor-core/params";
+import { resolveStickerId } from "@kneecap/editor-core/stickers";
 import { loadFontAtlas } from "@kneecap/editor-core/fonts/local-fonts";
-import { EditorShell, ensurePreviewGpu } from "@kneecap/mobile-ui";
-import { getNativeBridge } from "@kneecap/native-bridge";
+import { EditorShell, ensurePreviewGpu, getAllCaptions } from "@kneecap/mobile-ui";
+import {
+	getNativeBridge,
+	type ExportProgress,
+	type MediaHandle,
+	type NativeBridge,
+} from "@kneecap/native-bridge";
 
 const PROJECT_NAME = "Autotest";
 const SOURCE_RELATIVE = "Media/autotest-source.mp4";
@@ -506,7 +531,7 @@ async function driveAndSample({
 	// Audio: speakers can't be heard headlessly; the in-page evidence is a
 	// RUNNING AudioContext with opened sinks and zero failures (the test
 	// clip has an audio track). Timeline follow: the strip must have
-	// scrolled while the clock ran (CapCut fixed-playhead model — the strip
+	// scrolled while the clock ran (fixed-playhead model — the strip
 	// IS the tracking).
 	// nativeSkippedClips must be 0: a clip the router can't map is silent
 	// for the whole session (see audio-manager's tryStartNativeRoute) — the
@@ -713,6 +738,14 @@ async function driveAndSample({
 }
 
 export async function mountAutotest(): Promise<void> {
+	// The CI editor test has its own mode. Check it first: it must not run
+	// the setup below (ensurePreviewGpu etc.), because it tests the app's own.
+	const ci = await editorCiPhase();
+	if (ci) {
+		await mountEditorCi(ci);
+		return;
+	}
+
 	const container = document.getElementById("app");
 	if (!container) throw new Error("autotest: #app container missing");
 
@@ -784,5 +817,2527 @@ export async function mountAutotest(): Promise<void> {
 		log(
 			`VERDICT phase=${phase} FAIL drive: ${err instanceof Error ? err.message : String(err)}`,
 		);
+	});
+}
+
+// ======================= Editor CI test (mobile-ci.yml) =======================
+// scripts/ios-sim-editor-test.py plants autotest.flag plus
+// editor-ci-phase1.flag (first launch) or editor-ci-phase2.flag (after a
+// relaunch), and a photo at Media/ci-photo.jpg. This mode mounts the REAL app
+// (app/app-root.tsx) and drives it with clicks, like a person:
+//   A. phase 1: New project, add a text, back, reopen, back, reopen, back.
+//      (1.0.7: the app deletes a project that has no elements when the
+//      editor closes, so the new project gets a text before it closes.)
+//      phase 2 (app relaunched): reopen, back, reopen. 5 editor opens.
+//   B. the preview: empty (the text from A is removed first), then with a
+//      text element (the text sheet's "Add text"), then with a photo (the
+//      timeline "+"; only the OS photo picker is replaced, it returns the
+//      planted photo).
+//   D. (phase 2, after B) every Stickers tab and its images, one sticker on
+//      the timeline (1.0.8: STICKER-SIZE gives its drawn width, about 30% of
+//      the frame), one bundled sound on the timeline (and its file loads).
+//      Both inserts are undone after the checks.
+//   C. two exports through the export sheet at 1080p, 30 fps, High (1.0.7,
+//      blind test round 3: stickers were in the preview but not in the
+//      video): a BASELINE (photo + text at opacity 0, no stickers), then the
+//      MAIN export (photo + text + a flag sticker + a shape sticker, placed
+//      where nothing else is drawn). The C LAYOUT / C STICKER / C REGION
+//      lines give the regions in canvas pixels; the runner scales them to
+//      the file's size (1.0.8: the export size can differ from the canvas)
+//      and compares the two files there. For each export the TIMELINE line
+//      gives the latest end over all tracks (the file must last that long),
+//      the EXPORT size line the size asked for, the EXPORT SHEET line what
+//      the sheet shows at the end.
+//      1.0.8 (blind test round 4, HIGH 1): the export sheet's resolution
+//      buttons must not change the canvas. The preview must not move when
+//      "720p" and then "1080p" are tapped (C RESOLUTION, C PREVIEW lines and
+//      screenshots), and the flag, the shape and the text must be at the
+//      same place (a fraction of the frame) at 720p, at 1080p and in the
+//      preview: 16:9, then 9:16 through the Aspect ratio sheet (C ASPECT,
+//      C POS LAYOUT / TARGET / PLACE lines).
+//   E. phase 3 (relaunch, editor-ci-phase3.flag): a NEW project with the
+//      planted video (Media/ci-video.mp4, through the real native proxy):
+//      preview, Captions "Generate", Split, Duplicate, Delete, Mute, Import
+//      audio (Media/ci-audio.m4a), then an export with video and sound.
+//      1.0.8 (LOW 4): with the clip selected, the LAYOUT clip-tools line
+//      gives the rects of the timeline's scroll area and the clip-tools bar.
+// Every line starts with "[editor-ci]". The app reports facts; the runner
+// judges. For each SHOT line the runner takes a simulator screenshot and then
+// writes <mediaRoot>/ci-ack-<name>.
+
+type CiStep = "boot" | "A" | "B" | "C" | "D" | "E";
+
+interface CiPlace {
+	bridge: NativeBridge;
+	root: string;
+}
+
+interface CiContext extends CiPlace {
+	phase: 1 | 2 | 3;
+	step: CiStep;
+	/** Uncaught errors, crash logs and GPU errors seen so far. */
+	problems: number;
+	gpuProblems: number;
+}
+
+const CI_PHOTO = "Media/ci-photo.jpg";
+/** The runner's test video: H.264 1280x720, 30 fps, 4 s, with an AAC tone. */
+const CI_VIDEO = "Media/ci-video.mp4";
+const CI_VIDEO_SECONDS = 4;
+/** The runner's test audio file for "Import audio": AAC, 3 s tone. */
+const CI_AUDIO = "Media/ci-audio.m4a";
+const CI_AUDIO_SECONDS = 3;
+const CI_TEXT = "New text";
+const CI_GPU_ERROR = /GPU context not initialized/i;
+
+const ciSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** One line per message, so the runner can read it. */
+function ciLog(message: string): void {
+	console.log(`[editor-ci] ${message.replace(/\s*\n\s*/g, " | ").slice(0, 900)}`);
+}
+
+function ciDescribe(value: unknown): string {
+	if (value instanceof Error) return `${value.name}: ${value.message}`;
+	if (typeof value === "string") return value;
+	try {
+		return JSON.stringify(value) ?? String(value);
+	} catch {
+		return String(value);
+	}
+}
+
+async function ciFileExists(place: CiPlace, relative: string): Promise<boolean> {
+	try {
+		const res = await fetch(place.bridge.toPlaybackUri(`file://${place.root}/${relative}`), {
+			cache: "no-store",
+		});
+		return res.ok || res.status === 0;
+	} catch {
+		return false;
+	}
+}
+
+/** The phase the runner asks for, or null when this is not a CI editor test. */
+async function editorCiPhase(): Promise<(CiPlace & { phase: 1 | 2 | 3 }) | null> {
+	const bridge = await getNativeBridge();
+	const root = await bridge.getMediaRoot();
+	if (!root) return null;
+	const place = { bridge, root };
+	if (await ciFileExists(place, "editor-ci-phase3.flag")) return { ...place, phase: 3 };
+	if (await ciFileExists(place, "editor-ci-phase2.flag")) return { ...place, phase: 2 };
+	if (await ciFileExists(place, "editor-ci-phase1.flag")) return { ...place, phase: 1 };
+	return null;
+}
+
+/** The crash screen as text, or null. app-root.tsx (or its crash-screen
+ *  file) marks it with class kc-crash / data-kneecap-crash; main.ts shows
+ *  "failed to start" when boot dies. */
+function ciCrashText(): string | null {
+	const screen = document.querySelector<HTMLElement>("[data-kneecap-crash], .kc-crash");
+	if (screen) return (screen.textContent ?? "").trim().slice(0, 300) || "(empty crash screen)";
+	const body = document.body.textContent ?? "";
+	return /kneecap crashed|publik kneecap stopped|failed to start|GPU context not initialized/i.test(body)
+		? body.trim().slice(0, 300)
+		: null;
+}
+
+/** Reports uncaught errors, crash logs and the GPU error as PROBLEM lines. */
+function ciWatchProblems(ctx: CiContext): void {
+	const report = (kind: string, text: string) => {
+		if (/ResizeObserver loop/i.test(text)) return;
+		if (kind === "gpu") ctx.gpuProblems++;
+		if (kind !== "render") ctx.problems++;
+		ciLog(`PROBLEM step=${ctx.step} kind=${kind} ${text.slice(0, 400)}`);
+	};
+	window.addEventListener("error", (event) =>
+		report(CI_GPU_ERROR.test(event.message) ? "gpu" : "uncaught", event.message || ciDescribe(event.error)),
+	);
+	window.addEventListener("unhandledrejection", (event) => {
+		const text = ciDescribe(event.reason);
+		report(CI_GPU_ERROR.test(text) ? "gpu" : "unhandled-rejection", text);
+	});
+	for (const level of ["error", "warn"] as const) {
+		const original = console[level].bind(console);
+		console[level] = (...args: unknown[]) => {
+			original(...args);
+			const text = args.map(ciDescribe).join(" ");
+			if (CI_GPU_ERROR.test(text)) report("gpu", text);
+			else if (/kneecap crashed|stopped working|kneecap editor failed/i.test(text)) report("crash", text);
+			else if (/preview render failed/i.test(text)) report("render", text);
+			else if (/GPU renderer unavailable/i.test(text)) ciLog(`INFO step=${ctx.step} ${text.slice(0, 300)}`);
+		};
+	}
+}
+
+/** Waits for `probe`. Throws on time-out, and (by default) at once when the crash screen shows. */
+async function ciWait<T>(
+	label: string,
+	probe: () => T | null | undefined | false,
+	timeoutMs: number,
+	failOnCrash = true,
+): Promise<T> {
+	const start = Date.now();
+	for (;;) {
+		if (failOnCrash) {
+			const crash = ciCrashText();
+			if (crash) throw new Error(`crash screen: ${crash}`);
+		}
+		const value = probe();
+		if (value) return value;
+		if (Date.now() - start > timeoutMs) {
+			throw new Error(`no ${label} after ${Math.round(timeoutMs / 1000)} s`);
+		}
+		await ciSleep(150);
+	}
+}
+
+function ciButton(scope: ParentNode, text: RegExp): HTMLButtonElement | null {
+	for (const button of scope.querySelectorAll<HTMLButtonElement>("button")) {
+		if (!button.disabled && text.test((button.textContent ?? "").trim())) return button;
+	}
+	return null;
+}
+
+/** The screen rect of the preview canvas (CSS px) as "x,y,w,h", or "none". */
+function ciStageRect(): string {
+	const stage = document.querySelector<HTMLElement>(".cc-preview-stage__canvas");
+	const r = stage?.getBoundingClientRect();
+	return r && r.width > 0 && r.height > 0
+		? [r.left, r.top, r.width, r.height].map((v) => v.toFixed(1)).join(",")
+		: "none";
+}
+
+/** Logs the SHOT line, then waits for the runner's screenshot (ack file). */
+async function ciShot(ctx: CiContext, name: string): Promise<void> {
+	const rect = ciStageRect();
+	const out = document.querySelector<HTMLCanvasElement>(".cc-preview-stage__render canvas");
+	let lit = "n/a";
+	if (out) {
+		try {
+			lit = sampleLitFraction(out).toFixed(3); // advisory: WebKit may clear a WebGPU canvas
+		} catch {
+			lit = "error";
+		}
+	}
+	// The preview backend, for the log only (true: no GPU, the 2D fallback).
+	const renderer = (EditorCore.getInstance() as unknown as { renderer?: { isDegraded?: unknown } }).renderer;
+	let degraded: unknown = renderer?.isDegraded;
+	try {
+		if (typeof degraded === "function") degraded = (degraded as () => unknown).call(renderer);
+	} catch {
+		degraded = "error";
+	}
+	// Every canvas in the preview mount, for the log only (a swap from the GPU
+	// canvas to the Canvas 2D canvas must leave exactly one).
+	const all = [...document.querySelectorAll<HTMLCanvasElement>(".cc-preview-stage__render canvas")].map((c) => {
+		try {
+			return `${c.width}x${c.height}:${sampleLitFraction(c).toFixed(3)}`;
+		} catch {
+			return `${c.width}x${c.height}:error`;
+		}
+	});
+	ciLog(
+		`SHOT name=${name} rect=${rect} viewport=${window.innerWidth}x${window.innerHeight} ` +
+			`dpr=${window.devicePixelRatio} canvas=${out ? `${out.width}x${out.height}` : "none"} canvasLit=${lit} ` +
+			`degraded=${String(degraded)} canvases=[${all.join(",")}]`,
+	);
+	const deadline = Date.now() + 60_000;
+	while (Date.now() < deadline) {
+		if (await ciFileExists(ctx, `ci-ack-${name}`)) return;
+		await ciSleep(300);
+	}
+	ciLog(`SHOT name=${name} NOACK`);
+}
+
+/** Saved project names, read the way the home screen reads them. */
+async function ciProjects(editor: EditorCore, when: string): Promise<string[]> {
+	await editor.project.loadAllProjects();
+	const names = editor.project.getSavedProjects().map((p) => p.name);
+	ciLog(`PROJECTS when=${when} count=${names.length} names=${JSON.stringify(names)}`);
+	return names;
+}
+
+function ciProjectCard(name: string): HTMLButtonElement | null {
+	for (const card of document.querySelectorAll<HTMLElement>(".kc-home__card")) {
+		if ((card.querySelector(".kc-home__name")?.textContent ?? "").trim() !== name) continue;
+		const open = card.querySelector<HTMLButtonElement>(".kc-home__card-open");
+		return open && !open.disabled ? open : null;
+	}
+	return null;
+}
+
+/** Element counts by type over every track of the active scene. */
+function ciCounts(editor: EditorCore): Record<string, number> {
+	const counts: Record<string, number> = {};
+	const visit = (value: unknown, depth: number): void => {
+		if (depth > 3 || value === null || typeof value !== "object") return;
+		if (Array.isArray(value)) {
+			for (const item of value) visit(item, depth + 1);
+			return;
+		}
+		const elements = (value as { elements?: unknown }).elements;
+		if (Array.isArray(elements)) {
+			for (const element of elements) {
+				const type = String((element as { type?: unknown } | null)?.type ?? "unknown");
+				counts[type] = (counts[type] ?? 0) + 1;
+			}
+			return;
+		}
+		for (const item of Object.values(value)) visit(item, depth + 1);
+	};
+	visit(editor.scenes.getActiveSceneOrNull()?.tracks, 0);
+	return counts;
+}
+
+/** True when the editor is on screen and its preview has a size. Throws when
+ *  the home screen shows a message instead (the editor's error guard closed
+ *  the editor: "The editor had a problem and closed"). */
+function ciEditorMounted(): boolean {
+	const homeError = document.querySelector(".kc-home__error")?.textContent?.trim();
+	if (homeError) throw new Error(`back on the home screen: ${homeError.slice(0, 200)}`);
+	const canvas = document.querySelector<HTMLElement>(".cc-editor-shell .cc-preview-stage__canvas");
+	const r = canvas?.getBoundingClientRect();
+	return Boolean(r && r.width > 0 && r.height > 0);
+}
+
+function ciMainCount(editor: EditorCore): number {
+	return editor.scenes.getActiveSceneOrNull()?.tracks.main.elements.length ?? 0;
+}
+
+/** Every element of the active scene with its track id (main, overlay and audio tracks). */
+function ciElements(editor: EditorCore): { trackId: string; element: TimelineElement }[] {
+	const tracks = editor.scenes.getActiveSceneOrNull()?.tracks;
+	if (!tracks) return [];
+	return [tracks.main, ...tracks.overlay, ...tracks.audio].flatMap((track) =>
+		(track.elements as readonly TimelineElement[]).map((element) => ({ trackId: track.id, element })),
+	);
+}
+
+async function ciBack(editor: EditorCore, when: string): Promise<void> {
+	const close = await ciWait(
+		"Close project button",
+		() => document.querySelector<HTMLButtonElement>('button[aria-label="Close project"]'),
+		10_000,
+	);
+	close.click();
+	await ciWait("home screen", () => document.querySelector(".kc-home"), 20_000);
+	await ciSleep(1500); // onBack runs closeEditorProject; .kc-home shows only after it ends (app-root.tsx)
+	await ciProjects(editor, when);
+}
+
+/** After a failed open: leave the crash screen (its button) or the editor, back to home. */
+async function ciRecover(): Promise<void> {
+	document
+		.querySelector<HTMLElement>("[data-kneecap-crash], .kc-crash")
+		?.querySelector<HTMLButtonElement>("button")
+		?.click();
+	await ciSleep(800);
+	document.querySelector<HTMLButtonElement>('button[aria-label="Close project"]')?.click();
+	await ciWait("home screen", () => document.querySelector(".kc-home"), 15_000, false).catch(() => undefined);
+}
+
+/** One editor open (test A). True when the editor opened and stayed healthy for 3 s. */
+async function ciOpen(
+	ctx: CiContext,
+	editor: EditorCore,
+	n: number,
+	kind: "new" | "reopen",
+	name: string | null,
+	options: { stay?: boolean; extra?: boolean } = {},
+): Promise<boolean> {
+	const tag = `OPEN n=${n} kind=${kind}${options.extra ? " extra=1" : ""}`;
+	const started = Date.now();
+	const problemsBefore = ctx.problems;
+	const gpuBefore = ctx.gpuProblems;
+	try {
+		await ciWait("home screen", () => document.querySelector(".kc-home"), 60_000);
+		const target =
+			kind === "new"
+				? await ciWait(
+						"New project button",
+						() => ciButton(document.querySelector(".kc-home__header") ?? document, /New project/i),
+						20_000,
+					)
+				: await ciWait(`project card "${name ?? "(none)"}"`, () => (name ? ciProjectCard(name) : null), 20_000);
+		target.click();
+		await ciSleep(300); // the click clears an old home-screen message first
+		await ciWait("editor", () => ciEditorMounted(), 60_000);
+		await ciWait("preview renderer", () => ciEditorMounted() && document.querySelector(".cc-preview-stage__render"), 60_000);
+		// A crash screen, a GPU error or the editor guard closing the editor
+		// can come a moment after the first frame.
+		const holdEnd = Date.now() + 3000;
+		await ciWait(
+			"3 s hold",
+			() => {
+				if (!ciEditorMounted()) throw new Error("the editor closed during the 3 s hold");
+				return Date.now() >= holdEnd;
+			},
+			10_000,
+		);
+		if (ctx.gpuProblems > gpuBefore) throw new Error("GPU context not initialized (see PROBLEM line)");
+		if (ctx.problems > problemsBefore) throw new Error("uncaught error or crash log (see PROBLEM line)");
+		ciLog(`${tag} PASS ms=${Date.now() - started}`);
+		await ciShot(ctx, `open-${n}`);
+		if (!options.stay) await ciBack(editor, `after-open-${n}`);
+		return true;
+	} catch (error) {
+		ciLog(`${tag} FAIL ${ciDescribe(error)}`);
+		await ciShot(ctx, `fail-open-${n}`);
+		await ciRecover();
+		if (!options.stay) await ciProjects(editor, `after-open-${n}`).catch(() => undefined);
+		return false;
+	}
+}
+
+/**
+ * 1.0.7: when the editor closes on a project with no elements on any track,
+ * the app deletes that project (no empty card on Home). Test A reopens its
+ * new project by name, so the project gets a text (the text sheet's "Add
+ * text") before the editor closes. Logs CONTENT n=<n> PASS|FAIL via=… timeline=…
+ */
+async function ciGiveContentAndBack(editor: EditorCore, n: number): Promise<void> {
+	const via = await ciAddText(editor);
+	document.querySelector<HTMLElement>(".cc-sheet-scrim")?.click();
+	await ciWait("closed sheet", () => !document.querySelector(".cc-sheet"), 5_000, false).catch(() => undefined);
+	const texts = ciCounts(editor).text ?? 0;
+	ciLog(`CONTENT n=${n} ${texts > 0 ? "PASS" : "FAIL"} via=${via} timeline=${JSON.stringify(ciCounts(editor))}`);
+	try {
+		await ciBack(editor, `after-open-${n}`);
+	} catch (error) {
+		ciLog(`PROBLEM step=A kind=driver back after open ${n}: ${ciDescribe(error)}`);
+		await ciRecover();
+		await ciProjects(editor, `after-open-${n}`).catch(() => undefined);
+	}
+}
+
+/** Stable preview for a screenshot: no sheet, no selection, paused at 0 s. */
+async function ciSettle(editor: EditorCore, holdMs = 2500): Promise<void> {
+	document.querySelector<HTMLElement>(".cc-sheet-scrim")?.click();
+	editor.playback.pause();
+	editor.selection.setSelectedElements({ elements: [] });
+	editor.playback.seek({ time: mediaTimeFromSeconds({ seconds: 0 }) });
+	await ciWait(
+		"closed sheets and progress overlays",
+		() => !document.querySelector('.cc-sheet, [class*="progress-overlay"]'),
+		60_000,
+	).catch(() => undefined);
+	await ciSleep(holdMs);
+}
+
+/** The text sheet's "Add text" (the same insert as TextPanel's button). */
+async function ciAddText(editor: EditorCore): Promise<"ui" | "direct"> {
+	const before = ciCounts(editor).text ?? 0;
+	const added = () => (ciCounts(editor).text ?? 0) > before;
+	document.querySelector<HTMLButtonElement>('button[aria-label="Add text"]')?.click();
+	const add = await ciWait("Add text in the text sheet", () => ciButton(document.querySelector(".cc-sheet") ?? document.createElement("div"), /^Add text$/), 10_000).catch(() => null);
+	if (add) {
+		add.click();
+		const ok = await ciWait("text element", added, 10_000).catch(() => false);
+		document.querySelector<HTMLElement>(".cc-sheet-scrim")?.click();
+		if (ok) return "ui";
+	}
+	document.querySelector<HTMLElement>(".cc-sheet-scrim")?.click();
+	if (added()) return "ui";
+	// Fallback (the sheet changed): the same element TextPanel's button inserts.
+	editor.command.execute({
+		command: new InsertElementCommand({
+			element: buildTextElement({ raw: { params: { content: CI_TEXT } }, startTime: editor.playback.getCurrentTime() }),
+			placement: { mode: "auto", trackType: "text" },
+		}),
+	});
+	return "direct";
+}
+
+/** The timeline "+" with the OS picker replaced: it returns the planted photo,
+ *  with the handle NativeBridgePlugin+Media.swift builds for a picked image. */
+async function ciAddPhoto(ctx: CiContext, editor: EditorCore): Promise<{ ok: boolean; via: string; detail: string }> {
+	const { bridge, root } = ctx;
+	const uri = `${root}/${CI_PHOTO}`;
+	let sizeBytes = 0;
+	try {
+		const res = await fetch(bridge.toPlaybackUri(`file://${uri}`), { cache: "no-store" });
+		sizeBytes = (await res.blob()).size;
+	} catch {
+		// sizeBytes stays 0; the import below reports the real failure
+	}
+	if (sizeBytes === 0) return { ok: false, via: "none", detail: `the planted photo ${CI_PHOTO} is missing or empty` };
+	const handle: MediaHandle = {
+		id: crypto.randomUUID().toUpperCase(),
+		uri,
+		kind: "image",
+		fileName: CI_PHOTO.slice(CI_PHOTO.lastIndexOf("/") + 1),
+		sizeBytes,
+		durationMicros: 0,
+		width: 0,
+		height: 0,
+		rotationDegrees: 0,
+		hasAudio: false,
+		codec: "jpg",
+		frameRate: null,
+	};
+	const originalPick = bridge.pickMedia;
+	bridge.pickMedia = async (opts) => {
+		ciLog(`pickMedia stand-in: kinds=${opts.kinds.join(",")} -> ${handle.fileName} (${sizeBytes} bytes)`);
+		opts.onProgress?.({ index: 0, total: 1, stage: "loading", fraction: 0 });
+		opts.onProgress?.({ index: 0, total: 1, stage: "loaded", fraction: 1 });
+		return [handle];
+	};
+	const before = ciMainCount(editor);
+	let via = "ui";
+	try {
+		const plus = document.querySelector<HTMLButtonElement>('button[aria-label="Add clip"]');
+		if (plus) {
+			plus.click();
+		} else {
+			// Fallback (the button changed): the same steps as importAndPlaceMedia (actions.ts).
+			via = "direct";
+			const { imported } = await importMediaFromNative({
+				editor,
+				projectId: editor.project.getActive().metadata.id,
+				source: bridge,
+				kinds: ["video", "image"],
+				allowMultiple: true,
+			});
+			for (const asset of imported) {
+				editor.command.execute({
+					command: new InsertElementCommand({
+						element: buildElementFromMedia({
+							mediaId: asset.id,
+							mediaType: asset.type,
+							name: asset.name,
+							duration: mediaTimeFromSeconds({ seconds: asset.duration || 3 }),
+							startTime: editor.playback.getCurrentTime(),
+						}),
+						placement: { mode: "auto", trackType: "video" },
+					}),
+				});
+			}
+		}
+		const outcome = await ciWait(
+			"photo on the main track",
+			() => {
+				if (ciMainCount(editor) > before) return "placed";
+				const error = document
+					.querySelector(".cc-chrome-error:not(.cc-chrome-error--notice)")
+					?.textContent?.trim();
+				return error ? `error: ${error}` : null;
+			},
+			90_000,
+		);
+		const asset = editor.media.getAssets().find((a) => a.type === "image");
+		const detail = `${outcome} asset=${asset ? `${asset.type} ${asset.width ?? "?"}x${asset.height ?? "?"}` : "none"} timeline=${JSON.stringify(ciCounts(editor))}`;
+		return { ok: outcome === "placed", via, detail };
+	} catch (error) {
+		return { ok: false, via, detail: ciDescribe(error) };
+	} finally {
+		bridge.pickMedia = originalPick;
+	}
+}
+
+async function ciPreview(ctx: CiContext, editor: EditorCore): Promise<void> {
+	// 1.0.7: test A gave the launch-1 project a text (an empty project is
+	// deleted when the editor closes). B starts from an empty timeline, as
+	// before: remove what is there. The editor stays open, so the project stays.
+	const leftover = ciElements(editor).map((placed) => ({ trackId: placed.trackId, elementId: placed.element.id }));
+	if (leftover.length > 0) {
+		editor.command.execute({ command: new DeleteElementsCommand({ elements: leftover }) });
+		await ciSleep(300);
+	}
+	ciLog(`B PREP removed=${leftover.length} timeline=${JSON.stringify(ciCounts(editor))}`);
+	await ciSettle(editor);
+	await ciShot(ctx, "empty");
+
+	const textVia = await ciAddText(editor);
+	const texts = ciCounts(editor).text ?? 0;
+	ciLog(`TEXT ${texts > 0 ? "PASS" : "FAIL"} via=${textVia} timeline=${JSON.stringify(ciCounts(editor))}`);
+	await ciSettle(editor);
+	await ciShot(ctx, "text");
+
+	const photo = await ciAddPhoto(ctx, editor);
+	ciLog(`IMPORT ${photo.ok ? "PASS" : "FAIL"} via=${photo.via} ${photo.detail}`);
+	await ciSettle(editor, 4000);
+	await ciClipCheck();
+	await ciShot(ctx, "photo");
+}
+
+/**
+ * Blind test item 11: the photo clip on the timeline shows the photo. Logs
+ * "CLIP kind=image thumbs=N thumbHeight=H clipHeight=H image=WxH|error|...
+ * rect=x,y,w,h": the filmstrip slots, the first slot's height, the clip's
+ * height, the slot image (loaded again here), and the clip's on-screen rect.
+ * The runner checks the numbers and looks for the photo's colours inside
+ * that rect on the "photo" screenshot.
+ */
+async function ciClipCheck(): Promise<void> {
+	const clip = document.querySelector<HTMLElement>(".cc-timeline__clip--image");
+	if (!clip) {
+		ciLog("CLIP kind=image none (no photo clip on the timeline)");
+		return;
+	}
+	const thumbs = [...clip.querySelectorAll<HTMLElement>(".cc-timeline__clip-thumbnail")];
+	const first = thumbs[0];
+	const url = first ? /url\(["']?(.*?)["']?\)/.exec(getComputedStyle(first).backgroundImage)?.[1] : undefined;
+	let image = "no-url";
+	if (url) {
+		image = await new Promise<string>((resolve) => {
+			const probe = new Image();
+			const timer = setTimeout(() => resolve("timeout"), 10_000);
+			probe.onload = () => {
+				clearTimeout(timer);
+				resolve(`${probe.naturalWidth}x${probe.naturalHeight}`);
+			};
+			probe.onerror = () => {
+				clearTimeout(timer);
+				resolve("error");
+			};
+			probe.src = url;
+		});
+	}
+	await ciSleep(500);
+	const box = clip.getBoundingClientRect();
+	const left = Math.max(0, box.left);
+	const right = Math.min(window.innerWidth, box.right);
+	const rect = [left, box.top, Math.max(0, right - left), box.height].map((v) => v.toFixed(1)).join(",");
+	ciLog(
+		`CLIP kind=image thumbs=${thumbs.length} thumbHeight=${(first?.getBoundingClientRect().height ?? 0).toFixed(1)} ` +
+			`clipHeight=${box.height.toFixed(1)} image=${image} rect=${rect}`,
+	);
+}
+
+/** The short side (px) of a Resolution button of the export sheet. */
+const CI_RESOLUTION_SHORT_SIDE: Record<string, number> = { "480p": 480, "720p": 720, "1080p": 1080, "4K": 2160 };
+/** The bitrate of a Quality button of the export sheet (export-sheet.tsx QUALITY_BITRATE). */
+const CI_QUALITY_BITRATE: Record<string, number> = {
+	Low: 2_000_000,
+	Medium: 5_000_000,
+	High: 10_000_000,
+	"Very High": 20_000_000,
+};
+
+/** 1.0.8: the export size. The Resolution buttons set settings.exportShortSide
+ *  (the short side in px); the canvas does not change. The export has that
+ *  short side and the canvas aspect (the long side even). With no
+ *  exportShortSide it is the canvas size. getExportSize does not exist before
+ *  1.0.8, so the driver reads it through a cast and also computes the size
+ *  itself; it uses the app's function when the app has it. */
+interface CiExportSize {
+	canvas: { width: number; height: number };
+	shortSide: number | null;
+	width: number;
+	height: number;
+	/** "app": getExportSize from @kneecap/editor-core/edl; "local": the driver's own math. */
+	source: "app" | "local";
+	/** The driver's own math (logged when the app's function gives another size). */
+	local: { width: number; height: number };
+}
+
+type CiGetExportSize = (args: { settings: unknown }) => { width?: unknown; height?: unknown } | null | undefined;
+/** undefined: not looked up yet; null: the app has no getExportSize. */
+let ciAppGetExportSize: CiGetExportSize | null | undefined;
+
+async function ciLoadExportSize(): Promise<void> {
+	if (ciAppGetExportSize !== undefined) return;
+	try {
+		const edl = (await import("@kneecap/editor-core/edl")) as unknown as Record<string, unknown>;
+		const fn = edl.getExportSize;
+		ciAppGetExportSize = typeof fn === "function" ? (fn as CiGetExportSize) : null;
+	} catch {
+		ciAppGetExportSize = null;
+	}
+}
+
+function ciExportSize(editor: EditorCore): CiExportSize {
+	const settings = editor.project.getActive().settings;
+	const canvas = { width: settings.canvasSize.width, height: settings.canvasSize.height };
+	const raw = (settings as unknown as { exportShortSide?: unknown }).exportShortSide;
+	const shortSide = typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
+	const even = (v: number) => Math.max(2, Math.round(v / 2) * 2);
+	const aspect = canvas.width / canvas.height;
+	const local =
+		shortSide === null
+			? { ...canvas }
+			: aspect >= 1
+				? { width: even(shortSide * aspect), height: shortSide }
+				: { width: shortSide, height: even(shortSide / aspect) };
+	if (ciAppGetExportSize) {
+		try {
+			const app = ciAppGetExportSize({ settings });
+			const width = Number(app?.width);
+			const height = Number(app?.height);
+			if (width > 0 && height > 0) return { canvas, shortSide, width, height, source: "app", local };
+		} catch {
+			// the driver's own math below
+		}
+	}
+	return { canvas, shortSide, width: local.width, height: local.height, source: "local", local };
+}
+
+/** "WxH" plus the driver's own math when the app's getExportSize differs. */
+function ciExportSizeText(size: CiExportSize): string {
+	const differs = size.local.width !== size.width || size.local.height !== size.height;
+	return `${size.width}x${size.height} source=${size.source}${differs ? ` local=${size.local.width}x${size.local.height}` : ""}`;
+}
+
+/** What a Resolution button does in 1.0.8: settings.exportShortSide (a cast,
+ *  so this compiles before 1.0.8 too; the settings command spreads the key in). */
+function ciSetExportShortSide(editor: EditorCore, shortSide: number): void {
+	type Updates = ConstructorParameters<typeof UpdateProjectSettingsCommand>[0];
+	editor.command.execute({
+		command: new UpdateProjectSettingsCommand({ exportShortSide: shortSide } as unknown as Updates),
+	});
+}
+
+/** One button of a segmented control of the export sheet ("Resolution", "Frame rate", "Quality"). */
+function ciSegment(group: string, label: string): HTMLButtonElement | null {
+	return (
+		[...document.querySelectorAll<HTMLButtonElement>(`[aria-label="${group}"] button`)].find(
+			(b) => (b.textContent ?? "").trim() === label,
+		) ?? null
+	);
+}
+
+/** The export sheet's steps when the sheet cannot be driven (export-sheet.tsx
+ *  startExport). 1.0.8: the resolution is settings.exportShortSide; the canvas
+ *  does not change (before 1.0.8 the key does nothing and the export has the
+ *  canvas size). */
+async function ciDirectExport(editor: EditorCore, bridge: NativeBridge, options: CiExportOptions): Promise<void> {
+	ciSetExportShortSide(editor, CI_RESOLUTION_SHORT_SIDE[options.resolution] ?? 1080);
+	const { buildEdl } = await import("@kneecap/editor-core/edl");
+	const { toEdlMediaAssets, buildNativeEdlAssetResolver } = await import("@kneecap/mobile-ui");
+	const { renderOverlayFrames } = await import("@kneecap/editor-core/export/overlay-frames");
+	const edl = buildEdl({
+		project: editor.project.getActive(),
+		scene: editor.scenes.getActiveScene(),
+		mediaAssets: toEdlMediaAssets({ assets: editor.media.getAssets() }),
+		resolveAsset: buildNativeEdlAssetResolver(),
+		output: {
+			container: "mp4",
+			videoCodec: "h264",
+			audioCodec: "aac",
+			bitrate: CI_QUALITY_BITRATE[options.quality] ?? 10_000_000,
+			includeAudio: true,
+			fps: { numerator: Number(options.fps) || 30, denominator: 1 },
+		},
+	});
+	let overlayFrames: Awaited<ReturnType<typeof renderOverlayFrames>> = [];
+	try {
+		overlayFrames = await renderOverlayFrames({
+			tracks: editor.scenes.getActiveScene().tracks,
+			mediaAssets: editor.media.getAssets(),
+			canvasSize: { width: edl.output.resolution.width, height: edl.output.resolution.height },
+			fps: edl.output.fps,
+			durationTicks: edl.meta.durationTicks,
+			ticksPerSecond: edl.meta.ticksPerSecond,
+		});
+	} catch (error) {
+		ciLog(`overlay prerender failed: ${ciDescribe(error)}`);
+	}
+	for await (const event of bridge.exportProject({ edl, overlayFrames })) {
+		if (event.stage === "done" || event.stage === "error") break;
+	}
+}
+
+/** The latest end (seconds) over every track of the active scene: the
+ *  length the exported file must have (blind test 1.0.5: a text clip that
+ *  ended at 00:05 over a 3 s photo exported a 3 s file). */
+function ciTimelineEnd(editor: EditorCore): { end: number; detail: string } {
+	const tracks = editor.scenes.getActiveSceneOrNull()?.tracks;
+	if (!tracks) return { end: 0, detail: "no scene" };
+	let end = 0;
+	const parts: string[] = [];
+	const visit = (label: string, elements: readonly { startTime: MediaTime; duration: MediaTime }[]) => {
+		if (elements.length === 0) return;
+		let trackEnd = 0;
+		for (const element of elements) {
+			trackEnd = Math.max(
+				trackEnd,
+				mediaTimeToSeconds({ time: element.startTime }) + mediaTimeToSeconds({ time: element.duration }),
+			);
+		}
+		parts.push(`${label}:${trackEnd.toFixed(3)}`);
+		end = Math.max(end, trackEnd);
+	};
+	visit("main", tracks.main.elements);
+	tracks.overlay.forEach((track, index) => visit(`${track.type}${index}`, track.elements));
+	tracks.audio.forEach((track, index) => visit(`audio${index}`, track.elements));
+	return { end, detail: parts.join(",") || "empty" };
+}
+
+interface CiExportOptions {
+	/** Names this export in the log: every line after "EXPORT BEGIN tag=<tag>"
+	 *  up to the next EXPORT BEGIN belongs to it (launch 2 has two exports). */
+	tag: string;
+	resolution: string;
+	fps: string;
+	quality: string;
+	/** The SHOT name after the export. */
+	shot: string;
+}
+
+/** Test C: 1 photo + 1 text + 1 flag sticker + 1 shape sticker at 1080p / 30 fps / High. */
+const CI_MAIN_EXPORT: CiExportOptions = { tag: "main", resolution: "1080p", fps: "30", quality: "High", shot: "export" };
+/** Test C: the same settings, text at opacity 0 and no stickers: what the main export is compared with. */
+const CI_BASELINE_EXPORT: CiExportOptions = { ...CI_MAIN_EXPORT, tag: "baseline", shot: "export-baseline" };
+/** Test E: the video sweep, smaller so the simulator's software encoder is quicker. */
+const CI_SWEEP_EXPORT: CiExportOptions = { tag: "sweep", resolution: "720p", fps: "30", quality: "Medium", shot: "sweep-export" };
+/** Test C, 1.0.8: the main export's project (16:9) at 720p. The main export is the 1080p file. */
+const CI_POS169_720: CiExportOptions = { tag: "pos169-720", resolution: "720p", fps: "30", quality: "High", shot: "export-169-720" };
+/** Test C, 1.0.8: the same project in 9:16 (stickers placed again), at 1080p and at 720p. */
+const CI_POS916_1080: CiExportOptions = { tag: "pos916-1080", resolution: "1080p", fps: "30", quality: "High", shot: "export-916-1080" };
+const CI_POS916_720: CiExportOptions = { tag: "pos916-720", resolution: "720p", fps: "30", quality: "High", shot: "export-916-720" };
+
+/** One export through the export sheet (tests C and E). */
+async function ciExport(ctx: CiContext, editor: EditorCore, options: CiExportOptions): Promise<void> {
+	const { bridge } = ctx;
+	await ciLoadExportSize();
+	ciLog(`EXPORT BEGIN tag=${options.tag} resolution=${options.resolution} fps=${options.fps} quality=${options.quality}`);
+	let result: ExportProgress | null = null;
+	let thrown: string | null = null;
+	// Watch the real bridge call; the events pass through unchanged.
+	const originalExport = bridge.exportProject;
+	bridge.exportProject = (params) => {
+		const ticksPerSecond = Number(params.edl.meta.ticksPerSecond);
+		const edlSeconds = ticksPerSecond > 0 ? Number(params.edl.meta.durationTicks) / ticksPerSecond : -1;
+		ciLog(
+			`EXPORT start output=${JSON.stringify(params.edl.output).slice(0, 400)} overlayFrames=${params.overlayFrames?.length ?? 0} edlSeconds=${edlSeconds.toFixed(3)}`,
+		);
+		// 1.0.8: the size the exporter is asked for (the EDL), next to the
+		// canvas and the export size the project settings give. The runner
+		// compares the file with the EDL size, never with the canvas.
+		const resolution = params.edl.output.resolution;
+		const size = ciExportSize(editor);
+		ciLog(
+			`EXPORT size edl=${resolution.width}x${resolution.height} canvas=${size.canvas.width}x${size.canvas.height} ` +
+				`exportShortSide=${size.shortSide ?? "unset"} expected=${ciExportSizeText(size)}`,
+		);
+		const inner = originalExport.call(bridge, params);
+		let lastStage = "";
+		async function* observed(): AsyncGenerator<ExportProgress> {
+			try {
+				for await (const event of inner) {
+					if (event.stage !== lastStage) {
+						lastStage = event.stage;
+						ciLog(`EXPORT stage=${event.stage} fraction=${event.fraction.toFixed(2)}`);
+					}
+					if (event.stage === "done" || event.stage === "error") result = event;
+					yield event;
+				}
+			} catch (error) {
+				thrown = ciDescribe(error);
+				throw error;
+			} finally {
+				await inner.return(undefined);
+			}
+		}
+		return observed();
+	};
+
+	let via = "sheet";
+	try {
+		document.querySelector<HTMLButtonElement>(".cc-export-btn")?.click();
+		const sheetButton = await ciWait("Export video button", () => ciButton(document, /^Export video$/), 10_000).catch(() => null);
+		if (sheetButton) {
+			const pick = (group: string, label: string) => {
+				const option = ciSegment(group, label);
+				option?.click();
+				return option ? "ok" : "missing";
+			};
+			ciLog(
+				`EXPORT settings resolution=${pick("Resolution", options.resolution)} fps=${pick("Frame rate", options.fps)} ` +
+					`quality=${pick("Quality", options.quality)}`,
+			);
+			await ciSleep(500);
+			const start = ciButton(document, /^Export video$/);
+			if (!start) throw new Error("the Export video button went away");
+			const timeline = ciTimelineEnd(editor);
+			ciLog(`TIMELINE end=${timeline.end.toFixed(3)} tracks=${timeline.detail} timeline=${JSON.stringify(ciCounts(editor))}`);
+			start.click();
+		} else {
+			via = "direct";
+			document.querySelector<HTMLElement>(".cc-sheet-scrim")?.click();
+			const timeline = ciTimelineEnd(editor);
+			ciLog(`TIMELINE end=${timeline.end.toFixed(3)} tracks=${timeline.detail} timeline=${JSON.stringify(ciCounts(editor))}`);
+			void ciDirectExport(editor, bridge, options).catch((error: unknown) => {
+				thrown = ciDescribe(error);
+			});
+		}
+		const sheetError = () =>
+			[...document.querySelectorAll(".cc-sheet .cc-panel-note")]
+				.map((node) => (node.textContent ?? "").trim())
+				.find((text) => text.startsWith("Export failed")) ?? null;
+		await ciWait("export result", () => result ?? thrown ?? sheetError(), 600_000);
+		const final = result as ExportProgress | null;
+		if (final?.stage === "done" && final.outputUri) {
+			const marker = "/_capacitor_file_";
+			const index = final.outputUri.indexOf(marker);
+			const path = index === -1 ? final.outputUri : final.outputUri.slice(index + marker.length);
+			ciLog(`EXPORT DONE via=${via} path=${path}`);
+		} else {
+			const reason = final?.error ?? thrown ?? sheetError() ?? "export ended without a file";
+			ciLog(`EXPORT FAIL via=${via} error=${reason}`);
+		}
+	} catch (error) {
+		ciLog(`EXPORT FAIL via=${via} error=${ciDescribe(error)}`);
+	} finally {
+		bridge.exportProject = originalExport;
+	}
+	if (via === "sheet") await ciExportSheetEnd();
+	await ciShot(ctx, options.shot);
+}
+
+/**
+ * What the export sheet shows when the export ends (blind test 1.0.5): after
+ * a good save "Saved to Photos" with the button "Share" (1.0.6: no "Open
+ * Photos"; no public iOS API opens the Photos app);
+ * after a failed export "Export failed. Try again.". The Photos save comes
+ * after the native "done" event, so this waits up to 30 s for its words.
+ * Logs one line: EXPORT SHEET {"saved":…,"failed":…,"notes":[…],"buttons":[…],"text":"…"}.
+ */
+async function ciExportSheetEnd(): Promise<void> {
+	const sheetText = () => (document.querySelector(".cc-sheet")?.textContent ?? "").replace(/\s+/g, " ").trim();
+	await ciWait(
+		"the save result in the export sheet",
+		() => /Saved to Photos|Could not save|Export failed/i.test(sheetText()),
+		30_000,
+		false,
+	).catch(() => undefined);
+	const text = sheetText();
+	const notes = [...document.querySelectorAll(".cc-sheet .cc-panel-note")]
+		.map((node) => (node.textContent ?? "").trim())
+		.filter(Boolean);
+	const buttons = [...document.querySelectorAll<HTMLButtonElement>(".cc-sheet button")]
+		.map((button) => ((button.textContent ?? "").trim() || button.getAttribute("aria-label") || "").slice(0, 40))
+		.filter(Boolean);
+	ciLog(
+		`EXPORT SHEET ${JSON.stringify({
+			saved: /Saved to Photos/i.test(text),
+			failed: /Export failed\. Try again\./.test(text),
+			notes: notes.slice(0, 4).map((note) => note.slice(0, 80)),
+			buttons: buttons.slice(0, 20),
+			text: text.slice(0, 120),
+		})}`,
+	);
+}
+
+// ----------------------------------------------------- shared UI helpers (D, E)
+
+/** A button of a toolbar ("Editor tools": the bottom toolbar, "Clip tools":
+ *  the selected-clip row), found by its label. */
+function ciToolbarButton(toolbar: string, label: RegExp): HTMLButtonElement | null {
+	const scope = document.querySelector(`[aria-label="${toolbar}"]`);
+	if (!scope) return null;
+	for (const button of scope.querySelectorAll<HTMLButtonElement>("button")) {
+		const text = (button.querySelector(".cc-toolbar__item-label")?.textContent ?? button.textContent ?? "").trim();
+		if (!button.disabled && label.test(text)) return button;
+	}
+	return null;
+}
+
+/** Opens a bottom-toolbar sheet. Null (and a FAIL line) when it does not open. */
+async function ciOpenSheet(tool: RegExp, tag: string): Promise<Element | null> {
+	document.querySelector<HTMLElement>(".cc-sheet-scrim")?.click();
+	await ciSleep(300);
+	const button = ciToolbarButton("Editor tools", tool);
+	if (!button) {
+		ciLog(`${tag} FAIL no ${tool.source} button in the editor tools`);
+		return null;
+	}
+	button.click();
+	const sheet = await ciWait(`${tag} sheet`, () => document.querySelector(".cc-sheet"), 10_000).catch(() => null);
+	if (!sheet) ciLog(`${tag} FAIL the ${tool.source} sheet did not open`);
+	return sheet;
+}
+
+async function ciCloseSheet(): Promise<void> {
+	document.querySelector<HTMLElement>(".cc-sheet-scrim")?.click();
+	await ciWait("closed sheet", () => !document.querySelector(".cc-sheet"), 5_000, false).catch(() => undefined);
+}
+
+function ciSheetNotes(): string[] {
+	return [...document.querySelectorAll(".cc-sheet .cc-panel-note")].map((node) => (node.textContent ?? "").trim());
+}
+
+/** Audio elements of the active scene, with the fields that find their file. */
+function ciAudioElements(editor: EditorCore): { id: string; sourceUrl?: string; mediaId?: string; sourceType?: string }[] {
+	const tracks = editor.scenes.getActiveSceneOrNull()?.tracks;
+	if (!tracks) return [];
+	return tracks.audio
+		.flatMap((track) => track.elements)
+		.map((element) => {
+			const raw = element as unknown as Record<string, unknown>;
+			return {
+				id: element.id,
+				sourceUrl: typeof raw.sourceUrl === "string" ? raw.sourceUrl : undefined,
+				mediaId: typeof raw.mediaId === "string" ? raw.mediaId : undefined,
+				sourceType: typeof raw.sourceType === "string" ? raw.sourceType : undefined,
+			};
+		});
+}
+
+/** The planted file as the handle NativeBridgePlugin+Media.swift builds for a pick. */
+async function ciPlantedHandle(
+	place: CiPlace,
+	relative: string,
+	fields: Omit<MediaHandle, "id" | "uri" | "fileName" | "sizeBytes">,
+): Promise<MediaHandle | null> {
+	const uri = `${place.root}/${relative}`;
+	let sizeBytes = 0;
+	try {
+		const res = await fetch(place.bridge.toPlaybackUri(`file://${uri}`), { cache: "no-store" });
+		sizeBytes = (await res.blob()).size;
+	} catch {
+		// sizeBytes stays 0: the caller reports the missing file
+	}
+	if (sizeBytes === 0) return null;
+	return {
+		...fields,
+		id: crypto.randomUUID().toUpperCase(),
+		uri,
+		fileName: relative.slice(relative.lastIndexOf("/") + 1),
+		sizeBytes,
+	};
+}
+
+/** Replaces the OS picker with the planted file. Returns the restore function. */
+function ciStubPicker(place: CiPlace, handle: MediaHandle): () => void {
+	const { bridge } = place;
+	const original = bridge.pickMedia;
+	bridge.pickMedia = async (opts) => {
+		ciLog(`pickMedia stand-in: kinds=${opts.kinds.join(",")} -> ${handle.fileName} (${handle.sizeBytes} bytes)`);
+		opts.onProgress?.({ index: 0, total: 1, stage: "loading", fraction: 0 });
+		opts.onProgress?.({ index: 0, total: 1, stage: "loaded", fraction: 1 });
+		return [handle];
+	};
+	return () => {
+		bridge.pickMedia = original;
+	};
+}
+
+// ------------------------------------------------- D: stickers, bundled sound
+
+type CiImageState = "ok" | "broken" | "blank" | "timeout";
+
+/** Loads one image URL again: "broken" when it errors, "blank" when it loads
+ *  but draws nothing (an SVG with only a viewBox has no natural size, so its
+ *  pixels are checked instead of naturalWidth). */
+function ciProbeImage(src: string): Promise<CiImageState> {
+	return new Promise((resolve) => {
+		const probe = new Image();
+		const timer = setTimeout(() => resolve("timeout"), 10_000);
+		probe.onload = () => {
+			clearTimeout(timer);
+			if (probe.naturalWidth > 0 && probe.naturalHeight > 0) {
+				resolve("ok");
+				return;
+			}
+			try {
+				const canvas = document.createElement("canvas");
+				canvas.width = 32;
+				canvas.height = 32;
+				const g = canvas.getContext("2d");
+				if (!g) {
+					resolve("ok");
+					return;
+				}
+				g.drawImage(probe, 0, 0, 32, 32);
+				const data = g.getImageData(0, 0, 32, 32).data;
+				let painted = 0;
+				for (let i = 3; i < data.length; i += 4) if (data[i] > 0) painted++;
+				resolve(painted > 0 ? "ok" : "blank");
+			} catch {
+				resolve("ok"); // the image loaded; a tainted canvas only hides its pixels
+			}
+		};
+		probe.onerror = () => {
+			clearTimeout(timer);
+			resolve("broken");
+		};
+		probe.src = src;
+	});
+}
+
+/** The state of every tile image: waits for them to finish, then checks each. */
+async function ciCheckImages(images: HTMLImageElement[]): Promise<Record<CiImageState, number> & { first: string }> {
+	const deadline = Date.now() + 20_000;
+	while (Date.now() < deadline && images.some((img) => !img.complete)) await ciSleep(200);
+	const states = await Promise.all(
+		images.map((img): Promise<CiImageState> => {
+			const src = img.currentSrc || img.src;
+			if (!src) return Promise.resolve("broken");
+			if (img.complete && img.naturalWidth > 0) return Promise.resolve("ok");
+			return ciProbeImage(src);
+		}),
+	);
+	const counts = { ok: 0, broken: 0, blank: 0, timeout: 0, first: "" };
+	states.forEach((state, index) => {
+		counts[state]++;
+		const img = images[index];
+		if (state !== "ok" && !counts.first && img) counts.first = (img.currentSrc || img.src).slice(0, 100);
+	});
+	return counts;
+}
+
+/** The Stickers sheet's tabs (chips, or a tab bar if the sheet uses one). */
+function ciStickerTabs(): HTMLButtonElement[] {
+	return [...document.querySelectorAll<HTMLButtonElement>('.cc-sheet .cc-chip, .cc-sheet [role="tab"]')];
+}
+
+/** Waits until the open tab shows its tiles (or says it has none). */
+function ciStickerTilesReady(): Promise<string> {
+	return ciWait(
+		"sticker tiles",
+		() => {
+			if (ciSheetNotes().some((text) => /^Loading/i.test(text))) return null;
+			if (document.querySelector(".cc-sheet .cc-thumb")) return "tiles";
+			return ciSheetNotes().some((text) => /no stickers/i.test(text)) ? "empty" : null;
+		},
+		30_000,
+	).catch(() => "timeout");
+}
+
+/**
+ * Blind test 1.0.5: the Flags tab showed only broken images (the flag SVGs
+ * were not in the mobile bundle). Opens EVERY tab, waits for the tiles and
+ * checks every image; then taps one tile. Logs
+ *   STICKERS tab="<label>" state=… tiles=N images=N ok=N broken=N blank=N timeout=N [first=<src>]
+ *   STICKER PASS|FAIL …
+ * Returns 1 when a sticker landed on the timeline (for the undo).
+ */
+async function ciStickers(ctx: CiContext, editor: EditorCore): Promise<number> {
+	if (!(await ciOpenSheet(/^Stickers?$/i, "STICKERS"))) return 0;
+	await ciStickerTilesReady();
+	const labels = ciStickerTabs().map((tab) => (tab.textContent ?? "").trim());
+	ciLog(`STICKERS tabs=${labels.length} names=${JSON.stringify(labels)}`);
+	const tabs = labels.length > 0 ? labels : ["(one grid, no tabs)"];
+	const good: string[] = [];
+	for (let i = 0; i < tabs.length; i++) {
+		const label = tabs[i] ?? "";
+		if (labels.length > 0) {
+			ciStickerTabs()
+				.find((tab) => (tab.textContent ?? "").trim() === label)
+				?.click();
+			await ciSleep(400);
+		}
+		const state = await ciStickerTilesReady();
+		const tiles = document.querySelectorAll(".cc-sheet .cc-thumb").length;
+		const images = [...document.querySelectorAll<HTMLImageElement>(".cc-sheet .cc-thumb img")];
+		const result = await ciCheckImages(images);
+		ciLog(
+			`STICKERS tab=${JSON.stringify(label)} state=${state} tiles=${tiles} images=${images.length} ok=${result.ok} ` +
+				`broken=${result.broken} blank=${result.blank} timeout=${result.timeout}${result.first ? ` first=${result.first}` : ""}`,
+		);
+		if (images.length > 0 && result.ok === images.length) good.push(label);
+		await ciShot(ctx, `stickers-${i + 1}`);
+	}
+
+	// One tile onto the timeline, from a tab whose images all load.
+	const stickers = () => {
+		const counts = ciCounts(editor);
+		return (counts.sticker ?? 0) + (counts.graphic ?? 0);
+	};
+	const before = stickers();
+	const tabName = good[0] ?? tabs[0] ?? "";
+	if (labels.length > 0) {
+		ciStickerTabs()
+			.find((tab) => (tab.textContent ?? "").trim() === tabName)
+			?.click();
+		await ciSleep(400);
+		await ciStickerTilesReady();
+	}
+	const tile = document.querySelector<HTMLButtonElement>(".cc-sheet .cc-thumb");
+	const known = new Set(ciElements(editor).map((placed) => placed.element.id));
+	tile?.click();
+	const added = tile
+		? await ciWait("sticker on the timeline", () => stickers() > before, 10_000).then(
+				() => true,
+				() => false,
+			)
+		: false;
+	ciLog(
+		`STICKER ${added ? "PASS" : "FAIL"} via=ui tab=${JSON.stringify(tabName)} ` +
+			`tile=${tile ? JSON.stringify((tile.textContent ?? "").trim().slice(0, 40)) : "none"} timeline=${JSON.stringify(ciCounts(editor))}`,
+	);
+	if (added) {
+		await ciSleep(800); // the insert may set its size a moment later
+		await ciStickerSize(editor, known);
+	} else {
+		ciLog("STICKER-SIZE none (no sticker from the sheet)");
+	}
+	await ciCloseSheet();
+	if (added) {
+		await ciSettle(editor, 1500);
+		await ciShot(ctx, "sticker");
+	}
+	return added ? 1 : 0;
+}
+
+/**
+ * 1.0.8 (blind test round 4, MEDIUM 3): a sticker from the Stickers sheet
+ * comes in at about 30% of the frame width, centred (1.0.7: full frame). The
+ * width the renderer draws is source width x contain fit x scaleX
+ * (frame-descriptor.ts computeVisualTransform; the source size is the
+ * intrinsic size, else the image's natural size, resolve.ts). Logs
+ *   STICKER-SIZE id=… source=WxH(intrinsic|natural|fallback) canvas=WxH fit=… scaleX=… scaleY=…
+ *     rendered=WxH widthFraction=… position=x,y
+ * The runner passes it at a widthFraction of 0.2 to 0.4.
+ */
+async function ciStickerSize(editor: EditorCore, known: Set<string>): Promise<void> {
+	const placed = ciElements(editor).find((candidate) => !known.has(candidate.element.id) && candidate.element.type === "sticker");
+	const element = placed?.element;
+	if (!element || element.type !== "sticker") {
+		ciLog(`STICKER-SIZE none (no new sticker element; timeline=${JSON.stringify(ciCounts(editor))})`);
+		return;
+	}
+	const { width: W, height: H } = editor.project.getActive().settings.canvasSize;
+	const natural = await ciNaturalSize(resolveStickerId({ stickerId: element.stickerId, options: { width: 200, height: 200 } }));
+	let sourceW = element.intrinsicWidth ?? 0;
+	let sourceH = element.intrinsicHeight ?? 0;
+	let from = "intrinsic";
+	if (!(sourceW > 0 && sourceH > 0)) {
+		sourceW = natural?.width ?? 0;
+		sourceH = natural?.height ?? 0;
+		from = "natural";
+	}
+	if (!(sourceW > 0 && sourceH > 0)) {
+		// The app's fallback when the image reports no size (1.0.8): flags
+		// 640x480 (the flag-icons SVGs have a 4:3 viewBox), shapes 512x512.
+		const shape = element.stickerId.startsWith("shapes:");
+		sourceW = shape ? 512 : 640;
+		sourceH = shape ? 512 : 480;
+		from = "fallback";
+	}
+	const fit = Math.min(W / sourceW, H / sourceH);
+	const scaleX = ciNum(element.params, "transform.scaleX", 1);
+	const scaleY = ciNum(element.params, "transform.scaleY", 1);
+	const renderedW = sourceW * fit * Math.abs(scaleX);
+	const renderedH = sourceH * fit * Math.abs(scaleY);
+	ciLog(
+		`STICKER-SIZE id=${element.stickerId} source=${sourceW}x${sourceH}(${from}) canvas=${W}x${H} fit=${fit.toFixed(4)} ` +
+			`scaleX=${Number(scaleX.toFixed(4))} scaleY=${Number(scaleY.toFixed(4))} rendered=${renderedW.toFixed(1)}x${renderedH.toFixed(1)} ` +
+			`widthFraction=${(renderedW / W).toFixed(3)} position=${ciNum(element.params, "transform.positionX", 0).toFixed(1)},` +
+			`${ciNum(element.params, "transform.positionY", 0).toFixed(1)}`,
+	);
+}
+
+/** Fetches a sound and decodes it the way WebAudio would play it. "ok …" or the problem. */
+async function ciLoadSound(url: string): Promise<string> {
+	try {
+		const res = await fetch(url, { cache: "no-store" });
+		if (!(res.ok || res.status === 0)) return `http-${res.status}`;
+		const bytes = await res.arrayBuffer();
+		if (bytes.byteLength < 100) return `only-${bytes.byteLength}-bytes`;
+		if (typeof OfflineAudioContext !== "function") return `ok bytes=${bytes.byteLength} decode=n/a`;
+		const audio = await new OfflineAudioContext(1, 1, 44_100).decodeAudioData(bytes);
+		return `ok bytes=${bytes.byteLength} seconds=${audio.duration.toFixed(2)}`;
+	} catch (error) {
+		return `error(${ciDescribe(error).slice(0, 120)})`;
+	}
+}
+
+/**
+ * Blind test 1.0.5: a bundled sound from the Audio sheet lands on the
+ * timeline and its file loads. Logs SOUND PASS|FAIL … Returns 1 when an
+ * audio clip landed (for the undo).
+ */
+async function ciSound(editor: EditorCore): Promise<number> {
+	await ciSettle(editor, 300);
+	if (!(await ciOpenSheet(/^Audio$/i, "SOUND"))) return 0;
+	const inGroup = [...document.querySelectorAll<HTMLButtonElement>(".cc-sheet .cc-panel-actions button")];
+	const anyButton = [...document.querySelectorAll<HTMLButtonElement>(".cc-sheet .cc-sheet__body button")];
+	const candidates = (inGroup.length > 0 ? inGroup : anyButton).filter(
+		(button) => !button.disabled && (button.textContent ?? "").trim() && !/import|files/i.test(button.textContent ?? ""),
+	);
+	const sound = candidates[0];
+	if (!sound) {
+		ciLog(`SOUND FAIL no bundled sound in the Audio sheet (notes=${JSON.stringify(ciSheetNotes())})`);
+		await ciCloseSheet();
+		return 0;
+	}
+	const name = (sound.textContent ?? "").trim().slice(0, 40);
+	const before = ciCounts(editor).audio ?? 0;
+	const known = new Set(ciAudioElements(editor).map((element) => element.id));
+	sound.click();
+	// The sound goes through the native import (a copy into the media
+	// folder and a probe), so it can take some seconds.
+	const added = await ciWait("sound on the timeline", () => (ciCounts(editor).audio ?? 0) > before, 30_000).then(
+		() => true,
+		() => false,
+	);
+	const element = ciAudioElements(editor).find((candidate) => !known.has(candidate.id));
+	const assetUrl = element?.mediaId ? editor.media.getAssets().find((asset) => asset.id === element.mediaId)?.url : undefined;
+	const url = element?.sourceUrl ?? assetUrl ?? null;
+	const load = url ? await ciLoadSound(url) : element ? `no-file-url(sourceType=${element.sourceType ?? "?"})` : "no-element";
+	ciLog(
+		`SOUND ${added && load.startsWith("ok") ? "PASS" : "FAIL"} name=${JSON.stringify(name)} added=${added} load=${load} ` +
+			`url=${url ? url.slice(0, 48) : "none"} sounds=${candidates.length} timeline=${JSON.stringify(ciCounts(editor))}`,
+	);
+	await ciCloseSheet();
+	return added ? 1 : 0;
+}
+
+/** Test D. The inserts are undone at the end, so test C exports photo + text only. */
+async function ciStickersAndSound(ctx: CiContext, editor: EditorCore): Promise<void> {
+	await ciSettle(editor, 300);
+	const start = JSON.stringify(ciCounts(editor));
+	let inserted = 0;
+	try {
+		inserted += await ciStickers(ctx, editor);
+		inserted += await ciSound(editor);
+	} finally {
+		await ciCloseSheet();
+		for (let i = 0; i < inserted; i++) {
+			editor.command.undo();
+			await ciSleep(300);
+		}
+		const end = JSON.stringify(ciCounts(editor));
+		ciLog(`CLEANUP ${end === start ? "PASS" : "FAIL"} undone=${inserted} start=${start} end=${end}`);
+		await ciSettle(editor, 500);
+	}
+}
+
+// ------------------------------------------- C: stickers in the export (1.0.7)
+
+/** A sticker test C puts in the main export: the Stickers sheet tab, the
+ *  tile (by its label) and the sticker id that tile inserts. */
+interface CiStickerPick {
+	name: "flag" | "shape";
+	stickerId: string;
+	tab: RegExp;
+	tile: string;
+}
+
+/** Ukraine: blue top half, yellow bottom half (flag-icons ua.svg, 4:3), so
+ *  the runner can also check its colours and that it is upright. */
+const CI_FLAG: CiStickerPick = { name: "flag", stickerId: "flags:UA", tab: /^Flags$/i, tile: "Ukraine" };
+/** Rectangle: a 512x512 white square (graphics/definitions/rectangle.ts), so
+ *  its opacity and its rotation can be measured over the black background. */
+const CI_SHAPE: CiStickerPick = { name: "shape", stickerId: "shapes:rectangle", tab: /^Shapes$/i, tile: "Rectangle" };
+/** The shape's window, rotation and opacity. The flag stays as inserted at
+ *  0 s (5 s long), upright and opaque. */
+const CI_SHAPE_START_S = 1;
+const CI_SHAPE_END_S = 4;
+const CI_SHAPE_ROTATE = 30;
+const CI_SHAPE_OPACITY = 0.6;
+/** The output times the runner reads from both exports: before, in and after the shape's window. */
+const CI_SAMPLE_TIMES = [0.5, 2, 4.5];
+/** A bar beside (or above and below) the photo must be at least this wide for the stickers. */
+const CI_MIN_BAR_PX = 160;
+
+interface CiBox {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+}
+
+function ciBox(cx: number, cy: number, w: number, h: number): CiBox {
+	return { x: cx - w / 2, y: cy - h / 2, w, h };
+}
+
+function ciBoxText(box: CiBox): string {
+	return [box.x, box.y, box.w, box.h].map((v) => v.toFixed(1)).join(",");
+}
+
+function ciNum(params: ParamValues, key: string, fallback: number): number {
+	const value = params[key];
+	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/** The natural size of an image URL (what the preview's renderer reads), or null. */
+function ciNaturalSize(url: string): Promise<{ width: number; height: number } | null> {
+	return new Promise((resolve) => {
+		const probe = new Image();
+		const timer = setTimeout(() => resolve(null), 10_000);
+		probe.onload = () => {
+			clearTimeout(timer);
+			resolve({ width: probe.naturalWidth, height: probe.naturalHeight });
+		};
+		probe.onerror = () => {
+			clearTimeout(timer);
+			resolve(null);
+		};
+		probe.src = url;
+	});
+}
+
+/** Changes params (and the timing) of elements with one undoable command, like setElementParam. */
+function ciUpdate(
+	editor: EditorCore,
+	changes: {
+		trackId: string;
+		elementId: string;
+		params?: Record<string, number>;
+		startSeconds?: number;
+		durationSeconds?: number;
+	}[],
+): void {
+	const updates = changes.flatMap((change) => {
+		const found = ciElements(editor).find(
+			(placed) => placed.trackId === change.trackId && placed.element.id === change.elementId,
+		);
+		if (!found) return [];
+		const patch = {
+			params: { ...found.element.params, ...(change.params ?? {}) },
+			...(change.startSeconds !== undefined ? { startTime: mediaTimeFromSeconds({ seconds: change.startSeconds }) } : {}),
+			...(change.durationSeconds !== undefined
+				? { duration: mediaTimeFromSeconds({ seconds: change.durationSeconds }) }
+				: {}),
+		};
+		return [{ trackId: change.trackId, elementId: change.elementId, patch }];
+	});
+	if (updates.length > 0) editor.command.execute({ command: new UpdateElementsCommand({ updates }) });
+}
+
+/** In the open Stickers sheet: the tab, then the tile with this label. False when there is no such tile. */
+async function ciTapStickerTile(tab: RegExp, label: string): Promise<boolean> {
+	await ciStickerTilesReady();
+	const chip = ciStickerTabs().find((candidate) => tab.test((candidate.textContent ?? "").trim()));
+	if (chip) {
+		chip.click();
+		await ciSleep(400);
+		await ciStickerTilesReady();
+	}
+	const tile = [...document.querySelectorAll<HTMLButtonElement>(".cc-sheet .cc-thumb")].find(
+		(button) => (button.querySelector(".cc-thumb__label")?.textContent ?? "").trim() === label,
+	);
+	if (!tile) return false;
+	tile.click();
+	return true;
+}
+
+/** One sticker onto the timeline at `startSeconds`, through the Stickers
+ *  sheet like a person (the playhead sets its start). The direct insert (the
+ *  same as insertStickerElement in actions.ts) is the fallback. */
+async function ciPlaceSticker(
+	editor: EditorCore,
+	pick: CiStickerPick,
+	startSeconds: number,
+): Promise<{ trackId: string; elementId: string; via: string } | null> {
+	await ciCloseSheet();
+	editor.selection.setSelectedElements({ elements: [] });
+	editor.playback.seek({ time: mediaTimeFromSeconds({ seconds: startSeconds }) });
+	await ciSleep(300);
+	const known = new Set(ciElements(editor).map((placed) => placed.element.id));
+	const fresh = () =>
+		ciElements(editor).find(
+			(placed) =>
+				!known.has(placed.element.id) &&
+				placed.element.type === "sticker" &&
+				placed.element.stickerId === pick.stickerId,
+		);
+	let via = "ui";
+	let placed: ReturnType<typeof fresh> = undefined;
+	if ((await ciOpenSheet(/^Stickers?$/i, `C STICKERS-SHEET name=${pick.name}`)) && (await ciTapStickerTile(pick.tab, pick.tile))) {
+		placed = await ciWait(`${pick.stickerId} on the timeline`, fresh, 10_000).catch(() => undefined);
+	}
+	await ciCloseSheet();
+	if (!placed) {
+		via = "direct";
+		editor.command.execute({
+			command: new InsertElementCommand({
+				element: buildStickerElement({
+					stickerId: pick.stickerId,
+					startTime: mediaTimeFromSeconds({ seconds: startSeconds }),
+				}),
+				placement: { mode: "auto", trackType: "graphic" },
+			}),
+		});
+		placed = fresh();
+	}
+	if (!placed) {
+		ciLog(`C STICKER name=${pick.name} FAIL ${pick.stickerId} did not land on the timeline (ui and direct)`);
+		return null;
+	}
+	return { trackId: placed.trackId, elementId: placed.element.id, via };
+}
+
+/** A sticker test C placed: its track, its id and how it got there (ui or direct). */
+interface CiPlacedRef {
+	trackId: string;
+	elementId: string;
+	via: string;
+}
+
+interface CiPlacedStickers {
+	flag: CiPlacedRef | null;
+	shape: CiPlacedRef | null;
+}
+
+/** Where a sticker goes: its centre and the box its (rotated) quad must fit in (canvas px). */
+interface CiSlot {
+	cx: number;
+	cy: number;
+	tw: number;
+	th: number;
+}
+
+/** The photo on the canvas, the empty bars beside it and a slot for each sticker (canvas px). */
+interface CiLayout {
+	W: number;
+	H: number;
+	photo: CiBox;
+	photoNatural: { width: number; height: number } | null;
+	/** The end (s) of the photo clip. After it the background is behind the overlays. */
+	photoEnd: number;
+	left: number;
+	right: number;
+	top: number;
+	bottom: number;
+	/** sides: bars left and right of the photo; ends: bars above and below it; photo: no bar is wide enough. */
+	mode: "sides" | "ends" | "photo";
+	over: "photo" | "background";
+	slots: { flag: CiSlot; shape: CiSlot; controlBar: CiBox | null };
+}
+
+/** The layout for the current canvas (C, and 1.0.8: again after an aspect change). */
+async function ciLayout(editor: EditorCore): Promise<CiLayout> {
+	const { width: W, height: H } = editor.project.getActive().settings.canvasSize;
+	const photoElement = ciElements(editor)
+		.map((placed) => placed.element)
+		.find((element): element is ImageElement => element.type === "image");
+	const photoUrl = photoElement ? editor.media.getAssets().find((asset) => asset.id === photoElement.mediaId)?.url : undefined;
+	const photoNatural = photoUrl ? await ciNaturalSize(photoUrl) : null;
+	let photo: CiBox = { x: 0, y: 0, w: W, h: H };
+	if (photoElement && photoNatural && photoNatural.width > 0 && photoNatural.height > 0) {
+		// The main track's contain fit (frame-descriptor.ts computeVisualTransform).
+		const fit = Math.min(W / photoNatural.width, H / photoNatural.height);
+		const p = photoElement.params;
+		photo = ciBox(
+			W / 2 + ciNum(p, "transform.positionX", 0),
+			H / 2 + ciNum(p, "transform.positionY", 0),
+			photoNatural.width * fit * Math.abs(ciNum(p, "transform.scaleX", 1)),
+			photoNatural.height * fit * Math.abs(ciNum(p, "transform.scaleY", 1)),
+		);
+	}
+	const photoEnd = photoElement
+		? mediaTimeToSeconds({ time: photoElement.startTime }) + mediaTimeToSeconds({ time: photoElement.duration })
+		: 0;
+	const left = Math.max(0, photo.x);
+	const right = Math.max(0, W - (photo.x + photo.w));
+	const top = Math.max(0, photo.y);
+	const bottom = Math.max(0, H - (photo.y + photo.h));
+	const mode = Math.min(left, right) >= CI_MIN_BAR_PX ? "sides" : Math.min(top, bottom) >= CI_MIN_BAR_PX ? "ends" : "photo";
+	const over = mode === "photo" ? "photo" : "background";
+	// Where each sticker goes: its centre and the box its (rotated) quad must fit in.
+	const slots =
+		mode === "sides"
+			? {
+					flag: { cx: left / 2, cy: 0.3 * H, tw: 0.7 * left, th: 0.28 * H },
+					shape: { cx: W - right / 2, cy: 0.3 * H, tw: 0.8 * right, th: 0.36 * H },
+					controlBar: ciBox(left / 2, 0.78 * H, 0.4 * left, 0.12 * H),
+				}
+			: mode === "ends"
+				? {
+						flag: { cx: 0.3 * W, cy: top / 2, tw: 0.28 * W, th: 0.7 * top },
+						shape: { cx: 0.7 * W, cy: H - bottom / 2, tw: 0.36 * W, th: 0.8 * bottom },
+						controlBar: ciBox(0.78 * W, top / 2, 0.12 * W, 0.4 * top),
+					}
+				: {
+						flag: { cx: 0.25 * W, cy: 0.25 * H, tw: 0.3 * W, th: 0.22 * H },
+						shape: { cx: 0.75 * W, cy: 0.25 * H, tw: 0.3 * W, th: 0.26 * H },
+						controlBar: null,
+					};
+	return { W, H, photo, photoNatural, photoEnd, left, right, top, bottom, mode, over, slots };
+}
+
+/** A placed sticker in canvas px: centre, drawn size, look and window. */
+interface CiStickerFacts {
+	cx: number;
+	cy: number;
+	w: number;
+	h: number;
+	rotate: number;
+	opacity: number;
+	start: number;
+	end: number;
+	scale: number;
+	natural: { width: number; height: number } | null;
+}
+
+/** Scales and moves one sticker so that its (rotated) quad fits the slot, with this rotation and opacity. */
+async function ciFitSticker(
+	editor: EditorCore,
+	pick: CiStickerPick,
+	ref: CiPlacedRef,
+	slot: CiSlot,
+	look: { rotate: number; opacity: number; startSeconds?: number; durationSeconds?: number },
+	layout: CiLayout,
+): Promise<CiStickerFacts | null> {
+	const { W, H } = layout;
+	const before = ciElements(editor).find((placed) => placed.element.id === ref.elementId)?.element;
+	if (!before || before.type !== "sticker") return null;
+	// The size the renderer uses: intrinsic size, else the image's natural size (resolve.ts).
+	const natural = await ciNaturalSize(resolveStickerId({ stickerId: pick.stickerId, options: { width: 200, height: 200 } }));
+	const sw = before.intrinsicWidth ?? (natural && natural.width > 0 ? natural.width : 0);
+	const sh = before.intrinsicHeight ?? (natural && natural.height > 0 ? natural.height : 0);
+	// 4:3 when the image reports no size (flag-icons SVGs have only a viewBox).
+	const sourceW = sw > 0 && sh > 0 ? sw : 640;
+	const sourceH = sw > 0 && sh > 0 ? sh : 480;
+	const fit = Math.min(W / sourceW, H / sourceH);
+	const fitW = sourceW * fit;
+	const fitH = sourceH * fit;
+	const radians = (look.rotate * Math.PI) / 180;
+	const c = Math.abs(Math.cos(radians));
+	const s = Math.abs(Math.sin(radians));
+	const scale = Number(Math.min(slot.tw / (fitW * c + fitH * s), slot.th / (fitW * s + fitH * c)).toFixed(4));
+	const positionX = Math.round(slot.cx - W / 2);
+	const positionY = Math.round(slot.cy - H / 2);
+	ciUpdate(editor, [
+		{
+			trackId: ref.trackId,
+			elementId: ref.elementId,
+			params: {
+				"transform.positionX": positionX,
+				"transform.positionY": positionY,
+				"transform.scaleX": scale,
+				"transform.scaleY": scale,
+				"transform.rotate": look.rotate,
+				opacity: look.opacity,
+			},
+			startSeconds: look.startSeconds,
+			durationSeconds: look.durationSeconds,
+		},
+	]);
+	const after = ciElements(editor).find((placed) => placed.element.id === ref.elementId)?.element ?? before;
+	const start = mediaTimeToSeconds({ time: after.startTime });
+	return {
+		cx: W / 2 + ciNum(after.params, "transform.positionX", 0),
+		cy: H / 2 + ciNum(after.params, "transform.positionY", 0),
+		w: fitW * Math.abs(ciNum(after.params, "transform.scaleX", 1)),
+		h: fitH * Math.abs(ciNum(after.params, "transform.scaleY", 1)),
+		rotate: ciNum(after.params, "transform.rotate", 0),
+		opacity: ciNum(after.params, "opacity", 1),
+		start,
+		end: start + mediaTimeToSeconds({ time: after.duration }),
+		scale,
+		natural,
+	};
+}
+
+/**
+ * Test C, part 1.0.7 (blind test round 3, HIGH: two exports showed a star
+ * and a flag in the preview and on the Home card, but in no frame of the
+ * video; the export prerendered only text and captions). Two exports
+ * through the export sheet with the same settings. First, C PREP removes the
+ * stickers and graphics that D left (D's flag covers the photo and the text).
+ *   1. BASELINE: B's timeline (photo 0-3 s, text 0-5 s) with the text at
+ *      opacity 0 and no stickers. The text stays on the timeline, so the
+ *      length and the overlay-frame path (renderOverlayFrames) are the same
+ *      as in the main export.
+ *   2. MAIN: the text back, plus a flag (Stickers > Flags > Ukraine, 0-5 s,
+ *      upright, opaque) and a shape (Stickers > Shapes > Rectangle, 1-4 s,
+ *      rotated 30°, opacity 0.6), each scaled down and moved to where
+ *      nothing else is drawn (the bars beside the photo).
+ * The lines give canvas pixels. 1.0.8: the export can have another size than
+ * the canvas (settings.exportShortSide), and one output pixel is canvas pixel
+ * x (export width / canvas width). The runner scales each region by the size
+ * of the file over the canvas (it checks the file against the EXPORT size
+ * line). Logs, before the main export:
+ *   C LAYOUT mode=<sides|ends|photo> canvas=WxH photo=x,y,w,h photoNatural=WxH|unknown samples=t,t,t
+ *   C STICKER name=<flag|shape> id=… via=<ui|direct> start=… end=… center=x,y size=WxH scale=… rotate=… opacity=… natural=WxH over=…
+ *   C REGION name=… box=x,y,w,h on=<start-end|never> over=<background|photo> [colour=…] [opacity=…] [rotate=…]
+ * The runner reads both files at the sample times and compares each region.
+ * Returns the two stickers for the position checks (1.0.8, ciPositionChecks).
+ */
+async function ciStickerExport(ctx: CiContext, editor: EditorCore): Promise<CiPlacedStickers> {
+	await ciSettle(editor, 300);
+
+	// 0. C PREP: D left its sticker (Stickers > Flags > Andorra) on the timeline.
+	//    It is drawn over the photo and the text (run 43717366875: it covered
+	//    both in the preview and in both exports), so the layout below (the photo
+	//    and the bars beside it), the text region and the shape's baseline would
+	//    measure that sticker. Remove every sticker and graphic first. D's sound
+	//    clip stays: it draws nothing.
+	const stale = ciElements(editor)
+		.filter((placed) => placed.element.type === "sticker" || placed.element.type === "graphic")
+		.map((placed) => ({ trackId: placed.trackId, elementId: placed.element.id }));
+	if (stale.length > 0) {
+		editor.command.execute({ command: new DeleteElementsCommand({ elements: stale }) });
+		await ciSleep(300);
+	}
+	ciLog(`C PREP removed=${stale.length} timeline=${JSON.stringify(ciCounts(editor))}`);
+	await ciSettle(editor, 300);
+
+	// 1. The baseline: the text hidden (opacity 0, still on the timeline), no stickers.
+	const texts = ciElements(editor).filter((placed) => placed.element.type === "text");
+	const textOpacity = new Map(
+		texts.map((placed): [string, number] => [placed.element.id, ciNum(placed.element.params, "opacity", 1)]),
+	);
+	ciUpdate(
+		editor,
+		texts.map((placed) => ({ trackId: placed.trackId, elementId: placed.element.id, params: { opacity: 0 } })),
+	);
+	ciLog(`C BASELINE texts=${texts.length} textOpacity=0 timeline=${JSON.stringify(ciCounts(editor))}`);
+	await ciExport(ctx, editor, CI_BASELINE_EXPORT);
+	await ciCloseSheet();
+	// Not undo: the export sheet's resolution and frame-rate commands are on the undo stack too.
+	ciUpdate(
+		editor,
+		texts.map((placed) => ({
+			trackId: placed.trackId,
+			elementId: placed.element.id,
+			params: { opacity: textOpacity.get(placed.element.id) ?? 1 },
+		})),
+	);
+
+	// 2. The stickers, through the Stickers sheet.
+	const flag = await ciPlaceSticker(editor, CI_FLAG, 0);
+	const shape = await ciPlaceSticker(editor, CI_SHAPE, CI_SHAPE_START_S);
+
+	// 3. The layout, in canvas pixels.
+	const layout = await ciLayout(editor);
+	const { W, H, photo, photoNatural, mode, over, slots } = layout;
+	ciLog(
+		`C LAYOUT mode=${mode} canvas=${W}x${H} photo=${ciBoxText(photo)} ` +
+			`photoNatural=${photoNatural ? `${photoNatural.width}x${photoNatural.height}` : "unknown"} ` +
+			`samples=${CI_SAMPLE_TIMES.join(",")}`,
+	);
+
+	const regions: string[] = [];
+	const region = (name: string, box: CiBox, on: [number, number] | null, where: string, extra = "") =>
+		regions.push(
+			`C REGION name=${name} box=${ciBoxText(box)} on=${on ? `${on[0].toFixed(3)}-${on[1].toFixed(3)}` : "never"} ` +
+				`over=${where}${extra ? ` ${extra}` : ""}`,
+		);
+	const placeSticker = async (
+		pick: CiStickerPick,
+		ref: CiPlacedRef | null,
+		slot: CiSlot,
+		look: { rotate: number; opacity: number; startSeconds?: number; durationSeconds?: number },
+	) => {
+		if (!ref) return;
+		const facts = await ciFitSticker(editor, pick, ref, slot, look, layout);
+		if (!facts) return;
+		const { cx, cy, w, h, rotate, opacity, start, end, scale, natural } = facts;
+		ciLog(
+			`C STICKER name=${pick.name} id=${pick.stickerId} via=${ref.via} start=${start.toFixed(3)} end=${end.toFixed(3)} ` +
+				`center=${cx.toFixed(1)},${cy.toFixed(1)} size=${w.toFixed(1)}x${h.toFixed(1)} scale=${scale} rotate=${rotate} ` +
+				`opacity=${opacity} natural=${natural ? `${natural.width}x${natural.height}` : "none"} over=${over}`,
+		);
+		const on: [number, number] = [start, end];
+		if (pick.name === "flag") {
+			// Inner boxes only: safe for any aspect between 4:3 and 2:1 and for edge smoothing.
+			region("flag", ciBox(cx, cy, 0.5 * w, 0.4 * h), on, over, `rotate=${rotate} opacity=${opacity}`);
+			region("flag-top", ciBox(cx, cy - 0.25 * h, 0.5 * w, 0.16 * h), on, over, "colour=blue");
+			region("flag-bottom", ciBox(cx, cy + 0.25 * h, 0.5 * w, 0.16 * h), on, over, "colour=yellow");
+		} else {
+			const side = Math.min(w, h);
+			region("shape", ciBox(cx, cy, 0.4 * side, 0.4 * side), on, over, `rotate=${rotate} opacity=${opacity}`);
+			// The corners of the UNROTATED square: inside the square without a
+			// rotation, outside it (background) when the 30° rotation is drawn.
+			if (pick.stickerId === CI_SHAPE.stickerId && Math.abs(rotate) >= 15 && Math.abs(rotate) <= 75) {
+				let corner = 0;
+				for (const dy of [-1, 1]) {
+					for (const dx of [-1, 1]) {
+						corner++;
+						region(`shape-corner-${corner}`, ciBox(cx + dx * 0.45 * w, cy + dy * 0.45 * h, 0.07 * w, 0.07 * h), null, over, "role=rotation");
+					}
+				}
+			}
+		}
+	};
+	await placeSticker(CI_FLAG, flag, slots.flag, { rotate: 0, opacity: 1 });
+	await placeSticker(CI_SHAPE, shape, slots.shape, {
+		rotate: CI_SHAPE_ROTATE,
+		opacity: CI_SHAPE_OPACITY,
+		startSeconds: CI_SHAPE_START_S,
+		durationSeconds: CI_SHAPE_END_S - CI_SHAPE_START_S,
+	});
+
+	// The text: centred at the canvas centre + its position; font px = fontSize x H / 90.
+	const text = ciElements(editor).find((placed) => placed.element.type === "text")?.element;
+	if (text) {
+		const p = text.params;
+		const fontPx = (ciNum(p, "fontSize", 15) * H) / 90;
+		const content = typeof p.content === "string" ? p.content : CI_TEXT;
+		const lines = content.split("\n");
+		const longest = Math.max(4, ...lines.map((line) => line.length));
+		const start = mediaTimeToSeconds({ time: text.startTime });
+		region(
+			"text",
+			ciBox(
+				W / 2 + ciNum(p, "transform.positionX", 0),
+				H / 2 + ciNum(p, "transform.positionY", 0),
+				Math.min(0.9 * W, 0.42 * fontPx * Math.abs(ciNum(p, "transform.scaleX", 1)) * longest),
+				0.6 * fontPx * Math.abs(ciNum(p, "transform.scaleY", 1)) * lines.length,
+			),
+			[start, start + mediaTimeToSeconds({ time: text.duration })],
+			"photo",
+			`fontPx=${fontPx.toFixed(0)}`,
+		);
+	}
+	// Controls: nothing is drawn there in either export.
+	region("control-photo", ciBox(photo.x + 0.25 * photo.w, photo.y + 0.85 * photo.h, 0.2 * photo.w, 0.1 * photo.h), null, "photo");
+	if (slots.controlBar) region("control-bar", slots.controlBar, null, "background");
+	for (const line of regions) ciLog(line);
+
+	// 4. A look at the preview with both stickers (2 s), then the main export.
+	await ciSettle(editor, 500);
+	editor.playback.seek({ time: mediaTimeFromSeconds({ seconds: 2 }) });
+	await ciSleep(2500);
+	await ciShot(ctx, "stickers-preview");
+	await ciExport(ctx, editor, CI_MAIN_EXPORT);
+	return { flag, shape };
+}
+
+// ---------------------- C: the same frame at every export size (1.0.8)
+
+/** Playhead times of the position checks (preview screenshots and file
+ *  frames): 2 s (photo, flag, shape and text on screen) and 4.5 s (the photo
+ *  has ended, so the white text is over the black background and its pixels
+ *  can be found). */
+const CI_POS_TIMES = [2, 4.5];
+/** The playhead time of the "the preview does not move" screenshots. */
+const CI_POS_SHIFT_TIME = 2;
+/** 9:16: the text at half size (at fontSize 15 a 1920-tall canvas draws a
+ *  320 px font, and "New text" does not wrap, so it is wider than the 1080 px
+ *  frame), with its centre at 30% of the height. Off the centre, a wrong
+ *  position scale moves the text too. */
+const CI_POS_TEXT_916 = { scale: 0.5, centerY: 0.3 };
+
+/** "t2", "t45": a playhead time in a SHOT name (the runner allows a-z, 0-9 and "-"). */
+function ciTimeTag(seconds: number): string {
+	return `t${String(seconds).replace(".", "")}`;
+}
+
+/** Where the runner looks for each element (canvas px): the bar of the flag,
+ *  the bar of the shape, and the part between the bars for the text (read
+ *  after the photo ends). A margin keeps the photo's edge out (it has white,
+ *  blue and yellow squares). Null when there is no empty bar (mode=photo). */
+function ciSearchBoxes(layout: CiLayout): { flag: CiBox; shape: CiBox; text: CiBox } | null {
+	const { W, H, left, right, top, bottom, mode } = layout;
+	const m = 0.006 * Math.max(W, H);
+	if (mode === "sides") {
+		return {
+			flag: { x: 0, y: 0, w: Math.max(0, left - m), h: H },
+			shape: { x: W - right + m, y: 0, w: Math.max(0, right - m), h: H },
+			text: { x: left + m, y: 0, w: Math.max(0, W - left - right - 2 * m), h: H },
+		};
+	}
+	if (mode === "ends") {
+		return {
+			flag: { x: 0, y: 0, w: W, h: Math.max(0, top - m) },
+			shape: { x: 0, y: H - bottom + m, w: W, h: Math.max(0, bottom - m) },
+			text: { x: 0, y: top + m, w: W, h: Math.max(0, H - top - bottom - 2 * m) },
+		};
+	}
+	return null;
+}
+
+/**
+ * What the runner measures for one aspect ratio (canvas px; the runner divides
+ * by the canvas size, so every position is a fraction of the frame):
+ *   C POS LAYOUT aspect=<16:9|9:16> canvas=WxH mode=… photo=x,y,w,h photoEnd=s exports=1080p:<tag>,720p:<tag> shots=2:<name>,4.5:<name>
+ *   C POS TARGET aspect=… name=<flag|shape|text> mask=<flag|light> center=x,y search=x,y,w,h times=t,t|none
+ * mask=flag: the flag's blue and yellow; mask=light: white and grey (the shape at opacity 0.6, the text).
+ */
+function ciLogPositionPlan(
+	editor: EditorCore,
+	aspect: string,
+	layout: CiLayout,
+	placed: CiPlacedStickers,
+	exports: [string, string][],
+	prefix: string,
+): void {
+	const { W, H } = layout;
+	ciLog(
+		`C POS LAYOUT aspect=${aspect} canvas=${W}x${H} mode=${layout.mode} photo=${ciBoxText(layout.photo)} ` +
+			`photoEnd=${layout.photoEnd.toFixed(3)} exports=${exports.map(([res, tag]) => `${res}:${tag}`).join(",")} ` +
+			`shots=${CI_POS_TIMES.map((t) => `${t}:${prefix}-${ciTimeTag(t)}`).join(",")}`,
+	);
+	const boxes = ciSearchBoxes(layout);
+	if (!boxes) {
+		ciLog(`C POS TARGET aspect=${aspect} none (mode=${layout.mode}: no empty bar beside the photo)`);
+		return;
+	}
+	const textId = ciElements(editor).find((candidate) => candidate.element.type === "text")?.element.id;
+	const targets: [string, string, string | undefined, CiBox][] = [
+		["flag", "flag", placed.flag?.elementId, boxes.flag],
+		["shape", "light", placed.shape?.elementId, boxes.shape],
+		["text", "light", textId, boxes.text],
+	];
+	for (const [name, mask, id, search] of targets) {
+		const element = id ? ciElements(editor).find((candidate) => candidate.element.id === id)?.element : undefined;
+		if (!element) {
+			ciLog(`C POS TARGET aspect=${aspect} name=${name} none (not on the timeline)`);
+			continue;
+		}
+		const start = mediaTimeToSeconds({ time: element.startTime });
+		const end = start + mediaTimeToSeconds({ time: element.duration });
+		// The text only after the photo ends: over the photo's white squares a
+		// white glyph cannot be told from the photo.
+		const times = CI_POS_TIMES.filter(
+			(t) => start + 0.01 <= t && t < end - 0.01 && (name !== "text" || t >= layout.photoEnd + 0.05),
+		);
+		const cx = W / 2 + ciNum(element.params, "transform.positionX", 0);
+		const cy = H / 2 + ciNum(element.params, "transform.positionY", 0);
+		ciLog(
+			`C POS TARGET aspect=${aspect} name=${name} mask=${mask} center=${cx.toFixed(1)},${cy.toFixed(1)} ` +
+				`search=${ciBoxText(search)} times=${times.join(",") || "none"}`,
+		);
+	}
+}
+
+/** A preview screenshot at one playhead time, with no sheet and no selection
+ *  (a selection shows the clip tools and makes the preview smaller, and 1.0.8
+ *  draws a selection box and handles over the preview: they would disturb
+ *  the colour masks and the "does not move" comparison). Logs
+ *   C PREVIEW name=… aspect=… [base=<name>] t=… canvas=WxH exportShortSide=n|unset export=WxH source=… rect=x,y,w,h
+ *     selected=<n> handles=<n>
+ *  then the SHOT line. selected and handles must be 0 (the runner checks). */
+async function ciPositionShot(ctx: CiContext, editor: EditorCore, name: string, seconds: number, note: string): Promise<void> {
+	await ciSettle(editor, 300); // closes sheets and clears the selection
+	editor.selection.setSelectedElements({ elements: [] });
+	editor.playback.seek({ time: mediaTimeFromSeconds({ seconds }) });
+	await ciSleep(2500);
+	const size = ciExportSize(editor);
+	const handles = [...document.querySelectorAll<HTMLElement>(".cc-preview-selection, .cc-preview-handle")].filter((node) => {
+		const r = node.getBoundingClientRect();
+		return r.width > 0 && r.height > 0;
+	}).length;
+	ciLog(
+		`C PREVIEW name=${name} ${note} t=${seconds} canvas=${size.canvas.width}x${size.canvas.height} ` +
+			`exportShortSide=${size.shortSide ?? "unset"} export=${ciExportSizeText(size)} rect=${ciStageRect()} ` +
+			`selected=${editor.selection.getSelectedElements().length} handles=${handles}`,
+	);
+	await ciShot(ctx, name);
+}
+
+/** The export sheet's Resolution button, then the sheet closes (no export).
+ *  Fallback: the same setting directly. Logs
+ *   C RESOLUTION aspect=… pick=<label> via=<ui|direct> canvas=WxH->WxH exportShortSide=a->b export=WxH->WxH */
+async function ciPickResolution(editor: EditorCore, label: string, aspect: string): Promise<void> {
+	await ciLoadExportSize();
+	const before = ciExportSize(editor);
+	await ciCloseSheet();
+	document.querySelector<HTMLButtonElement>(".cc-export-btn")?.click();
+	const option = await ciWait(`the ${label} button of the export sheet`, () => ciSegment("Resolution", label), 10_000).catch(
+		() => null,
+	);
+	let via = "ui";
+	if (option) {
+		option.click();
+		await ciSleep(500);
+	} else {
+		via = "direct";
+		ciSetExportShortSide(editor, CI_RESOLUTION_SHORT_SIDE[label] ?? 1080);
+	}
+	await ciCloseSheet();
+	await ciSleep(300);
+	const after = ciExportSize(editor);
+	ciLog(
+		`C RESOLUTION aspect=${aspect} pick=${label} via=${via} ` +
+			`canvas=${before.canvas.width}x${before.canvas.height}->${after.canvas.width}x${after.canvas.height} ` +
+			`exportShortSide=${before.shortSide ?? "unset"}->${after.shortSide ?? "unset"} ` +
+			`export=${before.width}x${before.height}->${after.width}x${after.height}`,
+	);
+}
+
+/** The Aspect ratio sheet (editor tools) with one preset ("9:16"). 1.0.8: the
+ *  canvas keeps its short side. Fallback: the same canvas directly. Logs
+ *   C ASPECT pick=<label> via=<ui|direct> canvas=WxH->WxH expected=WxH */
+async function ciAspect(editor: EditorCore, label: string): Promise<void> {
+	const before = { ...editor.project.getActive().settings.canvasSize };
+	const [rw = 9, rh = 16] = label.split(":").map(Number);
+	const short = Math.min(before.width, before.height);
+	const even = (v: number) => Math.max(2, Math.round(v / 2) * 2);
+	const expected =
+		rw >= rh ? { width: even((short * rw) / rh), height: short } : { width: short, height: even((short * rh) / rw) };
+	const changed = () => {
+		const now = editor.project.getActive().settings.canvasSize;
+		return (now.width !== before.width || now.height !== before.height) && now.width >= now.height === rw >= rh;
+	};
+	let via = "ui";
+	const sheet = await ciOpenSheet(/^Aspect ratio$/i, "C ASPECT");
+	const button = sheet
+		? ([...sheet.querySelectorAll<HTMLButtonElement>("button")].find(
+				(candidate) => !candidate.disabled && (candidate.textContent ?? "").trim() === label,
+			) ?? null)
+		: null;
+	if (button) {
+		button.click();
+		await ciWait("the new canvas", changed, 5_000).catch(() => undefined);
+	}
+	if (!changed()) {
+		via = "direct";
+		editor.command.execute({ command: new UpdateProjectSettingsCommand({ canvasSize: expected, canvasSizeMode: "preset" }) });
+	}
+	await ciCloseSheet();
+	await ciSleep(500);
+	const after = editor.project.getActive().settings.canvasSize;
+	ciLog(
+		`C ASPECT pick=${label} via=${via} canvas=${before.width}x${before.height}->${after.width}x${after.height} ` +
+			`expected=${expected.width}x${expected.height}`,
+	);
+}
+
+/** After an aspect change: the stickers again into the empty bars of the new
+ *  layout (an aspect change does not move them, so a 16:9 place can be off a
+ *  9:16 frame), the text at CI_POS_TEXT_916. Logs C POS PLACE … */
+async function ciPlaceForPositions(editor: EditorCore, layout: CiLayout, placed: CiPlacedStickers, aspect: string): Promise<void> {
+	const parts: string[] = [];
+	const show = (name: string, facts: CiStickerFacts | null) =>
+		parts.push(
+			facts
+				? `${name}=${facts.cx.toFixed(1)},${facts.cy.toFixed(1)} ${name}Size=${facts.w.toFixed(1)}x${facts.h.toFixed(1)} ${name}Scale=${facts.scale}`
+				: `${name}=none`,
+		);
+	show("flag", placed.flag ? await ciFitSticker(editor, CI_FLAG, placed.flag, layout.slots.flag, { rotate: 0, opacity: 1 }, layout) : null);
+	show(
+		"shape",
+		placed.shape
+			? await ciFitSticker(
+					editor,
+					CI_SHAPE,
+					placed.shape,
+					layout.slots.shape,
+					{ rotate: CI_SHAPE_ROTATE, opacity: CI_SHAPE_OPACITY },
+					layout,
+				)
+			: null,
+	);
+	const text = ciElements(editor).find((candidate) => candidate.element.type === "text");
+	if (text) {
+		ciUpdate(editor, [
+			{
+				trackId: text.trackId,
+				elementId: text.element.id,
+				params: {
+					"transform.positionX": 0,
+					"transform.positionY": Math.round((CI_POS_TEXT_916.centerY - 0.5) * layout.H),
+					"transform.scaleX": CI_POS_TEXT_916.scale,
+					"transform.scaleY": CI_POS_TEXT_916.scale,
+				},
+			},
+		]);
+		parts.push(`text=${(layout.W / 2).toFixed(1)},${(CI_POS_TEXT_916.centerY * layout.H).toFixed(1)} textScale=${CI_POS_TEXT_916.scale}`);
+	} else {
+		parts.push("text=none");
+	}
+	ciLog(`C POS PLACE aspect=${aspect} mode=${layout.mode} canvas=${layout.W}x${layout.H} ${parts.join(" ")}`);
+}
+
+/**
+ * Test C, part 1.0.8 (blind test round 4, HIGH 1: the export sheet's
+ * resolution buttons changed the canvas, so at 720p every sticker and text
+ * sat 1.5x farther from the centre, in the preview and in the video). After
+ * the main export (16:9, 1080p):
+ *   1. The preview does not move: screenshots at 2 s before and after the
+ *      export sheet's "720p" (sheet closed again), and after "1080p"; the
+ *      C PREVIEW lines give the canvas and the preview rect each time.
+ *   2. The same frame at every size: the same project at 720p. The runner
+ *      finds the centre of the flag, the shape and the text in both files and
+ *      in the preview screenshots (2 s and 4.5 s), as a fraction of the frame.
+ *   3. 9:16 through the Aspect ratio sheet: the stickers and the text placed
+ *      again, then exports at 1080p and at 720p, and a screenshot after them.
+ * An error ends this part with "C POS ERROR …"; the runner then says
+ * "not measured" for the checks that miss their data.
+ */
+async function ciPositionChecks(ctx: CiContext, editor: EditorCore, placed: CiPlacedStickers): Promise<void> {
+	try {
+		await ciLoadExportSize();
+		// 16:9: the stickers stay where ciStickerExport put them. The main export is the 1080p file.
+		const layout169 = await ciLayout(editor);
+		ciLogPositionPlan(editor, "16:9", layout169, placed, [["1080p", CI_MAIN_EXPORT.tag], ["720p", CI_POS169_720.tag]], "pos169");
+		for (const t of CI_POS_TIMES) await ciPositionShot(ctx, editor, `pos169-${ciTimeTag(t)}`, t, "aspect=16:9");
+		const base169 = `pos169-${ciTimeTag(CI_POS_SHIFT_TIME)}`;
+		await ciPickResolution(editor, "720p", "16:9");
+		await ciPositionShot(ctx, editor, "shift169-720", CI_POS_SHIFT_TIME, `aspect=16:9 base=${base169}`);
+		await ciExport(ctx, editor, CI_POS169_720);
+		await ciCloseSheet();
+		await ciPickResolution(editor, "1080p", "16:9");
+		await ciPositionShot(ctx, editor, "shift169-1080", CI_POS_SHIFT_TIME, "aspect=16:9 base=shift169-720");
+
+		// 9:16: the Aspect ratio sheet, then everything placed again.
+		await ciAspect(editor, "9:16");
+		const layout916 = await ciLayout(editor);
+		await ciPlaceForPositions(editor, layout916, placed, "9:16");
+		ciLogPositionPlan(editor, "9:16", layout916, placed, [["1080p", CI_POS916_1080.tag], ["720p", CI_POS916_720.tag]], "pos916");
+		for (const t of CI_POS_TIMES) await ciPositionShot(ctx, editor, `pos916-${ciTimeTag(t)}`, t, "aspect=9:16");
+		await ciExport(ctx, editor, CI_POS916_1080);
+		await ciCloseSheet();
+		await ciExport(ctx, editor, CI_POS916_720);
+		await ciCloseSheet();
+		await ciPositionShot(
+			ctx,
+			editor,
+			"shift916-720",
+			CI_POS_SHIFT_TIME,
+			`aspect=9:16 base=pos916-${ciTimeTag(CI_POS_SHIFT_TIME)}`,
+		);
+	} catch (error) {
+		ciLog(`C POS ERROR ${ciDescribe(error)}`);
+		await ciCloseSheet();
+	}
+}
+
+// ----------------------------------------------------------- E: video sweep
+
+/** Taps a video clip on the timeline (the real pointer path). Returns the selection. */
+async function ciSelectVideoClip(
+	editor: EditorCore,
+	which: "first" | "last",
+): Promise<{ trackId: string; elementId: string } | null> {
+	editor.selection.setSelectedElements({ elements: [] });
+	await ciSleep(300);
+	const nodes = [...document.querySelectorAll<HTMLElement>(".cc-timeline__clip--video")];
+	const node = which === "first" ? nodes[0] : nodes[nodes.length - 1];
+	if (!node) return null;
+	const rect = node.getBoundingClientRect();
+	const pointer = {
+		bubbles: true,
+		cancelable: true,
+		pointerId: 7,
+		pointerType: "touch",
+		clientX: rect.left + rect.width / 2,
+		clientY: rect.top + rect.height / 2,
+	};
+	node.dispatchEvent(new PointerEvent("pointerdown", pointer));
+	node.dispatchEvent(new PointerEvent("pointerup", pointer));
+	await ciSleep(400);
+	const selected = editor.selection.getSelectedElements();
+	return selected.length === 1 && selected[0] ? selected[0] : null;
+}
+
+/** True when the element (or its whole track) is muted in the editor state. */
+function ciIsMuted(editor: EditorCore, ref: { trackId: string; elementId: string }): boolean {
+	const tracks = editor.scenes.getActiveSceneOrNull()?.tracks;
+	if (!tracks) return false;
+	const track = [tracks.main, ...tracks.overlay, ...tracks.audio].find((candidate) => candidate.id === ref.trackId);
+	if (!track) return false;
+	if ("muted" in track && track.muted === true) return true;
+	const elements = track.elements as readonly { id: string }[];
+	const element = elements.find((candidate) => candidate.id === ref.elementId) as Record<string, unknown> | undefined;
+	if (!element) return false;
+	const params = element.params as Record<string, unknown> | undefined;
+	return params?.muted === true || element.isSourceAudioEnabled === false;
+}
+
+/** The Mute (or Unmute) control: in the clip tools row, in the open sheet,
+ *  or (last) on the timeline. */
+function ciMuteControl(): { button: HTMLButtonElement; where: string } | null {
+	const scopes: [string, Element | null][] = [
+		["clip-tools", document.querySelector('[aria-label="Clip tools"]')],
+		["sheet", document.querySelector(".cc-sheet")],
+		["timeline", document.querySelector(".cc-editor-shell__timeline")],
+	];
+	for (const [where, scope] of scopes) {
+		if (!scope) continue;
+		for (const button of scope.querySelectorAll<HTMLButtonElement>("button")) {
+			const text = `${button.textContent ?? ""} ${button.getAttribute("aria-label") ?? ""}`;
+			if (!button.disabled && /\b(un)?mute/i.test(text)) return { button, where };
+		}
+	}
+	return null;
+}
+
+/** The planted video through the timeline "+" (only the OS picker is replaced;
+ *  the native proxy transcode is real). Logs VIDEO-IMPORT PASS|FAIL … */
+async function ciImportVideo(ctx: CiContext, editor: EditorCore): Promise<boolean> {
+	const handle = await ciPlantedHandle(ctx, CI_VIDEO, {
+		kind: "video",
+		durationMicros: CI_VIDEO_SECONDS * 1_000_000,
+		width: 1280,
+		height: 720,
+		rotationDegrees: 0,
+		hasAudio: true,
+		codec: "avc1",
+		frameRate: { numerator: 30, denominator: 1 },
+	});
+	if (!handle) {
+		ciLog(`VIDEO-IMPORT FAIL the planted video ${CI_VIDEO} is missing or empty`);
+		return false;
+	}
+	const plus = await ciWait(
+		"Add clip button",
+		() => document.querySelector<HTMLButtonElement>('button[aria-label="Add clip"]'),
+		10_000,
+	).catch(() => null);
+	if (!plus) {
+		ciLog("VIDEO-IMPORT FAIL no Add clip button on the timeline");
+		return false;
+	}
+	const restore = ciStubPicker(ctx, handle);
+	const before = ciCounts(editor).video ?? 0;
+	const started = Date.now();
+	try {
+		plus.click();
+		const outcome = await ciWait(
+			"video clip on the timeline",
+			() => {
+				if ((ciCounts(editor).video ?? 0) > before) return "placed";
+				const error = document
+					.querySelector(".cc-chrome-error:not(.cc-chrome-error--notice)")
+					?.textContent?.trim();
+				return error ? `error: ${error}` : null;
+			},
+			240_000,
+		).catch((error: unknown) => ciDescribe(error));
+		const asset = editor.media.getAssets().find((candidate) => candidate.type === "video");
+		const assetText = asset
+			? `video ${asset.width ?? "?"}x${asset.height ?? "?"} duration=${asset.duration ?? "?"} hasAudio=${String(asset.hasAudio)}`
+			: "none";
+		ciLog(
+			`VIDEO-IMPORT ${outcome === "placed" ? "PASS" : "FAIL"} ${outcome} ms=${Date.now() - started} asset=${assetText} ` +
+				`timeline=${JSON.stringify(ciCounts(editor))}`,
+		);
+		return outcome === "placed";
+	} finally {
+		restore();
+	}
+}
+
+/**
+ * Captions "Generate" on the video with sound (a tone, no speech). The sheet
+ * must end with captions or with one of the plain messages (CAPTION_MESSAGES
+ * in captions-actions.ts); the runner checks the words. Logs
+ * CAPTIONS {"state":…,"ms":…,"captions":N,"message":"…","words":"…"}.
+ */
+async function ciCaptions(ctx: CiContext, editor: EditorCore): Promise<void> {
+	await ciSettle(editor, 300);
+	const sheet = await ciOpenSheet(/^Captions$/i, "CAPTIONS");
+	if (!sheet) return;
+	const generate = await ciWait(
+		"Generate button",
+		() => {
+			const open = document.querySelector(".cc-sheet");
+			return open ? ciButton(open, /^Generate/) : null;
+		},
+		10_000,
+	).catch(() => null);
+	if (!generate) {
+		ciLog("CAPTIONS FAIL no Generate button in the Captions sheet");
+		await ciCloseSheet();
+		return;
+	}
+	const notesBefore = new Set(ciSheetNotes());
+	const captionsBefore = ciCounts(editor).caption ?? 0;
+	const started = Date.now();
+	generate.click();
+	await ciSleep(800);
+	const state = await ciWait(
+		"the end of Generate",
+		() => {
+			const open = document.querySelector(".cc-sheet");
+			if (!open) return "closed";
+			const busy = [...open.querySelectorAll("button")].some((button) => /Generating/i.test(button.textContent ?? ""));
+			return busy ? null : "settled";
+		},
+		300_000,
+	).catch(() => "timeout");
+	await ciSleep(800);
+	const fresh = ciSheetNotes().filter((text) => text && !notesBefore.has(text));
+	const chromeError = document.querySelector(".cc-chrome-error")?.textContent?.trim() ?? "";
+	const words = getAllCaptions({ editor })
+		.flatMap(({ element }) => element.words.map((word) => word.text))
+		.join(" ");
+	ciLog(
+		`CAPTIONS ${JSON.stringify({
+			state,
+			ms: Date.now() - started,
+			captions: (ciCounts(editor).caption ?? 0) - captionsBefore,
+			message: (fresh.join(" ") || chromeError).slice(0, 300),
+			words: words.slice(0, 120),
+		})}`,
+	);
+	await ciShot(ctx, "captions");
+	await ciCloseSheet();
+}
+
+/** "x,y,w,h" of a rect (CSS px). */
+function ciRectText(r: { left: number; top: number; width: number; height: number }): string {
+	return [r.left, r.top, r.width, r.height].map((v) => v.toFixed(1)).join(",");
+}
+
+/**
+ * 1.0.8 (blind test round 4, LOW 4): with a clip selected, the clip-tools bar
+ * (SubToolbar, aria-label "Clip tools") shows. The visible part of the
+ * timeline's scroll area (.cc-timeline__scroll, cut by every ancestor that
+ * clips and by the screen) must not go under that bar. Logs
+ *   LAYOUT clip-tools when=<op> scroll=x,y,w,h visible=x,y,w,h bar=x,y,w,h overlap=<px> timeline=x,y,w,h|none
+ * or "LAYOUT clip-tools when=<op> none scroll=<bool> bar=<bool>".
+ */
+function ciClipToolsLayout(when: string): void {
+	const scroll = document.querySelector<HTMLElement>(".cc-timeline__scroll");
+	const bar = document.querySelector<HTMLElement>('[aria-label="Clip tools"]');
+	const barRect = bar?.getBoundingClientRect();
+	if (!scroll || !bar || !barRect || barRect.height <= 0) {
+		ciLog(`LAYOUT clip-tools when=${when} none scroll=${Boolean(scroll)} bar=${Boolean(bar && barRect && barRect.height > 0)}`);
+		return;
+	}
+	const s = scroll.getBoundingClientRect();
+	let left = s.left;
+	let top = s.top;
+	let right = s.right;
+	let bottom = s.bottom;
+	for (let node = scroll.parentElement; node; node = node.parentElement) {
+		const style = getComputedStyle(node);
+		if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+		const r = node.getBoundingClientRect();
+		left = Math.max(left, r.left);
+		top = Math.max(top, r.top);
+		right = Math.min(right, r.right);
+		bottom = Math.min(bottom, r.bottom);
+	}
+	left = Math.max(left, 0);
+	top = Math.max(top, 0);
+	right = Math.min(right, window.innerWidth);
+	bottom = Math.min(bottom, window.innerHeight);
+	const visible = { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+	const across = Math.min(right, barRect.right) - Math.max(left, barRect.left);
+	const overlap = across > 0 ? Math.max(0, Math.min(bottom, barRect.bottom) - Math.max(top, barRect.top)) : 0;
+	const mount = document.querySelector<HTMLElement>(".cc-editor-shell__timeline")?.getBoundingClientRect();
+	ciLog(
+		`LAYOUT clip-tools when=${when} scroll=${ciRectText(s)} visible=${ciRectText(visible)} bar=${ciRectText(barRect)} ` +
+			`overlap=${overlap.toFixed(1)} timeline=${mount ? ciRectText(mount) : "none"}`,
+	);
+}
+
+/** Split, Duplicate and Delete from the selected-clip row, then Mute.
+ *  Logs EDIT op=<split|duplicate|delete|mute> PASS|FAIL … (and, at the
+ *  split, the LAYOUT clip-tools line). */
+async function ciVideoEdits(editor: EditorCore): Promise<void> {
+	const videos = () => ciCounts(editor).video ?? 0;
+	const edit = async (op: string, which: "first" | "last", label: RegExp, change: number, prepare?: () => void) => {
+		await ciSettle(editor, 300);
+		const before = videos();
+		const ref = await ciSelectVideoClip(editor, which);
+		if (!ref) {
+			ciLog(`EDIT op=${op} FAIL could not select a video clip (${before} on the timeline)`);
+			return;
+		}
+		prepare?.();
+		await ciSleep(400);
+		if (op === "split") ciClipToolsLayout(op);
+		const button = await ciWait(`${op} button`, () => ciToolbarButton("Clip tools", label), 5_000).catch(() => null);
+		if (!button) {
+			ciLog(`EDIT op=${op} FAIL no ${label.source} button in the clip tools`);
+			return;
+		}
+		button.click();
+		const ok = await ciWait(`${op} result`, () => videos() === before + change, 5_000).then(
+			() => true,
+			() => false,
+		);
+		ciLog(
+			`EDIT op=${op} ${ok ? "PASS" : "FAIL"} video clips ${before}->${videos()} (want ${before + change}) ` +
+				`end=${ciTimelineEnd(editor).end.toFixed(2)} timeline=${JSON.stringify(ciCounts(editor))}`,
+		);
+	};
+	// Split the 4 s clip at 2 s, duplicate the first piece, delete the last clip.
+	await edit("split", "first", /^Split$/i, 1, () =>
+		editor.playback.seek({ time: mediaTimeFromSeconds({ seconds: CI_VIDEO_SECONDS / 2 }) }),
+	);
+	await edit("duplicate", "first", /^Duplicate$/i, 1);
+	await edit("delete", "last", /^Delete$/i, -1);
+
+	// Mute: the control may be on the clip tools row or in the Edit sheet.
+	await ciSettle(editor, 300);
+	const ref = await ciSelectVideoClip(editor, "first");
+	if (!ref) {
+		ciLog("EDIT op=mute FAIL could not select a video clip");
+		return;
+	}
+	// The clip tools row first; then the Edit sheet (opened from that row).
+	let control = ciMuteControl();
+	if (!control || control.where === "timeline") {
+		ciToolbarButton("Clip tools", /^Edit$/i)?.click();
+		await ciWait("Edit sheet", () => document.querySelector(".cc-sheet"), 5_000).catch(() => null);
+		control = ciMuteControl() ?? control;
+	}
+	if (!control) {
+		ciLog(`EDIT op=mute FAIL no Mute control in the clip tools, the Edit sheet or the timeline (muted=${ciIsMuted(editor, ref)})`);
+		await ciCloseSheet();
+		return;
+	}
+	const { where } = control;
+	const label = `${control.button.textContent ?? ""} ${control.button.getAttribute("aria-label") ?? ""}`.trim().slice(0, 30);
+	const start = ciIsMuted(editor, ref);
+	control.button.click();
+	const muted = await ciWait("muted", () => ciIsMuted(editor, ref), 5_000).then(
+		() => true,
+		() => false,
+	);
+	await ciSleep(400);
+	// Unmute with the same control (its label may now say Unmute).
+	const again = ciMuteControl();
+	again?.button.click();
+	const unmuted = again
+		? await ciWait("unmuted", () => !ciIsMuted(editor, ref), 5_000).then(
+				() => true,
+				() => false,
+			)
+		: false;
+	ciLog(
+		`EDIT op=mute ${!start && muted && unmuted ? "PASS" : "FAIL"} where=${where} muted ${start}->${muted ? "true" : "false"}` +
+			`->${unmuted ? "false" : "true"} control=${JSON.stringify(label)}`,
+	);
+	// The export below needs the sound: undo a mute the control could not undo.
+	for (let i = 0; i < 2 && ciIsMuted(editor, ref); i++) {
+		editor.command.undo();
+		await ciSleep(300);
+	}
+	await ciCloseSheet();
+}
+
+/** The Audio sheet's "Import audio" with the planted audio file. Logs AUDIO-IMPORT PASS|FAIL … */
+async function ciImportAudio(ctx: CiContext, editor: EditorCore): Promise<void> {
+	await ciSettle(editor, 300);
+	const handle = await ciPlantedHandle(ctx, CI_AUDIO, {
+		kind: "audio",
+		durationMicros: CI_AUDIO_SECONDS * 1_000_000,
+		width: 0,
+		height: 0,
+		rotationDegrees: 0,
+		hasAudio: true,
+		codec: "m4a",
+		frameRate: null,
+	});
+	if (!handle) {
+		ciLog(`AUDIO-IMPORT FAIL the planted audio ${CI_AUDIO} is missing or empty`);
+		return;
+	}
+	if (!(await ciOpenSheet(/^Audio$/i, "AUDIO-IMPORT"))) return;
+	const button = await ciWait(
+		"Import audio button",
+		() => {
+			const open = document.querySelector(".cc-sheet");
+			return open ? ciButton(open, /import audio/i) : null;
+		},
+		10_000,
+	).catch(() => null);
+	if (!button) {
+		ciLog("AUDIO-IMPORT FAIL no Import audio button in the Audio sheet");
+		await ciCloseSheet();
+		return;
+	}
+	const notesBefore = new Set(ciSheetNotes());
+	const before = ciCounts(editor).audio ?? 0;
+	const restore = ciStubPicker(ctx, handle);
+	const started = Date.now();
+	try {
+		button.click();
+		const outcome = await ciWait(
+			"imported audio on the timeline",
+			() => {
+				if ((ciCounts(editor).audio ?? 0) > before) return "placed";
+				const note = ciSheetNotes().find((text) => text && !notesBefore.has(text));
+				const error = document.querySelector(".cc-chrome-error:not(.cc-chrome-error--notice)")?.textContent?.trim();
+				return note ? `error: ${note}` : error ? `error: ${error}` : null;
+			},
+			120_000,
+		).catch((error: unknown) => ciDescribe(error));
+		const asset = editor.media.getAssets().find((candidate) => candidate.type === "audio");
+		ciLog(
+			`AUDIO-IMPORT ${outcome === "placed" ? "PASS" : "FAIL"} ${outcome} ms=${Date.now() - started} ` +
+				`asset=${asset ? `audio duration=${asset.duration ?? "?"}` : "none"} timeline=${JSON.stringify(ciCounts(editor))}`,
+		);
+	} finally {
+		restore();
+	}
+	await ciCloseSheet();
+}
+
+/** Test E (phase 3): a new project with the planted video, every edit, then an export. */
+async function ciVideoSweep(ctx: CiContext, editor: EditorCore): Promise<void> {
+	ctx.step = "E";
+	await ciWait("home screen", () => document.querySelector(".kc-home"), 120_000);
+	await ciProjects(editor, "sweep-start");
+	// The OPEN line says extra=1: this open does not count for test A.
+	const open = await ciOpen(ctx, editor, 8, "new", null, { stay: true, extra: true });
+	if (!open) {
+		ciLog("E SKIP the editor did not open");
+		return;
+	}
+	if (await ciImportVideo(ctx, editor)) {
+		await ciSettle(editor, 500);
+		editor.playback.seek({ time: mediaTimeFromSeconds({ seconds: 1 }) });
+		await ciSleep(4000);
+		await ciShot(ctx, "video");
+		await ciCaptions(ctx, editor);
+		await ciVideoEdits(editor);
+		await ciImportAudio(ctx, editor);
+		await ciSettle(editor, 1500);
+		await ciShot(ctx, "sweep-timeline");
+		await ciExport(ctx, editor, CI_SWEEP_EXPORT);
+	} else {
+		ciLog("E SKIP the video did not import");
+	}
+	await ciCloseSheet();
+	await ciBack(editor, "sweep-end").catch((error: unknown) => ciLog(`PROBLEM step=E kind=driver back: ${ciDescribe(error)}`));
+}
+
+async function ciRun(ctx: CiContext): Promise<void> {
+	const editor = EditorCore.getInstance();
+	if (ctx.phase === 3) {
+		await ciVideoSweep(ctx, editor);
+		await ciSleep(3000); // storage writes finish before the runner ends the app
+		ciLog("END phase=3");
+		return;
+	}
+	ctx.step = "A";
+	await ciWait("home screen", () => document.querySelector(".kc-home"), 120_000);
+	const atStart = await ciProjects(editor, "start");
+
+	if (ctx.phase === 1) {
+		// stay: the new project gets a text before the editor closes (1.0.7
+		// deletes a project with no elements on close; opens 2-5 reopen it).
+		if (await ciOpen(ctx, editor, 1, "new", null, { stay: true })) {
+			const gpu = await Promise.race([ensurePreviewGpu(), ciSleep(5000).then(() => "pending")]);
+			ciLog(`INFO step=A preview GPU init=${String(gpu)} (true: GPU, false: no GPU)`);
+			await ciGiveContentAndBack(editor, 1);
+		} else {
+			await ciProjects(editor, "after-open-1").catch(() => undefined);
+		}
+		const name = editor.project.getSavedProjects().map((p) => p.name)[0] ?? null;
+		await ciOpen(ctx, editor, 2, "reopen", name);
+		await ciOpen(ctx, editor, 3, "reopen", name);
+		await ciSleep(3000); // storage writes finish before the runner ends the app
+		ciLog("END phase=1");
+		return;
+	}
+
+	const name = atStart[0] ?? null;
+	await ciOpen(ctx, editor, 4, "reopen", name);
+	let open = await ciOpen(ctx, editor, 5, "reopen", name, { stay: true });
+	// B and C need an open editor. These extra opens do not count for test A.
+	for (let extra = 6; !open && extra <= 7; extra++) {
+		const names = await ciProjects(editor, `before-open-${extra}`).catch(() => [] as string[]);
+		open = await ciOpen(ctx, editor, extra, names.length ? "reopen" : "new", names[0] ?? null, {
+			stay: true,
+			extra: true,
+		});
+	}
+	if (!open) {
+		ciLog("B SKIP the editor did not open");
+		ciLog("D SKIP the editor did not open");
+		ciLog("C SKIP the editor did not open");
+		ciLog("END phase=2");
+		return;
+	}
+	ctx.step = "B";
+	await ciPreview(ctx, editor);
+	ctx.step = "D";
+	await ciStickersAndSound(ctx, editor);
+	ctx.step = "C";
+	const placed = await ciStickerExport(ctx, editor);
+	await ciPositionChecks(ctx, editor, placed);
+	ciLog("END phase=2");
+}
+
+async function mountEditorCi(found: CiPlace & { phase: 1 | 2 | 3 }): Promise<void> {
+	const ctx: CiContext = { ...found, step: "boot", problems: 0, gpuProblems: 0 };
+	ciWatchProblems(ctx);
+	ciLog(
+		`START phase=${ctx.phase} webgpu=${"gpu" in navigator ? "yes" : "no"} viewport=${window.innerWidth}x${window.innerHeight}`,
+	);
+	// The real app, mounted the way main.ts mounts it.
+	const { mountApp } = await import("./app/app-root");
+	mountApp();
+	// Not awaited: main.ts marks the app mounted when this returns, as in a normal start.
+	void ciRun(ctx).catch((error: unknown) => {
+		ciLog(`PROBLEM step=${ctx.step} kind=driver ${ciDescribe(error)}`);
+		ciLog(`END phase=${ctx.phase}`);
 	});
 }

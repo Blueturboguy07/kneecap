@@ -457,7 +457,7 @@ export function validateEdl({
 			issues.error({
 				path: `transitions[${i}].afterClipId`,
 				message:
-					"transitions are main-track only in v1 (matching CapCut), but this clip is on an overlay/audio track",
+					"transitions are main-track only in v1, but this clip is on an overlay/audio track",
 			});
 		}
 	}

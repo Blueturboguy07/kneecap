@@ -1,5 +1,5 @@
 /**
- * The real kneecap mobile app: project list -> CapCut-parity editor
+ * The real kneecap mobile app: project list -> the mobile editor
  * (`@kneecap/mobile-ui`'s `EditorShell`), driven by the singleton
  * `EditorCore` the same way apps/web's /projects page is.
  *
@@ -18,7 +18,8 @@
 import "@kneecap/mobile-ui/tokens.css";
 import "@kneecap/mobile-ui/components.css";
 import "./app-root.css";
-import { Component, StrictMode, useEffect, useState, type ReactNode } from "react";
+import { Component, StrictMode, useEffect, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
 	EditorCore,
@@ -31,79 +32,131 @@ import { getNativeBridge } from "@kneecap/native-bridge";
 import { loadFontAtlas, loadFonts } from "@kneecap/editor-core/fonts/local-fonts";
 import { useEditor } from "@kneecap/editor-core/react";
 import { EditorShell, ensurePreviewGpu } from "@kneecap/mobile-ui";
+import { closeEditorProject, projectHasElements, waitForCloseWork } from "./close-project";
+import { CrashBoundary } from "./crash-screen";
+import { SettingsScreen } from "./settings-screen";
 
 const NOOP_BOOTSTRAP = async () => {};
 
-/** CRITICAL finding #3 of the 2026-08-18 test sweep: a throw during React
- *  render unmounted the entire root with ZERO console output and no visible
- *  surface — the app just went black (third instance of the silent-death
- *  class). Every crash must be loud: this boundary paints the error +
- *  component stack on screen and logs it. */
-class CrashBoundary extends Component<
-	{ children: ReactNode },
-	{ error: unknown; stack: string | null }
-> {
-	state: { error: unknown; stack: string | null } = { error: null, stack: null };
 
-	static getDerivedStateFromError(error: unknown) {
-		return { error };
+/** "closing": the editor is off the screen and closeEditorProject (close-project.ts)
+ *  runs; Home shows when it ends. */
+type Screen = { name: "home" } | { name: "editor" } | { name: "closing" } | { name: "settings" };
+
+/** Catches an error in the editor screen, logs it, and calls `onError` so
+ *  the app goes back to the project list instead of the crash screen. */
+class EditorErrorGuard extends Component<
+	{ onError: (error: unknown) => void; children: ReactNode },
+	{ failed: boolean }
+> {
+	state = { failed: false };
+
+	static getDerivedStateFromError() {
+		return { failed: true };
 	}
 
 	componentDidCatch(error: unknown, info: { componentStack?: string | null }) {
-		console.error("kneecap crashed:", error, info.componentStack);
-		this.setState({ stack: info.componentStack ?? null });
+		console.error("kneecap editor failed:", error, info.componentStack);
+		this.props.onError(error);
 	}
 
 	render() {
-		if (this.state.error !== null) {
-			const err = this.state.error;
-			const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-			return (
-				<div className="kc-crash">
-					<p className="kc-crash__title">kneecap crashed</p>
-					<pre className="kc-crash__detail">
-						{detail}
-						{this.state.stack ? `\n${this.state.stack}` : ""}
-					</pre>
-					<button
-						type="button"
-						className="kc-home__new"
-						onClick={() => this.setState({ error: null, stack: null })}
-					>
-						Try again
-					</button>
-				</div>
-			);
-		}
-		return this.props.children;
+		return this.state.failed ? null : this.props.children;
 	}
 }
-
-type Screen = { name: "home" } | { name: "editor" };
 
 function App() {
 	const [screen, setScreen] = useState<Screen>({ name: "home" });
+	/** Shown on the home screen after the editor failed. */
+	const [editorError, setEditorError] = useState<string | null>(null);
+	/** True from the first close tap until Home shows: a second tap does nothing. */
+	const closingRef = useRef(false);
+	/** The open project had an element (or its state was not known) when the editor
+	 *  opened. Such a project is never deleted on close (item 10: only a project that
+	 *  never got content is deleted). */
+	const hadContentAtOpenRef = useRef(true);
+
+	/**
+	 * Blind test round 3, item 10: every way out of the editor runs closeEditorProject
+	 * (close-project.ts). A project that never got content (empty when the editor opened
+	 * and empty now) is deleted; any other project gets its thumbnail and is saved. The editor is off the screen first (so
+	 * nothing in it reads the deleted project), and Home shows only when the work ends (so
+	 * the home grid never loads an empty card or a card without its new thumbnail).
+	 */
+	const leaveEditor = ({ afterError }: { afterError: boolean }) => {
+		if (closingRef.current) return;
+		closingRef.current = true;
+		const hadContentAtOpen = hadContentAtOpenRef.current;
+		void closeEditorProject({ editor: EditorCore.getInstance(), afterError, hadContentAtOpen }).finally(() => {
+			closingRef.current = false;
+			setScreen({ name: "home" });
+		});
+	};
 
 	if (screen.name === "editor") {
 		return (
-			<EditorShell
-				bootstrap={NOOP_BOOTSTRAP}
-				onBack={() => {
-					// Fire-and-forget save: ProjectManager.saveCurrentProject persists
-					// the active project; the home screen re-runs loadAllProjects on
-					// mount, so the refreshed metadata (name/duration/updatedAt) shows
-					// up without waiting here.
-					void EditorCore.getInstance().project.saveCurrentProject();
-					setScreen({ name: "home" });
+			<EditorErrorGuard
+				onError={(error) => {
+					// EditorErrorGuard already logged the error. The home screen shows
+					// plain words only: no error text, stack or file path (blind test 1.0.4).
+					void error;
+					setEditorError(
+						"The editor had a problem and closed. Try again. If it happens again, open Settings > Help and support.",
+					);
+					// The guard shows nothing now, so the editor is already off the screen.
+					setScreen({ name: "closing" });
+					leaveEditor({ afterError: true });
 				}}
-			/>
+			>
+				<EditorShell
+					bootstrap={NOOP_BOOTSTRAP}
+					onBack={() => {
+						if (closingRef.current) return;
+						// Take the editor off the screen now (flushSync), before the close
+						// work changes or deletes the project.
+						flushSync(() => setScreen({ name: "closing" }));
+						leaveEditor({ afterError: false });
+					}}
+				/>
+			</EditorErrorGuard>
 		);
 	}
 
-	return <HomeScreen onOpenEditor={() => setScreen({ name: "editor" })} />;
+	if (screen.name === "closing") {
+		return (
+			<div className="kc-closing" data-kneecap-theme="kneecap-mobile">
+				<div className="kc-home__loading" role="progressbar" aria-label="Closing the project" />
+			</div>
+		);
+	}
+
+	if (screen.name === "settings") {
+		return <SettingsScreen onBack={() => setScreen({ name: "home" })} />;
+	}
+
+	return (
+		<HomeScreen
+			initialError={editorError}
+			onOpenEditor={() => {
+				// The project is loaded now (HomeScreen's run awaits the task first).
+				hadContentAtOpenRef.current = projectHasElements({ editor: EditorCore.getInstance() }) !== false;
+				setEditorError(null);
+				setScreen({ name: "editor" });
+			}}
+			onOpenSettings={() => setScreen({ name: "settings" })}
+		/>
+	);
 }
 
-function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
+function HomeScreen({
+	initialError,
+	onOpenEditor,
+	onOpenSettings,
+}: {
+	initialError: string | null;
+	onOpenEditor: () => void;
+	onOpenSettings: () => void;
+}) {
 	const editor = useEditor();
 	// CRITICAL finding #2 of the 2026-08-18 test sweep ("saved projects never
 	// appear"): this originally read `editor.project.getSavedProjects()`
@@ -114,8 +167,12 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 	// engine 1 / DOM 0). A SELECTOR subscription re-renders on the manager's
 	// array-replace notify.
 	const projects = useEditor((e) => e.project.getSavedProjects());
+	// Blind test round 2, item 7: the list is empty until loadAllProjects (below) has read
+	// storage, which takes about 2 s after sign-in. "No projects yet" shows only after that
+	// first load finished with zero projects; before it, the home shows a quiet loading state.
+	const listLoaded = useEditor((e) => e.project.getIsInitialized());
 	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(initialError);
 
 	useEffect(() => {
 		// Run once per mount; `editor` is the process-wide singleton and never
@@ -134,6 +191,9 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 		setBusy(true);
 		setError(null);
 		try {
+			// A thumbnail of the last close that took longer than its time limit must
+			// land on its own project, not on the one this task opens.
+			await waitForCloseWork();
 			await task();
 			if (open) onOpenEditor();
 		} catch (err) {
@@ -144,10 +204,16 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 	};
 
 	return (
-		<div className="kc-home" data-kneecap-theme="capcut-mobile">
+		<div className="kc-home" data-kneecap-theme="kneecap-mobile">
 			<header className="kc-home__header">
+				{/* The short name, like the home-screen label: "publik kneecap" does not fit next to the
+				    two buttons on a 375-402 pt wide iPhone, and the header keeps its look. The long name is
+				    on the first-run screen and in Settings > About. */}
 				<h1>kneecap</h1>
 				<div className="kc-home__header-actions">
+					<button type="button" className="kc-home__settings" disabled={busy} onClick={onOpenSettings}>
+						Settings
+					</button>
 					<button
 						type="button"
 						className="kc-home__new"
@@ -164,7 +230,9 @@ function HomeScreen({ onOpenEditor }: { onOpenEditor: () => void }) {
 				</div>
 			</header>
 			{error && <p className="kc-home__error">{error}</p>}
-			{projects.length === 0 ? (
+			{projects.length === 0 && !listLoaded ? (
+				<div className="kc-home__loading" role="progressbar" aria-label="Loading projects" />
+			) : projects.length === 0 ? (
 				<p className="kc-home__empty">No projects yet — tap “New project” to start editing.</p>
 			) : (
 				<ul className="kc-home__grid">
@@ -217,12 +285,22 @@ function ProjectCard({
 	onOpen: () => void;
 	onDelete: () => void;
 }) {
+	// Blind test round 3, item 10: a thumbnail that does not load shows the neutral
+	// placeholder below, not an empty box.
+	const [failedThumbnail, setFailedThumbnail] = useState<string | null>(null);
+	const showThumbnail = Boolean(thumbnail) && failedThumbnail !== thumbnail;
 	return (
 		<li className="kc-home__card">
 			<button type="button" className="kc-home__card-open" disabled={disabled} onClick={onOpen}>
 				<span className="kc-home__thumb-frame">
-					{thumbnail ? (
-						<img src={thumbnail} alt="" className="kc-home__thumb" draggable={false} />
+					{showThumbnail ? (
+						<img
+							src={thumbnail}
+							alt=""
+							className="kc-home__thumb"
+							draggable={false}
+							onError={() => setFailedThumbnail(thumbnail ?? null)}
+						/>
 					) : (
 						<span className="kc-home__thumb kc-home__thumb--empty" aria-hidden="true">
 							<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -251,7 +329,7 @@ function ProjectCard({
 	);
 }
 
-/** Project length as CapCut's project cards show it: `m:ss` under an
+/** Project length as the project cards show it: `m:ss` under an
  *  hour, `h:mm:ss` past it. Metadata duration is in ticks. */
 function formatDuration(duration: MediaTime): string {
 	const total = Math.max(0, Math.floor(mediaTimeToSeconds({ time: duration })));
@@ -270,6 +348,45 @@ function nextProjectName(existing: string[]): string {
 	return `Project ${n}`;
 }
 
+/** A software keyboard covers at least this much; a smaller difference between the screen
+ *  and the visible area is not a keyboard. */
+const KEYBOARD_MIN_PX = 120;
+
+/**
+ * Blind test round 2, item 5: with the keyboard open (Text panel), iOS pushed the whole page
+ * up to show the text field, and the top bar and the preview went under the status bar. The
+ * app has no Keyboard plugin, so the web view keeps the full screen height and iOS moves the
+ * page instead. This keeps the page at the top, and it tells the CSS how much of the screen
+ * the keyboard covers: `--cc-keyboard-inset` and `data-cc-keyboard="open"` on the root
+ * element. components.css then puts the open sheet (where all text fields are) on the
+ * keyboard. The app is a fixed full-screen surface (app-root.css), so a page scroll is never
+ * wanted.
+ */
+function keepPageAtTopWithKeyboard(): void {
+	const viewport = window.visualViewport;
+	if (!viewport) return;
+	const root = document.documentElement;
+	let appliedInset = -1;
+	const update = () => {
+		// A pinch zoom also makes the visible area smaller: not a keyboard, and not a page scroll to undo.
+		if (viewport.scale > 1.01) return;
+		// The root's clientHeight is the full screen; the keyboard does not change it on iOS.
+		const covered = Math.round(root.clientHeight - viewport.height);
+		const inset = covered >= KEYBOARD_MIN_PX ? covered : 0;
+		if (inset !== appliedInset) {
+			appliedInset = inset;
+			root.style.setProperty("--cc-keyboard-inset", `${inset}px`);
+			if (inset > 0) root.dataset.ccKeyboard = "open";
+			else delete root.dataset.ccKeyboard;
+		}
+		if (Math.abs(window.scrollY) >= 1 || Math.abs(viewport.offsetTop) >= 1) window.scrollTo(0, 0);
+	};
+	viewport.addEventListener("resize", update);
+	viewport.addEventListener("scroll", update);
+	window.addEventListener("scroll", update);
+	update();
+}
+
 export function mountApp() {
 	const container = document.getElementById("app");
 	if (!container) throw new Error("app-root: #app container missing from index.html");
@@ -279,12 +396,13 @@ export function mountApp() {
 	(window as unknown as Record<string, unknown>).__kneecap = {
 		editor: EditorCore.getInstance(),
 	};
-	// Boot-time runtime prep, mirroring apps/web's editor-provider ordering:
-	// GPU first (the project-thumbnail snapshot path throws "GPU context not
-	// initialized" if anything renders before this), font atlas alongside
-	// (text renders with a fallback face without it). Both are cached
-	// one-shot promises; PreviewRenderer awaits the same GPU promise.
-	void ensurePreviewGpu().then(() => loadFontAtlas());
+	// Boot-time runtime prep. The GPU start runs inside editor-core, in the
+	// same wasm copy as the compositor; it never rejects and has a time
+	// limit, and the renderer draws with Canvas 2D when there is no GPU.
+	// PreviewRenderer waits for the same cached promise. The font atlas is
+	// only a fetch, so it does not wait for the GPU.
+	void ensurePreviewGpu();
+	void loadFontAtlas();
 	// The DEFAULT face (Albert Sans, round 31) must be decoded before the
 	// first text/caption render or canvas fillText falls back to the system
 	// font for that frame — @font-face alone only loads on first CSS use,
@@ -318,6 +436,7 @@ export function mountApp() {
 			},
 		});
 	});
+	keepPageAtTopWithKeyboard();
 	container.innerHTML = "";
 	createRoot(container).render(
 		<StrictMode>

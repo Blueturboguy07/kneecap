@@ -24,8 +24,11 @@ BUILD_DIR="${IOS_UNSIGNED_BUILD_DIR:-$(mktemp -d)}"
 OUT_DIR="${IOS_UNSIGNED_OUT_DIR:-$MOBILE_DIR/release-artifacts}"
 REF_NAME="${IOS_RELEASE_REF_NAME:-dev}"
 
-echo "==> bun run build (Vite -> www/)"
+echo "==> bun run build (Vite -> www/, gate ${PUBLIK_GATE_MODE:-required})"
 bun run build
+# APP_STORE_BUILD=1 (release.yml): the bundle must be a store build too.
+if [ "${APP_STORE_BUILD:-}" = "1" ]; then kind=store; else kind=""; fi
+bash scripts/check-web-bundle.sh www "${PUBLIK_GATE_MODE:-required}" $kind
 
 echo "==> cap sync ios"
 bunx cap sync ios
@@ -41,6 +44,7 @@ xcodebuild \
 	CODE_SIGNING_ALLOWED=NO \
 	CODE_SIGNING_REQUIRED=NO \
 	CODE_SIGN_IDENTITY="" \
+	APP_STORE_BUILD="${APP_STORE_BUILD:-}" \
 	build
 
 APP_PATH="$(find "$BUILD_DIR/Build/Products" -maxdepth 2 -iname 'App.app' -print -quit)"

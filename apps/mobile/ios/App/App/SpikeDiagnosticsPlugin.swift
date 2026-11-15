@@ -4,6 +4,11 @@ import AVFoundation
 import CoreImage
 import UIKit
 
+// The M1 spike's diagnostics plugin is a developer tool: it is compiled into
+// Debug builds only (App Store guideline 2.5.19), and SceneDelegate.swift
+// registers it only there.
+#if DEBUG
+
 /// kneecap M1 spike — a SEPARATE, throwaway native plugin from
 /// `NativeBridgePlugin.swift`. See `packages/native-bridge/src/
 /// spike-diagnostics.ts`'s header for why this is not folded into the
@@ -331,3 +336,4 @@ enum SpikeExportError: LocalizedError {
         }
     }
 }
+#endif

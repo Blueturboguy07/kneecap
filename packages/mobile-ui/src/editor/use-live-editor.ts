@@ -1,14 +1,25 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { useEditor } from "@kneecap/editor-core/react";
-import { mediaTimeToSeconds, type EditorCore } from "@kneecap/editor-core";
+import { mediaTimeToSeconds, type EditorCore, type TProjectSettings } from "@kneecap/editor-core";
 import type { ElementRef, TimelineElement } from "@kneecap/editor-core/timeline";
 import { findTrackInSceneTracks, calculateTotalDuration } from "@kneecap/editor-core/timeline";
 
-/** Live `EditorCore` instance, re-rendering the caller on ANY manager
- *  change (selection, timeline, playback, project...). Every M8 panel
- *  component uses this instead of holding its own copy of engine state. */
+/** The `EditorCore` instance. NOTE: `useEditor()` without a selector does
+ *  NOT subscribe to anything, so this alone never re-renders the caller.
+ *  A component that shows engine state must also read it through a
+ *  selector hook (`useEditor(selector)` or one of the hooks below). */
 export function useLiveEditor(): EditorCore {
 	return useEditor();
+}
+
+/** Live settings of the open project (canvas size, background, fps), or null
+ *  when no project is open. `UpdateProjectSettingsCommand` makes a new
+ *  settings object on each change (export sheet resolution, Aspect ratio,
+ *  Background), so the caller re-renders after each one (blind test round 3,
+ *  item 3: the top-bar resolution chip stayed at "1080p" after the export
+ *  sheet set 720p, because nothing re-rendered the editor shell). */
+export function useProjectSettings(): TProjectSettings | null {
+	return useEditor((editor) => editor.project.getActiveOrNull()?.settings ?? null);
 }
 
 /** Live selected element refs — empty array when nothing is selected. */

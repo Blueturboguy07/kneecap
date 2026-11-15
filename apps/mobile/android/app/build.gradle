@@ -29,8 +29,8 @@ android {
         applicationId "dev.kneecap.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 10
+        versionName "1.0.8"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // On-device captions: libkneecap_whisper.so (whisper.cpp + the JNI
         // glue in src/main/cpp). arm64-v8a only — it is every current real
@@ -88,6 +88,55 @@ android {
     }
     kotlinOptions {
         jvmTarget = "21"
+    }
+}
+
+// App Store / Play rule (guideline 2.5.19): a release build has no developer
+// tools. The web bundle in src/main/assets/public comes from `bun run build`
+// + `cap sync`; this fails a release build when it came from
+// `bun run build:debug-tools` instead (spike.html, the spike clips, or the
+// #/diagnostics, #/autotest and spike chunks). Debug builds are not checked.
+// APP_STORE_BUILD=1 (a build that goes to people, vite.config.ts): the web
+// bundle must also be a store build (marker publik-build:store: no publik test
+// hooks, token from the CI secret) with the gate required, and only the
+// release variant may be built (a debug build reads the test hooks).
+def webBundleDir = file("src/main/assets/public")
+def appStoreBuild = System.getenv("APP_STORE_BUILD") == "1"
+def checkReleaseWebBundle = tasks.register("checkReleaseWebBundle") {
+    inputs.dir(webBundleDir).optional()
+    inputs.property("appStoreBuild", appStoreBuild)
+    doLast {
+        if (appStoreBuild) {
+            def js = new StringBuilder()
+            def bundleAssets = new File(webBundleDir, "assets")
+            if (bundleAssets.isDirectory()) bundleAssets.listFiles().findAll { it.name.endsWith(".js") }.each { js.append(it.getText("UTF-8")) }
+            if (!js.toString().contains("publik-build:store")) {
+                throw new GradleException("APP_STORE_BUILD=1, but the web bundle is not a store build (no publik-build:store marker). " +
+                    "Build it with APP_STORE_BUILD=1 (GitHub Actions, the PUBLIK_APP_TOKEN secret), then 'bunx cap sync android'.")
+            }
+            if (!js.toString().contains("publik-gate-mode:required")) {
+                throw new GradleException("APP_STORE_BUILD=1 needs the web bundle with the gate required (PUBLIK_GATE_MODE=required).")
+            }
+        }
+        def found = []
+        if (new File(webBundleDir, "spike.html").exists()) found << "spike.html"
+        if (new File(webBundleDir, "spike-assets").exists()) found << "spike-assets/"
+        def assetsDir = new File(webBundleDir, "assets")
+        if (assetsDir.isDirectory()) {
+            assetsDir.listFiles().each { f ->
+                if (f.name ==~ /^(legacy-harness|autotest|spike)-.*/) found << "assets/" + f.name
+            }
+        }
+        if (!found.isEmpty()) {
+            throw new GradleException("A release build has developer tools in src/main/assets/public: " + found.join(", ") +
+                ". Build the web bundle with 'bun run build' (not build:debug-tools), then 'bunx cap sync android'.")
+        }
+    }
+}
+tasks.configureEach { task ->
+    if (task.name == "preReleaseBuild") task.dependsOn(checkReleaseWebBundle)
+    if (appStoreBuild && task.name == "preDebugBuild") {
+        task.doFirst { throw new GradleException("APP_STORE_BUILD=1 builds the release variant only: a debug build reads the publik test hooks.") }
     }
 }
 

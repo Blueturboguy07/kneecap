@@ -20,7 +20,6 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
-		7043508A28F8EEA3BE0D1BBB /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 638A6FC5ACDE6FBAB50CDDD7 /* Fixtures */; };
 		736D0ACF30ECDCA55A7384B0 /* VideoCompositionBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D85BDC04331F7C007EDB97B7 /* VideoCompositionBuilder.swift */; };
 		7B4826CBA5B6613A9717F384 /* EdlModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 654B51BD8EE303BA97EE40EA /* EdlModel.swift */; };
 		7EDD4B23018CD79F34FD25FF /* ThumbnailStripGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73AFEFD04E3E867B0DA1B10A /* ThumbnailStripGenerator.swift */; };
@@ -39,6 +38,8 @@
 		BB10AE11AE11AE11AE11AE11 /* AppleSpeechTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10AE11AE11AE11AE11AE11 /* AppleSpeechTranscriber.swift */; };
 		BB10AE12AE12AE12AE12AE12 /* NativeBridgePlugin+Transcribe.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10AE12AE12AE12AE12AE12 /* NativeBridgePlugin+Transcribe.swift */; };
 		F4E28BDF2E5CF34A1EC39DC1 /* NativeBridgePlugin+Media.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82FAE7E1DF147549BC77C247 /* NativeBridgePlugin+Media.swift */; };
+		BB10AE20AE20AE20AE20AE20 /* PublikGatePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10AE20AE20AE20AE20AE20 /* PublikGatePlugin.swift */; };
+		BB20AE20AE20AE20AE20AE20 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AA20AE20AE20AE20AE20AE20 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -76,6 +77,8 @@
 		CD54DF527E15EA673D177402 /* SpikeDiagnosticsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpikeDiagnosticsPlugin.swift; sourceTree = "<group>"; };
 		D85BDC04331F7C007EDB97B7 /* VideoCompositionBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoCompositionBuilder.swift; sourceTree = "<group>"; };
 		FDD463A5948B39971E5D18B5 /* EdlExporter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EdlExporter.swift; sourceTree = "<group>"; };
+		AA10AE20AE20AE20AE20AE20 /* PublikGatePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PublikGatePlugin.swift; sourceTree = "<group>"; };
+		AA20AE20AE20AE20AE20AE20 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -117,10 +120,12 @@
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
 				504EC3131FED79650016851F /* Info.plist */,
+				AA20AE20AE20AE20AE20AE20 /* PrivacyInfo.xcprivacy */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 				5C29089217A122709B9713B2 /* NativeBridgePlugin.swift */,
 				CD54DF527E15EA673D177402 /* SpikeDiagnosticsPlugin.swift */,
+				AA10AE20AE20AE20AE20AE20 /* PublikGatePlugin.swift */,
 				82FAE7E1DF147549BC77C247 /* NativeBridgePlugin+Media.swift */,
 				26870475DC6164B19F87D7F6 /* NativeBridgePlugin+Export.swift */,
 				AA10AE12AE12AE12AE12AE12 /* NativeBridgePlugin+Transcribe.swift */,
@@ -172,6 +177,7 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				CC10AE20AE20AE20AE20AE20 /* Debug-only items */,
 			);
 			buildRules = (
 			);
@@ -234,11 +240,35 @@
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
-				7043508A28F8EEA3BE0D1BBB /* Fixtures in Resources */,
+				BB20AE20AE20AE20AE20AE20 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		CC10AE20AE20AE20AE20AE20 /* Debug-only items */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+			);
+			name = "Debug-only items";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# kneecap: developer tools are in Debug builds only (App Store guideline 2.5.19).\n# Debug: adds the M1 spike's kneecap-spike:// URL scheme (docs/SPIKE-GUIDE.md) and NSAllowsLocalNetworking to the built Info.plist.\n# Release: fails the build when a developer tool is in the app, or NSAllowsLocalNetworking (except a PUBLIK_TEST_HOOKS build).\n# APP_STORE_BUILD=1 (a store build): also fails on Debug, on PUBLIK_TEST_HOOKS, and on a web bundle that is not a store build.\nset -eu\nPLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nRES=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nPB=/usr/libexec/PlistBuddy\n# publik store build (APP_STORE_BUILD=1: the App Store or a release): Release only, no publik test hooks,\n# and the web bundle built with APP_STORE_BUILD=1 (marker publik-build:store) and the gate required.\nif [ \"${APP_STORE_BUILD:-}\" = \"1\" ]; then\n  store_fail=0\n  if [ \"${CONFIGURATION}\" = \"Debug\" ]; then echo \"error: APP_STORE_BUILD=1 is a Release build, not Debug (Debug reads the publik test hooks).\"; store_fail=1; fi\n  case \" ${SWIFT_ACTIVE_COMPILATION_CONDITIONS:-} \" in\n    *\" PUBLIK_TEST_HOOKS \"*) echo \"error: APP_STORE_BUILD and PUBLIK_TEST_HOOKS are both on. A store build must not have the publik test hooks.\"; store_fail=1 ;;\n  esac\n  if ! grep -rqs 'publik-build:store' \"$RES/public/assets\"; then echo \"error: APP_STORE_BUILD=1, but the web bundle is not a store build. Build it with APP_STORE_BUILD=1 (GitHub Actions, the PUBLIK_APP_TOKEN secret), then 'cap sync ios'.\"; store_fail=1; fi\n  if ! grep -rqs 'publik-gate-mode:required' \"$RES/public/assets\"; then echo \"error: APP_STORE_BUILD=1 needs the web bundle with the gate required (PUBLIK_GATE_MODE=required).\"; store_fail=1; fi\n  [ \"$store_fail\" -eq 0 ] || exit 1\nfi\n# Sign in with publik: a fake publik on this computer (the PUBLIK_API_BASE_URL test hook) is plain http.\nallow_local_networking() {\n  \"$PB\" -c \"Print :NSAppTransportSecurity\" \"$PLIST\" >/dev/null 2>&1 || \"$PB\" -c \"Add :NSAppTransportSecurity dict\" \"$PLIST\"\n  \"$PB\" -c \"Delete :NSAppTransportSecurity:NSAllowsLocalNetworking\" \"$PLIST\" >/dev/null 2>&1 || true\n  \"$PB\" -c \"Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true\" \"$PLIST\"\n}\nif [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  if ! \"$PB\" -c \"Print :CFBundleURLTypes\" \"$PLIST\" 2>/dev/null | grep -q kneecap-spike; then\n    \"$PB\" -c \"Print :CFBundleURLTypes\" \"$PLIST\" >/dev/null 2>&1 || \"$PB\" -c \"Add :CFBundleURLTypes array\" \"$PLIST\"\n    \"$PB\" -c \"Add :CFBundleURLTypes:0 dict\" -c \"Add :CFBundleURLTypes:0:CFBundleURLName string dev.kneecap.app.spike\" -c \"Add :CFBundleURLTypes:0:CFBundleURLSchemes array\" -c \"Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string kneecap-spike\" \"$PLIST\"\n  fi\n  allow_local_networking\n  exit 0\nfi\nfail=0\ncase \" ${SWIFT_ACTIVE_COMPILATION_CONDITIONS:-} \" in\n  *\" PUBLIK_TEST_HOOKS \"*)\n    echo \"warning: PUBLIK_TEST_HOOKS build: it has the publik test hooks and local networking. Not for the App Store.\"\n    allow_local_networking ;;\n  *)\n    if \"$PB\" -c \"Print :NSAppTransportSecurity:NSAllowsLocalNetworking\" \"$PLIST\" >/dev/null 2>&1; then\n      echo \"error: this ${CONFIGURATION} build has NSAllowsLocalNetworking. Only Debug and PUBLIK_TEST_HOOKS builds have it.\"; fail=1\n    fi ;;\nesac\nfor item in public/spike.html public/spike-assets Fixtures; do\n  if [ -e \"$RES/$item\" ]; then echo \"error: this ${CONFIGURATION} build contains a developer tool: $item\"; fail=1; fi\ndone\nif ls \"$RES/public/assets\" 2>/dev/null | grep -Eq '^(legacy-harness|autotest|spike)-'; then\n  echo \"error: the web bundle has developer tools. Build it with 'bun run build' (no KNEECAP_DEBUG_TOOLS=1), then 'cap sync ios'.\"; fail=1\nfi\nif \"$PB\" -c \"Print :CFBundleURLTypes\" \"$PLIST\" 2>/dev/null | grep -q kneecap-spike; then\n  echo \"error: this ${CONFIGURATION} build has the kneecap-spike URL scheme.\"; fail=1\nfi\nexit $fail\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		504EC3001FED79650016851F /* Sources */ = {
@@ -268,6 +298,7 @@
 				736D0ACF30ECDCA55A7384B0 /* VideoCompositionBuilder.swift in Sources */,
 				313BE0D3291C4FA86B9D538E /* EdlExporter.swift in Sources */,
 				306E70E3B3B4F1E17C8E53EA /* FirstRunView.swift in Sources */,
+				BB10AE20AE20AE20AE20AE20 /* PublikGatePlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -408,21 +439,22 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = R5R3ZS54LV;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.8;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = dev.kneecap.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -431,20 +463,21 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = R5R3ZS54LV;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.8;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.kneecap.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};

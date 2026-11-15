@@ -1,12 +1,12 @@
 import type { CcIconProps } from "./types";
 
 /**
- * ChromaKeyIcon — custom-drawn, NOT traced from CapCut.
+ * ChromaKeyIcon — custom-drawn from scratch, not traced from another app.
  *
  * Functional brief (corpus 04 §3.1/§3.5): green-screen keying — pick a
  * background color from the frame and remove it. Drawn as the same
  * "outline shell + filled micro-glyph" convention corpus 06 §4 measured
- * across CapCut's real toolbar icons (rounded-rect frame outline, small
+ * across the reference editor's real toolbar icons (rounded-rect frame outline, small
  * solid accent shape inside) — reused deliberately for visual consistency
  * with the rest of the kit, applied to an original composition: a video
  * frame with an eyedropper-style color-sample dot targeting one corner,

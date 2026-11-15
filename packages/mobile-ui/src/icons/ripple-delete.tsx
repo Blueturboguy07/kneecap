@@ -1,7 +1,7 @@
 import type { CcIconProps } from "./types";
 
 /**
- * RippleDeleteIcon — custom-drawn, NOT traced from CapCut.
+ * RippleDeleteIcon — custom-drawn from scratch, not traced from another app.
  *
  * Functional brief: delete a clip and close the resulting gap by shifting
  * everything after it backward — the "ripple" is the shift, not just the

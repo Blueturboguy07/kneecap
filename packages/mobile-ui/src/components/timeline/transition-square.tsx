@@ -2,7 +2,7 @@ import { timeToPixels } from "../../timeline/time-scale";
 
 /**
  * The small square between two adjacent main-track clips (plan M7 item 6,
- * corpus 05 §5 — direct quote from capcut.com/help/transitions-in-capcut:
+ * research corpus 05 §5 — direct quote from the reference editor's help page:
  * "Tap the small white square icon between the clips"). Only ever rendered
  * for the `main` track (corpus 05 §5: overlay-track cuts don't get this
  * treatment) at the exact boundary between two clips.

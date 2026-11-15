@@ -1,9 +1,9 @@
 /**
- * @kneecap/mobile-ui — CapCut-mobile-pixel-fidelity design tokens +
+ * @kneecap/mobile-ui — kneecap mobile full-pixel-fidelity design tokens +
  * component kit (plan M6, B1 full-fidelity track). Import "./tokens.css"
  * and "./components.css" once (e.g. in the app's root layout or a preview
  * harness) and scope any subtree that should render in this theme with
- * `data-kneecap-theme="capcut-mobile"`.
+ * `data-kneecap-theme="kneecap-mobile"`.
  */
 
 export { ToolbarRow, type ToolbarItemDef } from "./components/toolbar-row";

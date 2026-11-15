@@ -2,11 +2,12 @@
 	"name": "@kneecap/mobile",
 	"version": "0.1.0",
 	"private": true,
-	"description": "kneecap: Capacitor 8 shell — iOS + Android native projects loading the real CapCut-parity mobile editor (@kneecap/mobile-ui's EditorShell, wired to @kneecap/editor-core). See README.md. The old M3/M4 raw-JSON shell harness still ships behind the #/diagnostics route (src/legacy-harness.ts) rather than being deleted. Also bundles the M1 spike diagnostics screen (src/spike/, spike.html) — throwaway, see docs/SPIKE-GUIDE.md.",
+	"description": "kneecap: Capacitor 8 shell — iOS + Android native projects loading the real mobile editor (@kneecap/mobile-ui's EditorShell, wired to @kneecap/editor-core). See README.md. Developer tools (the #/diagnostics and #/autotest routes, the M1 spike screen spike.html) are only in a KNEECAP_DEBUG_TOOLS=1 build (bun run build:debug-tools), never in a release build.",
 	"license": "MIT",
 	"type": "module",
 	"scripts": {
 		"build": "vite build",
+		"build:debug-tools": "KNEECAP_DEBUG_TOOLS=1 vite build",
 		"dev": "vite",
 		"check-types": "tsc --project tsconfig.json --noEmit",
 		"cap:sync": "cap sync",

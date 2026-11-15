@@ -37,7 +37,7 @@ import type {
 
 const MOUSE_BUTTON_RIGHT = 2;
 
-// CapCut mobile's documented model (corpus 05 §2c): touching a clip's body
+// The common mobile-editor model (corpus 05 §2c): touching a clip's body
 // doesn't immediately drag it — the clip must "lift" under a long-press
 // before a reorder-drag begins. This disambiguates "drag to reorder" from
 // "scroll the track stack vertically", which a touch-and-immediately-move

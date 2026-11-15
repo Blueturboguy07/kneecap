@@ -16,6 +16,37 @@ name: Mobile CI
 # is flaky from agent sessions, and there is deliberately no CI-held Apple
 # signing identity anywhere in this project (release.yml's iOS artifact is
 # unsigned by design — see that workflow's header comment for why).
+#
+# App Store items (signin-gate):
+#   - PUBLIK_GATE_MODE (vite.config.ts) is built BOTH ways. Artifacts:
+#     ios-sim-app (required, the default), ios-sim-app-optional,
+#     android-debug-apk (required), android-debug-apk-optional.
+#   - Every web bundle passes scripts/check-web-bundle.sh: no developer
+#     tools, no other app's name, the gate mode asked for.
+#   - An unsigned iOS Release device build runs too. Its "Debug-only items"
+#     build phase fails when a developer tool is in the app, and
+#     scripts/check-ios-app.sh checks the plist items (iPhone only, arm64,
+#     no encryption, no camera/mic strings, privacy manifest).
+#   - An unsigned Android release APK is built and checked with
+#     scripts/check-android-apk.sh (no developer tools, no camera/mic
+#     permissions).
+#   - Store builds (founder decisions Nov 14 2026): the gate-required web
+#     bundle is built with APP_STORE_BUILD=1 (vite.config.ts) on every push,
+#     and so are the Release iOS build and the Android release APK: no
+#     publik test hooks, gate required, token only from the repo secret.
+#     scripts/test-store-build-guards.sh proves that a wrong store build
+#     fails (test hooks on, optional gate, a token in a .env file, outside
+#     CI). A fork's pull request (no secrets) builds without APP_STORE_BUILD.
+#     The optional-gate artifacts stay CI test artifacts only.
+#   - No committed app token: no tracked file has a pat_<slug>_<secret> value.
+#   - ios-sim-app-store (iOS job): the App Store build (Release,
+#     APP_STORE_BUILD=1, gate required, no test hooks, token from the secret)
+#     for the simulator, arm64, ad-hoc signed. Blind tests use it.
+#   - Editor test (iOS job, last steps): a separate test app (developer tools
+#     on, own DerivedData) opens the editor 5 times, checks the preview with
+#     simulator screenshots, and exports 1 photo + 1 text at 1080p/30. The
+#     gate talks to a local fake publik server. Artifact: ios-sim-editor-test.
+#     It never changes the store builds or the artifacts above.
 
 concurrency:
   group: mobile-ci-${{ github.ref }}
@@ -23,13 +54,18 @@ concurrency:
 
 on:
   push:
-    branches: [main]
+    # signin-gate: Sign in with publik (apps/mobile/src/publik/). Its runs
+    # also hand the blind test its artifacts: `ios-sim-app` and
+    # `android-debug-apk` (gate required), `ios-sim-app-optional` and
+    # `android-debug-apk-optional` (gate optional).
+    branches: [main, signin-gate]
     paths-ignore:
       - "*.md"
   pull_request:
     branches: [main]
     paths-ignore:
       - "*.md"
+  workflow_dispatch: {}
 
 jobs:
   ios-simulator-build:
@@ -54,8 +90,21 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Build the M3 shell harness (apps/mobile/www)
-        run: bun run build
+      - name: Build the web bundle (apps/mobile/www, gate required)
+        # PUBLIK_APP_TOKEN: the publik app token (pat_) for Sign in with
+        # publik, put into the bundle by vite.config.ts. A build without it
+        # fails, except on a fork's pull request (PUBLIK_ALLOW_NO_TOKEN);
+        # that build shows "This build has no publik app token." at the gate.
+        env:
+          PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
+          # A fork's pull request has no secrets: only there may the build go on without the token.
+          PUBLIK_ALLOW_NO_TOKEN: ${{ github.event.pull_request.head.repo.fork && '1' || '' }}
+          PUBLIK_GATE_MODE: required
+          # A store build (no test hooks, token from the secret), except on a fork's pull request.
+          APP_STORE_BUILD: ${{ github.event.pull_request.head.repo.fork != true && '1' || '' }}
+        run: |
+          bun run build
+          bash scripts/check-web-bundle.sh www required $([ "$APP_STORE_BUILD" = "1" ] && echo store)
         working-directory: apps/mobile
 
       - name: cap sync ios
@@ -68,7 +117,10 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
 
-      - name: xcodebuild (Debug, iphonesimulator, CODE_SIGNING_ALLOWED=NO)
+      - name: xcodebuild (Debug, iphonesimulator, arm64, CODE_SIGNING_ALLOWED=NO)
+        # -derivedDataPath puts App.app at a known path (DerivedData/ is
+        # gitignored); ARCHS=arm64 makes the test artifact an Apple-silicon
+        # simulator build.
         run: |
           xcodebuild \
             -project App.xcodeproj \
@@ -76,9 +128,248 @@ jobs:
             -configuration Debug \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath DerivedData \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO \
             build
         working-directory: apps/mobile/ios/App
+
+      - name: Check and zip the simulator app (ios-sim-app)
+        run: |
+          set -euo pipefail
+          APP=DerivedData/Build/Products/Debug-iphonesimulator/App.app
+          lipo -archs "$APP/App"
+          bash ../../scripts/check-ios-app.sh "$APP" Debug
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$RUNNER_TEMP/kneecap-ios-sim-arm64.zip"
+        working-directory: apps/mobile/ios/App
+
+      - name: Upload the simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-sim-app
+          path: ${{ runner.temp }}/kneecap-ios-sim-arm64.zip
+          if-no-files-found: error
+
+      - name: publik self-test (the built app, on a simulator)
+        # setup.md step 6: the built app prints `publik self-test: ok
+        # kneecap <version>` after a real GET /wallet answers, then exits.
+        run: bash ../../scripts/ios-sim-self-test.sh DerivedData/Build/Products/Debug-iphonesimulator/App.app
+        working-directory: apps/mobile/ios/App
+
+      - name: xcodebuild (Release, iphoneos, unsigned) — the store build check
+        # The same build as scripts/build-ios-unsigned-ipa.sh. The
+        # "Debug-only items" build phase fails a Release build that has a
+        # developer tool in it; with APP_STORE_BUILD=1 it also fails on the
+        # publik test hooks and on a web bundle that is not a store build.
+        env:
+          APP_STORE_BUILD: ${{ github.event.pull_request.head.repo.fork != true && '1' || '' }}
+        run: |
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            APP_STORE_BUILD="$APP_STORE_BUILD" \
+            build
+        working-directory: apps/mobile/ios/App
+
+      - name: Store build guards (the iOS build phase refuses a wrong store build)
+        run: bash scripts/test-store-build-guards.sh xcode
+        working-directory: apps/mobile
+
+      - name: Check the Release app (plist items, privacy manifest, no developer tools, no other app's name, no private URL scheme)
+        run: |
+          set -euo pipefail
+          bash ../../scripts/check-ios-app.sh DerivedData/Build/Products/Release-iphoneos/App.app Release
+          # The App Store icon must have no alpha channel.
+          sips -g hasAlpha App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png | grep -q "hasAlpha: no"
+        working-directory: apps/mobile/ios/App
+
+      # ios-sim-app-store: the App Store build for the simulator, for blind
+      # tests. The same flags as the App Store build: Release, APP_STORE_BUILD=1,
+      # gate required, no publik test hooks, the token from the secret (the
+      # store web bundle built at the top of this job is still in App/public).
+      # arm64, ad-hoc signed. Not on a fork's pull request (no secret there).
+      - name: xcodebuild (Release, iphonesimulator, arm64) — the App Store build for the simulator
+        if: github.event.pull_request.head.repo.fork != true
+        env:
+          APP_STORE_BUILD: "1"
+        run: |
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath DerivedData \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            APP_STORE_BUILD="$APP_STORE_BUILD" \
+            build
+        working-directory: apps/mobile/ios/App
+
+      - name: Check, ad-hoc sign and zip the App Store simulator app (ios-sim-app-store)
+        if: github.event.pull_request.head.repo.fork != true
+        run: |
+          set -euo pipefail
+          APP=DerivedData/Build/Products/Release-iphonesimulator/App.app
+          archs="$(lipo -archs "$APP/App")"
+          echo "archs: $archs"
+          [ "$archs" = "arm64" ] || { echo "::error::ios-sim-app-store must be arm64 only, not $archs"; exit 1; }
+          bash ../../scripts/check-ios-app.sh "$APP" Release
+          # The web bundle inside is the store bundle: build marker store, gate required.
+          markers="$(grep -rhoE 'publik-build:[a-z-]+|publik-gate-mode:[a-z]+' "$APP/public/assets" | sort -u | tr '\n' ' ')"
+          echo "web bundle markers: $markers"
+          [ "$markers" = "publik-build:store publik-gate-mode:required " ] || { echo "::error::ios-sim-app-store needs a store bundle with the gate required, not: $markers"; exit 1; }
+          codesign --force --deep --sign - --timestamp=none "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | grep -E "^(Identifier|Signature)="
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$RUNNER_TEMP/kneecap-ios-sim-arm64-store.zip"
+        working-directory: apps/mobile/ios/App
+
+      - name: Upload the App Store simulator app
+        if: github.event.pull_request.head.repo.fork != true
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-sim-app-store
+          path: ${{ runner.temp }}/kneecap-ios-sim-arm64-store.zip
+          if-no-files-found: error
+
+      - name: Build the web bundle (gate optional)
+        env:
+          PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
+          # A fork's pull request has no secrets: only there may the build go on without the token.
+          PUBLIK_ALLOW_NO_TOKEN: ${{ github.event.pull_request.head.repo.fork && '1' || '' }}
+          PUBLIK_GATE_MODE: optional
+        run: |
+          bun run build
+          bash scripts/check-web-bundle.sh www optional
+          bunx cap copy ios
+        working-directory: apps/mobile
+
+      - name: xcodebuild (Debug, iphonesimulator, gate optional)
+        run: |
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath DerivedData \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+        working-directory: apps/mobile/ios/App
+
+      - name: Check and zip the simulator app (ios-sim-app-optional)
+        run: |
+          set -euo pipefail
+          APP=DerivedData/Build/Products/Debug-iphonesimulator/App.app
+          lipo -archs "$APP/App"
+          bash ../../scripts/check-ios-app.sh "$APP" Debug
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$RUNNER_TEMP/kneecap-ios-sim-arm64-optional.zip"
+        working-directory: apps/mobile/ios/App
+
+      - name: Upload the simulator app (gate optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-sim-app-optional
+          path: ${{ runner.temp }}/kneecap-ios-sim-arm64-optional.zip
+          if-no-files-found: error
+
+      - name: publik self-test (gate optional, on a simulator)
+        run: bash ../../scripts/ios-sim-self-test.sh DerivedData/Build/Products/Debug-iphonesimulator/App.app
+        working-directory: apps/mobile/ios/App
+
+      # Editor test. These steps come after every store build and artifact
+      # above, so the test bundle never goes into them.
+      - name: "Editor test: build the test web bundle (developer tools on, gate required)"
+        # KNEECAP_DEBUG_TOOLS=1 puts the #/autotest chunk in. The token is a
+        # placeholder: the gate talks to the test's local fake publik server.
+        env:
+          KNEECAP_DEBUG_TOOLS: "1"
+          PUBLIK_GATE_MODE: required
+          PUBLIK_APP_TOKEN: pat_ci_editortest
+        run: |
+          set -euo pipefail
+          bun run build
+          ls www/assets | grep -q '^autotest-' || { echo "::error::the test bundle has no autotest chunk"; exit 1; }
+          grep -rqs 'publik-gate-mode:required' www/assets || { echo "::error::the test bundle does not have the gate required"; exit 1; }
+          bunx cap copy ios
+        working-directory: apps/mobile
+
+      - name: "Editor test: xcodebuild (Debug, iphonesimulator, own DerivedData)"
+        run: |
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/editor-test-dd" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+        working-directory: apps/mobile/ios/App
+
+      - name: "Editor test: 5 opens, preview, stickers, sound, export, video sweep (on a simulator)"
+        # A: the editor opens 5 times (new, back, reopen, relaunch, reopen)
+        #    with no crash and no extra empty project. The new project gets
+        #    a text before the editor closes (1.0.7 deletes empty projects).
+        # B: screenshots prove that the preview draws a text and a photo.
+        # D: every Stickers tab loads all its images (no broken image), a
+        #    sticker and a bundled sound land on the timeline. 1.0.8: the
+        #    sticker from the sheet is 20-40% of the frame width.
+        # C: a baseline export (1 photo 0-3 s, the text hidden, no stickers),
+        #    then the main export: the same photo + 1 text (0-5 s) + 1 flag
+        #    sticker (0-5 s) + 1 shape sticker (1-4 s, rotated, opacity 0.6),
+        #    both at 1080p/30/High through the real bridge. AVFoundation
+        #    checks the file and its length (the latest end over all tracks,
+        #    +-0.15 s); the sheet ends with "Saved to Photos" and "Share" (no
+        #    "Open Photos"). The tool compares regions of both files at 0.5,
+        #    2 and 4.5 s: the text, the flag, the shape (time window, opacity,
+        #    rotation) must show; the control regions must match. The regions
+        #    are in canvas pixels; the script scales them to the file size.
+        #    1.0.8 (resolution is an export setting, not the canvas): the
+        #    720p and 1080p buttons keep the canvas and the preview does not
+        #    move (screenshots before and after); each export has the size of
+        #    its button and the canvas aspect; the flag, the shape and the
+        #    text are at the same place (within 0.02 of the frame) at 720p, at
+        #    1080p and in the preview, in 16:9 and again in 9:16 (Aspect ratio
+        #    sheet, 1080x1920). That adds 3 exports (16:9 720p, 9:16 1080p,
+        #    9:16 720p).
+        # E: launch 3, a new project: a generated H.264 + AAC test video
+        #    through the real native proxy, preview pixels, Captions,
+        #    Split/Duplicate/Delete/Mute, Import audio, and an export with a
+        #    video track, a sound track that is not silent and the right length.
+        #    1.0.8: with a clip selected, the timeline ends above the clip tools.
+        # Run 43719800179 (1.0.7 checks) took 11 minutes; with the 1.0.8
+        # checks about 17 minutes (launch 2: about 11 of its 20). The script
+        # stops a launch after 7 (first), 20 (second) and 20 (third) minutes,
+        # so 55 lets it write its summary.
+        timeout-minutes: 55
+        run: |
+          python3 scripts/ios-sim-editor-test.py \
+            "$RUNNER_TEMP/editor-test-dd/Build/Products/Debug-iphonesimulator/App.app" \
+            "$RUNNER_TEMP/ios-sim-editor-test"
+        working-directory: apps/mobile
+
+      - name: Upload the editor test screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-sim-editor-test
+          path: ${{ runner.temp }}/ios-sim-editor-test
+          if-no-files-found: warn
 
   android-debug-build:
     name: Android (debug APK)
@@ -113,8 +404,41 @@ jobs:
         with:
           packages: "platforms;android-36 build-tools;36.0.0 platform-tools"
 
-      - name: Build the M3 shell harness (apps/mobile/www)
-        run: bun run build
+      - name: "publik gate: typecheck (apps/mobile, packages/native-bridge), unit tests, bridge-import gate"
+        run: |
+          set -euo pipefail
+          (cd apps/mobile && bunx tsc --project tsconfig.json --noEmit)
+          (cd packages/native-bridge && bunx tsc --project tsconfig.json --noEmit)
+          bun test apps/mobile/test
+          if grep -rnE "from ['\"]@capacitor/" apps/mobile/src; then echo "::error::@capacitor import outside packages/native-bridge"; exit 1; fi
+
+      - name: "No committed publik app token (file names only, never a value)"
+        run: |
+          if git grep -lE 'pat_[A-Za-z0-9-]+_[A-Za-z0-9_-]{24,}' -- .; then
+            echo "::error::a publik app token is committed in the files above. The token comes only from the PUBLIK_APP_TOKEN secret."
+            exit 1
+          fi
+          echo "no committed app token"
+
+      - name: Store build guards (vite.config.ts refuses a wrong store build)
+        run: bash scripts/test-store-build-guards.sh web
+        working-directory: apps/mobile
+
+      - name: Build the web bundle (apps/mobile/www, gate required)
+        # PUBLIK_APP_TOKEN: the publik app token (pat_) for Sign in with
+        # publik, put into the bundle by vite.config.ts. A build without it
+        # fails, except on a fork's pull request (PUBLIK_ALLOW_NO_TOKEN);
+        # that build shows "This build has no publik app token." at the gate.
+        env:
+          PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
+          # A fork's pull request has no secrets: only there may the build go on without the token.
+          PUBLIK_ALLOW_NO_TOKEN: ${{ github.event.pull_request.head.repo.fork && '1' || '' }}
+          PUBLIK_GATE_MODE: required
+          # A store build (no test hooks, token from the secret), except on a fork's pull request.
+          APP_STORE_BUILD: ${{ github.event.pull_request.head.repo.fork != true && '1' || '' }}
+        run: |
+          bun run build
+          bash scripts/check-web-bundle.sh www required $([ "$APP_STORE_BUILD" = "1" ] && echo store)
         working-directory: apps/mobile
 
       - name: cap sync android
@@ -143,7 +467,9 @@ jobs:
         working-directory: apps/mobile/android
 
       - name: gradlew assembleDebug
-        run: ./gradlew assembleDebug --console=plain
+        run: |
+          ./gradlew assembleDebug --console=plain
+          bash ../scripts/check-android-apk.sh app/build/outputs/apk/debug/app-debug.apk debug
         working-directory: apps/mobile/android
 
       - name: gradlew :app:assembleDebugAndroidTest
@@ -167,6 +493,39 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: kneecap-debug.apk
+          name: android-debug-apk
           path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: gradlew assembleRelease (unsigned) — the store build check
+        # No KNEECAP_RELEASE_KEYSTORE here, so the APK is unsigned
+        # (app-release-unsigned.apk). release.yml makes the signed one.
+        # APP_STORE_BUILD=1: checkReleaseWebBundle also wants the store bundle.
+        env:
+          APP_STORE_BUILD: ${{ github.event.pull_request.head.repo.fork != true && '1' || '' }}
+        run: |
+          ./gradlew assembleRelease --console=plain
+          bash ../scripts/check-android-apk.sh app/build/outputs/apk/release/app-release-unsigned.apk release app/build
+        working-directory: apps/mobile/android
+
+      - name: Build the web bundle (gate optional) and the optional debug APK
+        env:
+          PUBLIK_APP_TOKEN: ${{ secrets.PUBLIK_APP_TOKEN }}
+          # A fork's pull request has no secrets: only there may the build go on without the token.
+          PUBLIK_ALLOW_NO_TOKEN: ${{ github.event.pull_request.head.repo.fork && '1' || '' }}
+          PUBLIK_GATE_MODE: optional
+        run: |
+          set -euo pipefail
+          bun run build
+          bash scripts/check-web-bundle.sh www optional
+          bunx cap copy android
+          (cd android && ./gradlew assembleDebug --console=plain)
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/app-debug-optional.apk"
+        working-directory: apps/mobile
+
+      - name: Upload debug APK (gate optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk-optional
+          path: ${{ runner.temp }}/app-debug-optional.apk
           if-no-files-found: error

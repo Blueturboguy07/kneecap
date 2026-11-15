@@ -3,7 +3,7 @@
  * stacks the copy on a NEW overlay track at the SAME time — with identical
  * params it renders pixel-for-pixel on top of the original, i.e. the
  * founder-reported "preview isn't even doing pic in pic": the copy WAS
- * there, just invisible. CapCut's overlay-add answer: the copy lands
+ * there, just invisible. The common mobile-editor overlay-add answer: the copy lands
  * visibly as picture-in-picture — video/image at half its current scale,
  * everything nudged off-center — so it is immediately seen and grabbable
  * by the preview's direct-manipulation gesture.

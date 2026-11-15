@@ -388,7 +388,10 @@ function collectTextNode({
 	});
 }
 
-function computeVisualTransform({
+/** Exported for `export/overlay-frames.ts` (1.0.7): the export draws
+ *  stickers and graphics with this same placement math, so the video
+ *  matches the preview. */
+export function computeVisualTransform({
 	renderer,
 	resolved,
 	sourceWidth,
@@ -597,7 +600,9 @@ function buildMaskArtifacts({
 	};
 }
 
-function drawTransformedCanvas({
+/** Exported for `export/overlay-frames.ts` (1.0.7), like
+ *  `computeVisualTransform`. */
+export function drawTransformedCanvas({
 	ctx,
 	source,
 	transform,

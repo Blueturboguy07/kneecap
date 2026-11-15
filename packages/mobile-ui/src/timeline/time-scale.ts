@@ -1,11 +1,11 @@
 /**
- * Pure pixel<->time math for the CapCut-mobile timeline. Kept dependency-
+ * Pure pixel<->time math for the kneecap mobile timeline. Kept dependency-
  * free and unit-tested directly (src/__tests__/timeline-time-scale.test.ts)
  * because every rendering/virtualization/snap decision downstream is only
  * as correct as this file.
  */
 
-/** Pixels-per-second at zoom level 1.0. Not a CapCut measurement — corpus
+/** Pixels-per-second at zoom level 1.0. Not a reference-editor measurement — corpus
  *  06/05 give no absolute pixel-density figure, only relative ("pinch to
  *  zoom for smoother trimming"). Chosen so a 5s clip is comfortably
  *  tappable (300px) at the default zoom. */

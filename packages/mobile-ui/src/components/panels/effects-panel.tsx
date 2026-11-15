@@ -13,6 +13,7 @@ import {
 	toggleEffectEnabled,
 	updateEffectParam,
 } from "../../editor/actions";
+import { effectPreviewImage } from "../../editor/effect-previews";
 
 interface EffectsPanelProps {
 	editor: EditorCore;
@@ -24,7 +25,7 @@ interface EffectsPanelProps {
 /**
  * M8 Effects panel — corpus 04 §3.6. Adjust and Filter are modeled as
  * their own dedicated `EffectDefinition`s with their own panels (matching
- * how CapCut treats them as separate top-level tools, corpus 04 §3.7/§3.8)
+ * how the reference editor treats them as separate top-level tools, corpus 04 §3.7/§3.8)
  * so they're excluded from this generic list. Built directly off
  * `effectsRegistry` — currently just `blur` (ported from opencut-classic,
  * the only pre-existing effect with a real Rust WGSL pass), but this panel
@@ -41,7 +42,12 @@ export function EffectsPanel({ editor, elementRef, element, onClose }: EffectsPa
 	return (
 		<PanelSheet onScrimClick={onClose} header={<SheetHeader onClose={onClose} />}>
 			<ThumbnailGrid
-				items={catalog.map((def) => ({ id: def.type, label: def.name }))}
+				items={catalog.map((def) => ({
+					id: def.type,
+					label: def.name,
+					// Blind test round 4, item 9: the tile shows the effect on a sample scene.
+					imageSrc: effectPreviewImage({ effectType: def.type }),
+				}))}
 				selectedId={activeEffect?.type ?? null}
 				onSelect={(effectType) => {
 					if (activeEffect && activeEffect.type === effectType) {

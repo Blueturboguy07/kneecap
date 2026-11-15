@@ -12,7 +12,7 @@
  * `legacy-harness.ts` and its `main()` entry point renamed to the exported
  * `mountLegacyHarness()` in the same pass — no other behavior changed.
  *
- * NOT the CapCut UI (that is M6-M8, and now lives at `./app/app-root.ts`
+ * NOT the real editor UI (that is M6-M8, and now lives at `./app/app-root.ts`
  * instead). NOT the M2-item-6 Vite SPA bundle of the real editor either —
  * this file deliberately does not import `@kneecap/editor-core` because
  * doing so pulls in the real `opencut-wasm` bindgen package through a real
@@ -28,7 +28,7 @@
  *
  * M4 addition: an "Import media" card that drives the real
  * pickMedia -> generateProxy -> generateThumbnails pipeline end to end
- * through `NativeBridge`, the same call sequence the M6-M8 CapCut timeline
+ * through `NativeBridge`, the same call sequence the M6-M8 mobile timeline
  * UI will eventually make from its own import flow. This is still harness
  * code, not that UI — it renders raw JSON, not a filmstrip — but the calls
  * themselves are the real ones.

@@ -2,7 +2,7 @@
 	"name": "@kneecap/mobile-ui",
 	"version": "0.1.0",
 	"private": true,
-	"description": "CapCut-mobile-pixel-fidelity (plan §8.0 B1) design tokens + component kit for kneecap's mobile editor UI. Zero-cost/local-first: no CapCut assets, no remote fonts/icons, no network calls. See src/tokens.css header and docs/capcut-reference/ for the founder capture session this milestone still needs before every [NEEDS-CAPTURE] flag can be closed.",
+	"description": "Full-pixel-fidelity (plan §8.0 B1) design tokens + component kit for kneecap's mobile editor UI. Zero-cost/local-first: no third-party app assets, no remote fonts/icons, no network calls. See the src/tokens.css header for the founder capture session this milestone still needs before every [NEEDS-CAPTURE] flag can be closed.",
 	"license": "MIT",
 	"type": "module",
 	"exports": {

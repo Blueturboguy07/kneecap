@@ -352,7 +352,7 @@
 			}
 		},
 		"transition": {
-			"description": "Main-track only, matching CapCut. v1 producer always emits an empty array; the slot is frozen so adding transitions later is not a schema break.",
+			"description": "Main-track only, the common mobile-editor convention. v1 producer always emits an empty array; the slot is frozen so adding transitions later is not a schema break.",
 			"type": "object",
 			"required": ["transitionId", "afterClipId", "kind", "durationTicks"],
 			"additionalProperties": false,
