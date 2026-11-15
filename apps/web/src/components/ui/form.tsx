@@ -56,6 +56,7 @@ function Form<
 			const stored = store.getItem(persistKeyOnMount.current);
 			if (stored) {
 				resetRef.current(
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- restores values this form persisted itself under the same key.
 					JSON.parse(stored) as DefaultValues<TFieldValues>,
 				);
 			}
@@ -110,6 +111,7 @@ type FormFieldContextValue<
 };
 
 const FormFieldContext = React.createContext<FormFieldContextValue>(
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- shadcn/ui pattern: useFormField is only valid inside <FormField>, which always provides the real value.
 	{} as FormFieldContextValue,
 );
 
@@ -154,6 +156,7 @@ type FormItemContextValue = {
 };
 
 const FormItemContext = React.createContext<FormItemContextValue>(
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- shadcn/ui pattern: useFormField is only valid inside <FormItem>, which always provides the real value.
 	{} as FormItemContextValue,
 );
 

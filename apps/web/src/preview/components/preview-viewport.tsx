@@ -464,6 +464,7 @@ export function usePreviewViewportState({
 	);
 
 	useEffect(() => {
+		// eslint-disable-next-line react-hooks/set-state-in-effect -- resets zoom and pan when the canvas size changes.
 		setZoomState(1);
 		setCenter({
 			x: canvasWidth / 2,
@@ -474,6 +475,7 @@ export function usePreviewViewportState({
 	}, [canvasHeight, canvasWidth]);
 
 	useEffect(() => {
+		// eslint-disable-next-line react-hooks/set-state-in-effect -- re-clamps the pan center when the viewport size changes.
 		setCenter((previousCenter) =>
 			clampViewportCenter({
 				canvasHeight,

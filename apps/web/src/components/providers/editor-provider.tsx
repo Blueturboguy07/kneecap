@@ -139,6 +139,7 @@ function EditorRuntimeBindings() {
 	);
 
 	useEffect(() => {
+		// eslint-disable-next-line react-hooks/immutability -- the editor is an external, mutable engine object; this effect pushes store state into it.
 		editor.command.isRippleEnabled = rippleEditingEnabled;
 	}, [editor, rippleEditingEnabled]);
 
@@ -146,7 +147,7 @@ function EditorRuntimeBindings() {
 		const handleBeforeUnload = (event: BeforeUnloadEvent) => {
 			if (!editor.save.getIsDirty()) return;
 			event.preventDefault();
-			(event as unknown as { returnValue: string }).returnValue = "";
+			event.returnValue = "";
 		};
 
 		window.addEventListener("beforeunload", handleBeforeUnload);

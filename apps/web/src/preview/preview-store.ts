@@ -83,6 +83,7 @@ export const usePreviewStore = create<PreviewState>()(
 			name: "preview-settings",
 			version: 6,
 			migrate: (persistedState) => {
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- persisted state from an older version; every field is optional and read with a fallback below.
 				const state = persistedState as PersistedPreviewState | undefined;
 
 				return {

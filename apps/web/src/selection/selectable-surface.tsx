@@ -209,6 +209,7 @@ export function SelectableSurface({
 	);
 
 	useEffect(() => {
+		// eslint-disable-next-line react-hooks/set-state-in-effect -- drops selected ids that are no longer in the list.
 		setSelectionState((state) =>
 			pruneSelection({
 				state,
@@ -226,6 +227,7 @@ export function SelectableSurface({
 			return;
 		}
 
+		// eslint-disable-next-line react-hooks/set-state-in-effect -- highlights the revealed item; the timer below clears it.
 		setHighlightedId(revealId);
 		getItemElement(revealId)?.scrollIntoView({ block: "center" });
 

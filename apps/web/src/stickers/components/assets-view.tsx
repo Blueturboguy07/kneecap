@@ -24,7 +24,10 @@ import type {
 	StickerCategory,
 	StickerItem as StickerData,
 } from "@/stickers";
-import { useStickersStore } from "@/stickers/stickers-store";
+import {
+	isStickerCategory,
+	useStickersStore,
+} from "@/stickers/stickers-store";
 import { cn } from "@/utils/ui";
 import {
 	HappyIcon,
@@ -74,7 +77,9 @@ export function StickersView() {
 			<Tabs
 				value={selectedCategory}
 				onValueChange={(value) => {
-					setSelectedCategory({ category: value as StickerCategory });
+					setSelectedCategory({
+						category: isStickerCategory(value) ? value : "all",
+					});
 				}}
 				variant="underline"
 				className="mt-2 flex min-h-0 flex-1 flex-col"
@@ -298,7 +303,9 @@ function StickerSection({
 								size="sm"
 								className="h-auto gap-1 p-0 text-xs text-primary"
 								onClick={() => {
-									onSeeAll(section.action?.category as StickerCategory);
+									if (section.action?.category) {
+										onSeeAll(section.action.category);
+									}
 								}}
 							>
 								See all
@@ -338,6 +345,7 @@ function StickerItem({
 			return;
 		}
 
+		// eslint-disable-next-line react-hooks/set-state-in-effect -- clears the image error flag when the item changes.
 		setHasImageError(false);
 	}, [item.id]);
 

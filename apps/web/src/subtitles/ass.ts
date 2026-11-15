@@ -311,6 +311,7 @@ function mapFieldsToRecord<T extends object>({
 		record[fields[index]] = values[index];
 	}
 
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- the record holds the parsed field names as keys, which is the shape callers ask for.
 	return record as T;
 }
 

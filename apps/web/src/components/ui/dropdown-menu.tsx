@@ -140,14 +140,9 @@ const DropdownMenuItem = React.forwardRef<
 		);
 
 		const renderedChildren =
-			asChild && React.isValidElement(children) ? (
-				React.cloneElement(
-					children as React.ReactElement<{ children?: React.ReactNode }>,
-					{},
-					iconSlot,
-					(children as React.ReactElement<{ children?: React.ReactNode }>).props
-						.children,
-				)
+			asChild &&
+			React.isValidElement<{ children?: React.ReactNode }>(children) ? (
+				React.cloneElement(children, {}, iconSlot, children.props.children)
 			) : (
 				<>
 					{iconSlot}

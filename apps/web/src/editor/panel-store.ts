@@ -43,6 +43,7 @@ export const usePanelStore = create<PanelState>()(
 			name: "panel-sizes",
 			version: 2,
 			migrate: (persistedState) => {
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- persisted state from an older version; every field is optional and read with a fallback below.
 				const state = persistedState as
 					| {
 							panels?: Partial<PanelSizes> | null;
