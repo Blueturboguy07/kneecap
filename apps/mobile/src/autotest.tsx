@@ -2083,7 +2083,8 @@ async function ciPlaceSticker(
  * Test C, part 1.0.7 (blind test round 3, HIGH: two exports showed a star
  * and a flag in the preview and on the Home card, but in no frame of the
  * video; the export prerendered only text and captions). Two exports
- * through the export sheet with the same settings:
+ * through the export sheet with the same settings. First, C PREP removes the
+ * stickers and graphics that D left (D's flag covers the photo and the text).
  *   1. BASELINE: B's timeline (photo 0-3 s, text 0-5 s) with the text at
  *      opacity 0 and no stickers. The text stays on the timeline, so the
  *      length and the overlay-frame path (renderOverlayFrames) are the same
@@ -2100,6 +2101,22 @@ async function ciPlaceSticker(
  * The runner reads both files at the sample times and compares each region.
  */
 async function ciStickerExport(ctx: CiContext, editor: EditorCore): Promise<void> {
+	await ciSettle(editor, 300);
+
+	// 0. C PREP: D left its sticker (Stickers > Flags > Andorra) on the timeline.
+	//    It is drawn over the photo and the text (run 43717366875: it covered
+	//    both in the preview and in both exports), so the layout below (the photo
+	//    and the bars beside it), the text region and the shape's baseline would
+	//    measure that sticker. Remove every sticker and graphic first. D's sound
+	//    clip stays: it draws nothing.
+	const stale = ciElements(editor)
+		.filter((placed) => placed.element.type === "sticker" || placed.element.type === "graphic")
+		.map((placed) => ({ trackId: placed.trackId, elementId: placed.element.id }));
+	if (stale.length > 0) {
+		editor.command.execute({ command: new DeleteElementsCommand({ elements: stale }) });
+		await ciSleep(300);
+	}
+	ciLog(`C PREP removed=${stale.length} timeline=${JSON.stringify(ciCounts(editor))}`);
 	await ciSettle(editor, 300);
 
 	// 1. The baseline: the text hidden (opacity 0, still on the timeline), no stickers.
